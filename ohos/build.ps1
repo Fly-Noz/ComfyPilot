@@ -46,9 +46,21 @@ try {
         & (Join-Path $PSScriptRoot "gradlew.bat") --stop 2>&1 | Out-Null
     }
 
-    & (Join-Path $PSScriptRoot "gradlew.bat") @Rest
+    # Gradle prints warnings to stderr; with $ErrorActionPreference = "Stop" PowerShell
+    # would turn the first one into a terminating NativeCommandError and abort a build
+    # that actually succeeded. Relay output with the preference relaxed, then trust the
+    # real exit code.
+    $previousEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & (Join-Path $PSScriptRoot "gradlew.bat") @Rest 2>&1 | ForEach-Object { Write-Host $_ }
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousEap
+    }
 }
 finally {
     Pop-Location
 }
-exit $LASTEXITCODE
+exit $exitCode
