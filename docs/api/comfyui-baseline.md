@@ -26,7 +26,7 @@
 | `/queue` | GET | `QueueResponse` → `QueueSnapshot` | 条目是**位置数组**而非对象，见下 |
 | `/history/{prompt_id}` | GET | `Map<String, HistoryEntry>` | 未知 prompt 返回 `{}` |
 | `/interrupt` | POST | `ApiCall.Interrupt` | 可选 `prompt_id` |
-| `/upload/image` | POST | `UploadImageResponse` | multipart；S4 接入，当前调用显式失败 |
+| `/upload/image` | POST | `UploadImageResponse` | multipart/form-data；S4 已接入，见 5.4 |
 | `/view` | GET | `ApiPaths.viewUrl` | 图片不跨设备搬运，接续方直接来取 |
 | `/ws?clientId=...` | WS | `ComfyEvent` / `EventDecoder` | 事件是广播，客户端按自己的 lease 过滤 |
 | `/userdata?dir=workflows&recurse=true&full_info=true` | GET | `WorkflowEntry` | 列服务器已有工作流；兼容只返回路径字符串的旧服务端 |
@@ -177,7 +177,20 @@
 
 验证级别：`PromptBuilderTest` / `WorkflowCodecTest` 是 JVM 单测；
 `RealWorkflowConversionTest` 是可选的本机诊断（环境变量指向真实工作流与
-`/object_info`，夹具不入库）。**尚未在真机上提交真实任务**，那属于 S3。
+`/object_info`，夹具不入库）。S3 已在 Android 真机对 mock 跑通提交，
+**尚未对真实 ComfyUI 提交任务**（等手机 Tailscale 可达后联调）。
+
+### 5.4 图片上传（S4）
+
+`POST /upload/image` 是 `multipart/form-data`，客户端只发三个字段：
+
+- `image`：文件字节，文件名取相册显示名的 basename；
+- `type`：`input`；
+- `subfolder`：为空时省略。
+
+响应 `{name, subfolder, type}`。`LoadImage.image` 控件要填服务器上的引用：
+有 `subfolder` 时是 `subfolder/name`，否则就是 `name`。上传本身不进入任务状态机，
+失败只影响当前字段，不会改动已有任务。
 
 ## 6. 回归方式
 

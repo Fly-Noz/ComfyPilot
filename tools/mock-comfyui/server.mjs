@@ -181,6 +181,8 @@ const sockets = new Set()
 const hits = new Map()
 /** 最近一次 /prompt 的 prompt 图：只用于端到端核对提交内容，不落盘。 */
 let lastPrompt = null
+/** 最近一次 /upload/image 的文件名与字节数，便于核对相册上传链路。 */
+let lastUpload = null
 
 function hit(key) {
   hits.set(key, (hits.get(key) ?? 0) + 1)
@@ -433,8 +435,12 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/upload/image') {
-      await readBody(req)
-      return sendJson(res, 200, { name: 'mock-upload.png', subfolder: '', type: 'input' })
+      const raw = await readBody(req)
+      // 真实服务端会解析 multipart 并保存文件；这里只抄回文件名，足够验证客户端链路。
+      const match = /filename="([^"]+)"/.exec(raw)
+      const name = nodePath.basename(match ? match[1] : 'mock-upload.png')
+      lastUpload = { name, bytes: Buffer.byteLength(raw) }
+      return sendJson(res, 200, { name, subfolder: '', type: 'input' })
     }
 
     // 真实服务端：dir=workflows + full_info=true -> [{path,size,modified,created}]
@@ -491,6 +497,7 @@ const server = http.createServer(async (req, res) => {
         workflows: listWorkflowFiles().length,
         hits: Object.fromEntries(hits),
         lastPrompt,
+        lastUpload,
       })
     }
 
@@ -500,6 +507,7 @@ const server = http.createServer(async (req, res) => {
       history.clear()
       hits.clear()
       lastPrompt = null
+      lastUpload = null
       seq = 0
       return sendJson(res, 200, { ok: true })
     }

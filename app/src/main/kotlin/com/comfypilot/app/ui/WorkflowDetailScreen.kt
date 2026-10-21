@@ -1,5 +1,8 @@
 package com.comfypilot.app.ui
 
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,12 +41,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.comfypilot.android.transport.OkHttpHttpTransport
+import com.comfypilot.core.api.ImageUpload
+import com.comfypilot.core.api.ImageUploadResult
 import com.comfypilot.core.net.SessionState
 import com.comfypilot.core.workflow.BuildProblem
 import com.comfypilot.core.workflow.PromptBuild
@@ -52,6 +60,9 @@ import com.comfypilot.core.workflow.WorkflowDocument
 import com.comfypilot.core.workflow.WorkflowField
 import com.comfypilot.core.workflow.WorkflowFields
 import com.comfypilot.core.workflow.WorkflowNodeView
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -135,6 +146,80 @@ private fun DetailBody(
         overrides = overrides + (nodeId to forNode)
     }
 
+    // 上传只服务 LoadImage 的 image 控件：先传服务器，再用返回的文件名覆盖控件值。
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val uploader = remember { OkHttpHttpTransport() }
+    var uploadTarget by remember { mutableStateOf<WorkflowField?>(null) }
+    var uploading by remember { mutableStateOf(false) }
+    var uploadError by remember { mutableStateOf<String?>(null) }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val target = uploadTarget
+        uploadTarget = null
+        if (uri == null || target == null) return@rememberLauncherForActivityResult
+        val lease = state.lease
+        if (lease == null) {
+            uploadError = "未连接 ComfyUI"
+            return@rememberLauncherForActivityResult
+        }
+
+        scope.launch {
+            uploading = true
+            uploadError = null
+            val loaded = withContext(Dispatchers.IO) {
+                runCatching {
+                    val name = context.contentResolver.query(
+                        uri,
+                        arrayOf(OpenableColumns.DISPLAY_NAME),
+                        null,
+                        null,
+                        null,
+                    )?.use { cursor ->
+                        if (cursor.moveToFirst()) cursor.getString(0) else null
+                    } ?: uri.lastPathSegment ?: "image.png"
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: error("读不到图片内容")
+                    name to bytes
+                }
+            }
+            if (loaded.isFailure) {
+                uploadError = loaded.exceptionOrNull()?.message ?: "读取图片失败"
+                uploading = false
+                return@launch
+            }
+
+            val (filename, bytes) = loaded.getOrThrow()
+            when (
+                val result = ImageUpload.upload(
+                    http = uploader,
+                    baseUrl = lease.baseUrl,
+                    filename = filename,
+                    bytes = bytes,
+                )
+            ) {
+                is ImageUploadResult.Success -> applyOverride(
+                    target.nodeId,
+                    target.inputName,
+                    JsonPrimitive(result.reference),
+                )
+
+                is ImageUploadResult.Failure -> uploadError = result.message
+            }
+            uploading = false
+        }
+    }
+
+    fun pickImage(field: WorkflowField) {
+        if (uploading) return
+        if (state.lease == null) {
+            uploadError = "未连接 ComfyUI"
+            return
+        }
+        uploadTarget = field
+        picker.launch("image/*")
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
@@ -169,6 +254,18 @@ private fun DetailBody(
                         }
                     }
                 }
+            }
+            if (uploading) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Text("正在上传图片…", style = MaterialTheme.typography.bodySmall)
+            }
+            uploadError?.let { message ->
+                Text(
+                    "上传失败：$message",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                TextButton(onClick = { uploadError = null }) { Text("知道了") }
             }
         }
 
@@ -205,6 +302,11 @@ private fun DetailBody(
                             value = overrides[field.nodeId]?.get(field.inputName) ?: field.value,
                             editable = true,
                             showNode = true,
+                            onPickImage = if (field.nodeType == "LoadImage" && field.inputName == "image") {
+                                { pickImage(field) }
+                            } else {
+                                null
+                            },
                             onChange = { value -> applyOverride(field.nodeId, field.inputName, value) },
                         )
                     }
@@ -221,6 +323,7 @@ private fun DetailBody(
                         node = node,
                         overrides = overrides[node.id].orEmpty(),
                         onChange = ::applyOverride,
+                        onPickImage = ::pickImage,
                     )
                 }
             }
@@ -306,6 +409,7 @@ private fun NodeCard(
     node: WorkflowNodeView,
     overrides: Map<String, JsonElement>,
     onChange: (Int, String, JsonElement) -> Unit,
+    onPickImage: (WorkflowField) -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -338,6 +442,11 @@ private fun NodeCard(
                     field = field,
                     value = overrides[field.inputName] ?: field.value,
                     editable = node.reachable,
+                    onPickImage = if (node.reachable && field.nodeType == "LoadImage" && field.inputName == "image") {
+                        { onPickImage(field) }
+                    } else {
+                        null
+                    },
                     onChange = { value -> onChange(node.id, field.inputName, value) },
                 )
             }
@@ -354,6 +463,7 @@ private fun FieldEditor(
     value: JsonElement?,
     editable: Boolean,
     showNode: Boolean = false,
+    onPickImage: (() -> Unit)? = null,
     onChange: (JsonElement) -> Unit,
 ) {
     Column(
@@ -415,6 +525,10 @@ private fun FieldEditor(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.error,
             )
+        }
+
+        if (onPickImage != null && editable) {
+            OutlinedButton(onClick = onPickImage) { Text("从相册选择") }
         }
     }
 }

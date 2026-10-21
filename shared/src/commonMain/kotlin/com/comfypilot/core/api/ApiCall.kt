@@ -1,5 +1,6 @@
 package com.comfypilot.core.api
 
+import com.comfypilot.core.util.Ids
 import com.comfypilot.core.util.percentEncode
 
 /**
@@ -104,10 +105,16 @@ object ApiPaths {
                 contentType = null,
             )
 
-            // multipart 需要 boundary 与字段拼装，阶段一不启用；显式失败好过发出一个畸形请求。
-            is ApiCall.UploadImage -> throw UnsupportedOperationException(
-                "/upload/image 尚未实现（阶段二接入）",
-            )
+            // ComfyUI 的 /upload/image 是 multipart/form-data；boundary 每次随机，避免和文件内容撞上。
+            is ApiCall.UploadImage -> {
+                val boundary = "----ComfyPilot" + Ids.clientId()
+                ResolvedRequest(
+                    method = "POST",
+                    url = base + UPLOAD_IMAGE,
+                    body = multipartBody(boundary, call),
+                    contentType = "multipart/form-data; boundary=$boundary",
+                )
+            }
         }
     }
 
@@ -126,6 +133,52 @@ object ApiPaths {
     /** 路径按段编码：`a b/c.json` -> `a%20b/c.json`，斜杠要保留。 */
     private fun encodePath(path: String): String =
         path.split('/').joinToString("/") { percentEncode(it) }
+
+    /**
+     * ComfyUI 只认 `image` 文件字段，`type` 默认 input；`subfolder` 为空时省略。
+     * 这里手写 multipart，避免为了一个上传接口把平台 HTTP 客户端搬进 commonMain。
+     */
+    private fun multipartBody(boundary: String, call: ApiCall.UploadImage): ByteArray {
+        val parts = mutableListOf<ByteArray>()
+
+        fun text(value: String) {
+            parts += value.encodeToByteArray()
+        }
+
+        fun field(name: String, value: String) {
+            text("--$boundary\r\n")
+            text("Content-Disposition: form-data; name=\"$name\"\r\n\r\n")
+            text(value)
+            text("\r\n")
+        }
+
+        field("type", call.type.ifBlank { "input" })
+        if (call.subfolder.isNotBlank()) {
+            field("subfolder", call.subfolder.replace("\r", " ").replace("\n", " "))
+        }
+        text("--$boundary\r\n")
+        text("Content-Disposition: form-data; name=\"image\"; filename=\"${safeFilename(call.filename)}\"\r\n")
+        text("Content-Type: application/octet-stream\r\n\r\n")
+        parts += call.bytes
+        text("\r\n--$boundary--\r\n")
+
+        val total = parts.sumOf { it.size }
+        val body = ByteArray(total)
+        var offset = 0
+        for (part in parts) {
+            part.copyInto(body, offset)
+            offset += part.size
+        }
+        return body
+    }
+
+    private fun safeFilename(name: String): String =
+        name.substringAfterLast('/')
+            .substringAfterLast('\\')
+            .replace("\"", "_")
+            .replace("\r", "_")
+            .replace("\n", "_")
+            .ifBlank { "image.png" }
 }
 
 internal object JsonStringWriter {

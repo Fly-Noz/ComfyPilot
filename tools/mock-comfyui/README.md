@@ -31,8 +31,8 @@ curl -X POST http://127.0.0.1:8188/mock/scenario -H "content-type: application/j
 | `lost` | 提交后立刻从 queue 消失，不写 history | 对账判定 `Unknown`，不自动重提 |
 | `slow` | 每 10s 才发一次进度（8 步 = 80s） | 自适应静默预算；也用于"跑到一半重启服务端" |
 
-辅助接口：`GET /mock/state`（含 `hits` 请求计数与 `lastPrompt` 最近一次提交的
-prompt 图）、`POST /mock/drop-sockets`
+辅助接口：`GET /mock/state`（含 `hits` 请求计数、`lastPrompt` 最近一次提交的
+prompt 图、`lastUpload` 最近一次上传的文件名）、`POST /mock/drop-sockets`
 （只掐断所有 WebSocket，不清 jobs/history/hits，用来模拟"ComfyUI 进程重启"且保留
 计数以便对比对账前后的 `hits.prompt`）、`POST /mock/reset`（同时清零计数与
 `lastPrompt`）、`GET /view`（返回 1x1 PNG）。
@@ -51,6 +51,7 @@ prompt 图）、`POST /mock/drop-sockets`
 
 - `demo_api.json`：API 格式（`/prompt` 直接可用），txt2img 标准链路。
 - `demo_ui.json`：网页端保存格式（`nodes`/`links`/`widgets_values`），用于格式识别与后续转换器。
+- `demo_upload.json`：只有 `LoadImage` + `SaveImage` 的最小网页格式，用于相册上传链路。
 
 `hits` 里对应 `userdata`（列表）、`workflow`（读原文）、`object_info`（取节点定义）。
 
@@ -75,5 +76,7 @@ prompt 图）、`POST /mock/drop-sockets`
 3. 把 seed 改成别的值，提交；`GET /mock/state` 的
    `lastPrompt["3"].inputs.seed` 应等于界面上的值。
 4. 提交后任务页应经历 执行中 → 已完成，并能取消仍在跑的任务。
+5. 打开 `demo_upload`，点「从相册选择」上传一张图；控件值应变成
+   `lastUpload.name`，提交后 `lastPrompt["1"].inputs.image` 应与之一致。
 
 > 以上是联调清单，不代表已在真机验证。真机验证结果需在阶段报告中单独记录。
