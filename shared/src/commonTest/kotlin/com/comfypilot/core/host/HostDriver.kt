@@ -6,6 +6,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.long
 import kotlin.test.assertNotNull
@@ -109,6 +110,33 @@ internal class HostDriver(
     fun notices(): List<String> = seenNotices.toList()
 
     fun state(): JsonObject = frame["state"]!!.jsonObject
+
+    /** 状态帧里的工作流列表状态：idle / loading / ready / failed。 */
+    fun catalogState(): String =
+        ((state()["catalog"] as JsonObject)["state"] as JsonPrimitive).content
+
+    fun catalogEntries(): List<JsonObject> =
+        ((state()["catalog"] as JsonObject)["entries"] as? JsonArray).orEmpty().map { it.jsonObject }
+
+    fun workflowField(key: String): String? =
+        (state()["workflow"] as JsonObject)[key]?.let { (it as? JsonPrimitive)?.contentOrNull }
+
+    /** 所有帧里出现过的 HTTP URL（用来断言"哪些请求发过/没发过"）。 */
+    fun httpUrls(): List<String> = allCommands().mapNotNull { command ->
+        if ((command["t"] as? JsonPrimitive)?.content != "http") return@mapNotNull null
+        (command["url"] as? JsonPrimitive)?.content
+    }
+
+    fun refreshWorkflows() {
+        deliver("""{"t":"workflows"}""")
+    }
+
+    fun openWorkflow(path: String) {
+        deliver("""{"t":"workflow.open","path":${quote(path)}}""")
+    }
+
+    private fun quote(value: String): String =
+        "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
     fun stateString(key: String): String = (state()[key] as JsonPrimitive).content
 

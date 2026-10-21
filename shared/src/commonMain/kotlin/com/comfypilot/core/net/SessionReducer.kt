@@ -18,7 +18,16 @@ import com.comfypilot.core.task.TaskProgress
 import com.comfypilot.core.task.TaskState
 import com.comfypilot.core.transport.JitterSource
 import com.comfypilot.core.util.Ids
+import com.comfypilot.core.workflow.NodeDefinition
+import com.comfypilot.core.workflow.WorkflowCatalog
+import com.comfypilot.core.workflow.WorkflowCodec
+import com.comfypilot.core.workflow.WorkflowDocument
+import com.comfypilot.core.workflow.WorkflowSelection
+import com.comfypilot.core.workflow.workflowNameOf
 import kotlinx.serialization.json.JsonObject
+
+/** 一份工作流最多为这么多个节点类拉定义：病态文件不能变成几百个请求。 */
+private const val MAX_OBJECT_INFO_REQUESTS = 128
 
 /**
  * 纯函数状态机：输入 -> (新状态, 副作用)。
@@ -45,6 +54,8 @@ class SessionReducer(
         is SessionInput.HttpResult -> onHttpResult(state, input)
         is SessionInput.SubmitRequested -> onSubmit(state, input)
         is SessionInput.CancelRequested -> onCancel(state, input)
+        SessionInput.WorkflowCatalogRequested -> onCatalogRequested(state)
+        is SessionInput.WorkflowOpenRequested -> onWorkflowOpenRequested(state, input)
         is SessionInput.UserReconnect -> onUserReconnect(state, input.nowMs)
         is SessionInput.Tick -> onTick(state, input.nowMs)
     }
@@ -325,7 +336,114 @@ class SessionReducer(
             RequestTag.Queue -> onQueueResult(state, input.outcome, input.nowMs)
             is RequestTag.Submit -> onSubmitResult(state, tag, input.outcome, input.nowMs)
             is RequestTag.Interrupt -> ReduceResult(state)
+            RequestTag.Catalog -> onCatalogResult(state, input.outcome)
+            is RequestTag.WorkflowFile ->
+                // 迟到的另一个文件的响应不能覆盖当前选择。
+                if (state.workflow.loadingPath == tag.path) {
+                    onWorkflowFileResult(state, tag, input.outcome)
+                } else {
+                    ReduceResult(state)
+                }
+
+            is RequestTag.ObjectInfo -> onObjectInfoResult(state, tag, input.outcome)
         }
+    }
+
+    // ---------------------------------------------------------------- workflow
+
+    private fun onCatalogRequested(state: SessionState): ReduceResult {
+        val lease = state.lease
+            ?: return ReduceResult(state.copy(catalog = WorkflowCatalog.Failed("未连接 ComfyUI")))
+        return ReduceResult(
+            state.copy(catalog = WorkflowCatalog.Loading),
+            listOf(SessionEffect.SendHttp(lease, ApiCall.ListUserData(), RequestTag.Catalog)),
+        )
+    }
+
+    private fun onWorkflowOpenRequested(
+        state: SessionState,
+        input: SessionInput.WorkflowOpenRequested,
+    ): ReduceResult {
+        val lease = state.lease
+            ?: return ReduceResult(state.copy(workflow = WorkflowSelection(error = "未连接 ComfyUI")))
+        return ReduceResult(
+            state.copy(workflow = WorkflowSelection(loadingPath = input.path)),
+            listOf(
+                SessionEffect.SendHttp(
+                    lease,
+                    ApiCall.FetchUserData(input.path),
+                    RequestTag.WorkflowFile(input.path),
+                ),
+            ),
+        )
+    }
+
+    private fun onCatalogResult(state: SessionState, outcome: HttpOutcome): ReduceResult {
+        val body = bodyOf(outcome)
+            ?: return ReduceResult(state.copy(catalog = WorkflowCatalog.Failed(describeFailure(outcome))))
+        return ReduceResult(state.copy(catalog = WorkflowCatalog.Ready(WorkflowCodec.parseCatalog(body))))
+    }
+
+    private fun onWorkflowFileResult(
+        state: SessionState,
+        tag: RequestTag.WorkflowFile,
+        outcome: HttpOutcome,
+    ): ReduceResult {
+        val body = bodyOf(outcome)
+            ?: return ReduceResult(state.copy(workflow = WorkflowSelection(error = describeFailure(outcome))))
+        return when (val parsed = WorkflowCodec.parseDocument(body)) {
+            is WorkflowCodec.Parsed.Bad ->
+                ReduceResult(state.copy(workflow = WorkflowSelection(error = parsed.reason)))
+
+            is WorkflowCodec.Parsed.Ok -> {
+                val document = WorkflowDocument(
+                    path = tag.path,
+                    name = workflowNameOf(tag.path),
+                    raw = body,
+                    format = parsed.format,
+                    nodeClasses = parsed.nodeClasses,
+                )
+                // 只为还没取过定义的类发请求：同一台服务器上节点定义是稳定的。
+                val missing = parsed.nodeClasses
+                    .filter { it !in state.nodeInfo && it !in state.nodeInfoRequested }
+                    .take(MAX_OBJECT_INFO_REQUESTS)
+                val effects = state.lease?.let { lease ->
+                    missing.map {
+                        SessionEffect.SendHttp(lease, ApiCall.FetchObjectInfo(it), RequestTag.ObjectInfo(it))
+                    }
+                }.orEmpty()
+                ReduceResult(
+                    state.copy(
+                        workflow = WorkflowSelection(document = document),
+                        nodeInfoRequested = state.nodeInfoRequested + missing,
+                    ),
+                    effects,
+                )
+            }
+        }
+    }
+
+    private fun onObjectInfoResult(
+        state: SessionState,
+        tag: RequestTag.ObjectInfo,
+        outcome: HttpOutcome,
+    ): ReduceResult {
+        val body = bodyOf(outcome) ?: return ReduceResult(state)
+        // 服务端没有这个类时返回 {}（多半缺自定义节点）：记成 missing，别装成能调参。
+        val definition = WorkflowCodec.parseNodeDefinition(body, tag.nodeClass)
+            ?: NodeDefinition(className = tag.nodeClass, displayName = tag.nodeClass, missing = true)
+        return ReduceResult(state.copy(nodeInfo = state.nodeInfo + (tag.nodeClass to definition)))
+    }
+
+    private fun bodyOf(outcome: HttpOutcome): String? = when (outcome) {
+        is HttpOutcome.Failed -> null
+        is HttpOutcome.Received -> outcome.body?.takeIf { outcome.status in 200..299 }
+    }
+
+    private fun describeFailure(outcome: HttpOutcome): String = when (outcome) {
+        is HttpOutcome.Failed -> outcome.message
+        is HttpOutcome.Received ->
+            if (outcome.status in 200..299) "服务器返回空响应" else "服务器返回 ${outcome.status}"
     }
 
     private fun onHistoryResult(

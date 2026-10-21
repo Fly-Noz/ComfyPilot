@@ -4,6 +4,9 @@ import com.comfypilot.core.api.QueueSnapshot
 import com.comfypilot.core.reconcile.HistoryProbe
 import com.comfypilot.core.task.PromptTask
 import com.comfypilot.core.task.TaskId
+import com.comfypilot.core.workflow.NodeDefinition
+import com.comfypilot.core.workflow.WorkflowCatalog
+import com.comfypilot.core.workflow.WorkflowSelection
 
 /**
  * 连接状态是枚举化的：没有任何 isConnected / isReconnecting 布尔位。
@@ -19,6 +22,14 @@ data class SessionState(
     val queue: QueueSnapshot? = null,
     val nextLeaseId: Long = 1,
     val nextDraftId: Long = 1,
+    /** 服务器上的工作流列表。 */
+    val catalog: WorkflowCatalog = WorkflowCatalog.Idle,
+    /** 当前打开的工作流（原文 + 格式识别）。 */
+    val workflow: WorkflowSelection = WorkflowSelection(),
+    /** 已取到的节点定义，按类名缓存；同一台服务器上可跨工作流复用。 */
+    val nodeInfo: Map<String, NodeDefinition> = emptyMap(),
+    /** 已发出过请求的类名：成功/失败都算，避免反复打服务端。 */
+    val nodeInfoRequested: Set<String> = emptySet(),
 ) {
     val lease: ConnectionLease? get() = phase.lease()
 

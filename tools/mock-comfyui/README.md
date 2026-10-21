@@ -36,6 +36,23 @@ curl -X POST http://127.0.0.1:8188/mock/scenario -H "content-type: application/j
 计数以便对比对账前后的 `hits.prompt`）、`POST /mock/reset`（同时清零计数）、
 `GET /view`（返回 1x1 PNG）。
 
+## 工作流夹具
+
+`workflows/` 下的文件通过真实路径暴露，客户端不需要测试专用后门：
+
+| 路由 | 行为 |
+|---|---|
+| `GET /userdata?dir=workflows&recurse=true&full_info=true` | 列出 `workflows/` 下所有 `.json`，返回 `[{path,size,modified,created}]` |
+| `GET /userdata/{path}` | 返回文件原文；拒绝跳出夹具目录的路径 |
+| `GET /object_info/{class}` | 返回该节点定义；未知类返回 `{}`（与真实服务端一致） |
+
+夹具：
+
+- `demo_api.json`：API 格式（`/prompt` 直接可用），txt2img 标准链路。
+- `demo_ui.json`：网页端保存格式（`nodes`/`links`/`widgets_values`），用于格式识别与后续转换器。
+
+`hits` 里对应 `userdata`（列表）、`workflow`（读原文）、`object_info`（取节点定义）。
+
 ## 手工验证步骤（Android）
 
 1. `node server.mjs`，场景保持 `normal`。

@@ -8,6 +8,7 @@ import com.comfypilot.core.net.SessionState
 import com.comfypilot.core.net.UserNotice
 import com.comfypilot.core.task.PromptTask
 import com.comfypilot.core.task.TaskState
+import com.comfypilot.core.workflow.WorkflowCatalog
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
@@ -48,6 +49,45 @@ fun SessionState.toBridgeJson(): JsonObject = buildJsonObject {
     put("queuePending", queue?.pending?.size ?: 0)
     putJsonArray("tasks") {
         tasks.values.sortedBy { it.createdAtMs }.forEach { add(it.toBridgeJson()) }
+    }
+
+    // 只放轻量元数据：工作流原文可能有几百 KB，每帧序列化一次不现实。
+    // 参数模型/节点定义由宿主在需要时单独拉取（后续 ABI），这里只告诉它"有没有、叫什么"。
+    putJsonObject("catalog") {
+        when (val catalog = this@toBridgeJson.catalog) {
+            is WorkflowCatalog.Idle -> put("state", "idle")
+            is WorkflowCatalog.Loading -> put("state", "loading")
+            is WorkflowCatalog.Failed -> {
+                put("state", "failed")
+                put("error", catalog.message)
+            }
+
+            is WorkflowCatalog.Ready -> {
+                put("state", "ready")
+                putJsonArray("entries") {
+                    catalog.entries.forEach { entry ->
+                        add(
+                            buildJsonObject {
+                                put("path", entry.path)
+                                put("name", entry.name)
+                                put("size", entry.sizeBytes ?: 0L)
+                                put("modifiedMs", entry.modifiedAtMs ?: 0L)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+    putJsonObject("workflow") {
+        val selection = this@toBridgeJson.workflow
+        put("loadingPath", jsonString(selection.loadingPath))
+        put("path", jsonString(selection.document?.path))
+        put("name", jsonString(selection.document?.name))
+        put("format", selection.document?.format?.name ?: "")
+        put("error", jsonString(selection.error))
+        put("nodeClasses", selection.document?.nodeClasses?.size ?: 0)
+        put("nodeInfo", nodeInfo.size)
     }
 }
 
@@ -146,6 +186,12 @@ sealed interface HostMessage {
 
     data class Cancel(val promptId: String) : HostMessage
 
+    /** 拉工作流列表。 */
+    data object Workflows : HostMessage
+
+    /** 打开某个工作流文件。 */
+    data class OpenWorkflow(val path: String) : HostMessage
+
     companion object {
         /**
          * 无法识别或字段不全时返回 null：宿主送来的可能是它自己版本的扩展字段，
@@ -186,6 +232,8 @@ sealed interface HostMessage {
                 "reconnect" -> Reconnect
                 "submit" -> Submit(obj.stringOrNull("workflow") ?: return null)
                 "cancel" -> Cancel(obj.stringOrNull("promptId") ?: return null)
+                "workflows" -> Workflows
+                "workflow.open" -> OpenWorkflow(obj.stringOrNull("path") ?: return null)
                 else -> null
             }
         }

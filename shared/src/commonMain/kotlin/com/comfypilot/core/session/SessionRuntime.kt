@@ -87,6 +87,10 @@ class SessionRuntime(
     fun cancel(promptId: String) =
         enqueue(SessionInput.CancelRequested(promptId, clock.nowMillis()))
 
+    fun refreshWorkflows() = enqueue(SessionInput.WorkflowCatalogRequested)
+
+    fun openWorkflow(path: String) = enqueue(SessionInput.WorkflowOpenRequested(path))
+
     fun onNetworkChanged(network: NetworkInfo) =
         enqueue(SessionInput.NetworkChanged(network, clock.nowMillis()))
 

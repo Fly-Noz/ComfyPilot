@@ -39,6 +39,12 @@ sealed interface SessionInput {
 
     data class CancelRequested(val promptId: String, val nowMs: Long) : SessionInput
 
+    /** 拉取服务器上的工作流列表（`/userdata?dir=workflows`）。 */
+    data object WorkflowCatalogRequested : SessionInput
+
+    /** 打开某个工作流文件；原文与节点定义都从服务器现取。 */
+    data class WorkflowOpenRequested(val path: String) : SessionInput
+
     data class UserReconnect(val nowMs: Long) : SessionInput
 
     data class Tick(val nowMs: Long) : SessionInput
@@ -53,6 +59,12 @@ sealed interface RequestTag {
     data class Submit(val draftId: String, val workflowJson: String) : RequestTag
 
     data class Interrupt(val promptId: String) : RequestTag
+
+    data object Catalog : RequestTag
+
+    data class WorkflowFile(val path: String) : RequestTag
+
+    data class ObjectInfo(val nodeClass: String) : RequestTag
 }
 
 sealed interface HttpOutcome {

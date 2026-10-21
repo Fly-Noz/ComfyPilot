@@ -1,10 +1,13 @@
 import http from 'node:http'
 import { randomUUID } from 'node:crypto'
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import nodePath from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
 
 /**
- * 最小 ComfyUI 兼容 mock：只实现 ComfyPilot 阶段一用到的路由。
- * 目的：在没有真实 ComfyUI 的情况下复现四种连接异常场景。
+ * 最小 ComfyUI 兼容 mock：只实现 ComfyPilot 用到的路由。
+ * 目的：在没有真实 ComfyUI 的情况下复现连接异常场景，并给工作流浏览提供夹具。
  *
  * 场景（POST /mock/scenario {"scenario":"..."}）：
  *   normal  正常：进度事件 -> executed -> history success
@@ -12,10 +15,158 @@ import { WebSocketServer } from 'ws'
  *   silent  静默：接受提交但永不发事件、永不写 history（测进度看门狗）
  *   lost    丢失：接受提交后立刻从 queue 消失，也不写 history（测 Unknown）
  *   slow    慢速：每 10s 才发一次进度（测自适应静默预算）
+ *
+ * 工作流夹具在 ./workflows/，通过真实的 /userdata 与 /object_info 路由暴露，
+ * 这样客户端走的是和服务端一致的路径，而不是测试专用的后门。
  */
 
 const PORT = Number(process.env.PORT || 8188)
 const HOST = process.env.HOST || '0.0.0.0'
+
+const WORKFLOW_DIR = nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), 'workflows')
+
+/** 与真实服务端 `/object_info` 同构的最小节点定义。 */
+const OBJECT_INFO = {
+  CheckpointLoaderSimple: {
+    input: {
+      required: {
+        ckpt_name: [
+          ['sd_xl_base_1.0.safetensors', 'sd15.safetensors'],
+          { default: 'sd_xl_base_1.0.safetensors' },
+        ],
+      },
+    },
+    output: ['MODEL', 'CLIP', 'VAE'],
+    output_name: ['MODEL', 'CLIP', 'VAE'],
+    name: 'CheckpointLoaderSimple',
+    display_name: 'Load Checkpoint',
+    description: 'Loads a diffusion model checkpoint.',
+    category: 'loaders',
+    output_node: false,
+  },
+  CLIPTextEncode: {
+    input: {
+      required: {
+        text: ['STRING', { multiline: true, default: '' }],
+        clip: ['CLIP'],
+      },
+    },
+    output: ['CONDITIONING'],
+    output_name: ['CONDITIONING'],
+    name: 'CLIPTextEncode',
+    display_name: 'CLIP Text Encode (Prompt)',
+    category: 'conditioning',
+  },
+  KSampler: {
+    input: {
+      required: {
+        model: ['MODEL'],
+        seed: [
+          'INT',
+          {
+            default: 0,
+            min: 0,
+            max: 9007199254740991,
+            step: 1,
+            control_after_generate: true,
+          },
+        ],
+        steps: ['INT', { default: 20, min: 1, max: 10000 }],
+        cfg: ['FLOAT', { default: 8.0, min: 0, max: 100, step: 0.1 }],
+        sampler_name: [
+          ['euler', 'euler_ancestral', 'dpmpp_2m', 'dpmpp_2m_sde'],
+          { default: 'euler' },
+        ],
+        scheduler: [
+          ['normal', 'karras', 'exponential'],
+          { default: 'normal' },
+        ],
+        positive: ['CONDITIONING'],
+        negative: ['CONDITIONING'],
+        latent_image: ['LATENT'],
+        denoise: ['FLOAT', { default: 1.0, min: 0, max: 1, step: 0.01 }],
+      },
+    },
+    output: ['LATENT'],
+    output_name: ['LATENT'],
+    name: 'KSampler',
+    display_name: 'KSampler',
+    category: 'sampling',
+  },
+  EmptyLatentImage: {
+    input: {
+      required: {
+        width: ['INT', { default: 512, min: 16, max: 16384, step: 8 }],
+        height: ['INT', { default: 512, min: 16, max: 16384, step: 8 }],
+        batch_size: ['INT', { default: 1, min: 1, max: 4096 }],
+      },
+    },
+    output: ['LATENT'],
+    output_name: ['LATENT'],
+    name: 'EmptyLatentImage',
+    display_name: 'Empty Latent Image',
+    category: 'latent',
+  },
+  VAEDecode: {
+    input: {
+      required: {
+        samples: ['LATENT'],
+        vae: ['VAE'],
+      },
+    },
+    output: ['IMAGE'],
+    output_name: ['IMAGE'],
+    name: 'VAEDecode',
+    display_name: 'VAE Decode',
+    category: 'latent',
+  },
+  SaveImage: {
+    input: {
+      required: {
+        images: ['IMAGE'],
+        filename_prefix: ['STRING', { default: 'ComfyUI' }],
+      },
+    },
+    output: [],
+    output_name: [],
+    name: 'SaveImage',
+    display_name: 'Save Image',
+    category: 'image',
+    output_node: true,
+  },
+  LoadImage: {
+    input: {
+      required: {
+        image: [['example.png'], { image_upload: true }],
+      },
+    },
+    output: ['IMAGE', 'MASK'],
+    output_name: ['IMAGE', 'MASK'],
+    name: 'LoadImage',
+    display_name: 'Load Image',
+    category: 'image',
+  },
+}
+
+/** 递归列出夹具，返回真实 `/userdata` 的形状（路径相对 workflows/）。 */
+function listWorkflowFiles(dir = WORKFLOW_DIR, base = '') {
+  let files = []
+  for (const name of readdirSync(dir)) {
+    const full = nodePath.join(dir, name)
+    const stat = statSync(full)
+    if (stat.isDirectory()) {
+      files = files.concat(listWorkflowFiles(full, base ? `${base}/${name}` : name))
+    } else if (name.toLowerCase().endsWith('.json')) {
+      files.push({
+        path: base ? `${base}/${name}` : name,
+        size: stat.size,
+        modified: Math.trunc(stat.mtimeMs),
+        created: Math.trunc(stat.birthtimeMs),
+      })
+    }
+  }
+  return files
+}
 
 const SCENARIOS = new Set(['normal', 'error', 'history_error', 'silent', 'lost', 'slow'])
 
@@ -219,6 +370,9 @@ const server = http.createServer(async (req, res) => {
     else if (path === '/queue') hit('queue')
     else if (path.startsWith('/history/')) hit('history')
     else if (path === '/interrupt') hit('interrupt')
+    else if (path === '/userdata') hit('userdata')
+    else if (path.startsWith('/userdata/')) hit('workflow')
+    else if (path.startsWith('/object_info/')) hit('object_info')
 
     if (req.method === 'POST' && path === '/prompt') {
       const raw = await readBody(req)
@@ -280,6 +434,40 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { name: 'mock-upload.png', subfolder: '', type: 'input' })
     }
 
+    // 真实服务端：dir=workflows + full_info=true -> [{path,size,modified,created}]
+    if (req.method === 'GET' && path === '/userdata') {
+      const dir = url.searchParams.get('dir') || 'workflows'
+      if (dir !== 'workflows') return sendJson(res, 200, [])
+      return sendJson(res, 200, listWorkflowFiles())
+    }
+
+    // 真实服务端：/userdata/{file} 直接返回原文（JSON 文件没有额外包装）。
+    if (req.method === 'GET' && path.startsWith('/userdata/')) {
+      const rel = decodeURIComponent(path.slice('/userdata/'.length))
+      const root = nodePath.resolve(WORKFLOW_DIR)
+      const full = nodePath.resolve(root, rel)
+      if (full !== root && !full.startsWith(root + nodePath.sep)) {
+        return sendJson(res, 400, { error: 'invalid path' })
+      }
+      try {
+        const body = readFileSync(full)
+        res.writeHead(200, {
+          'content-type': 'application/json; charset=utf-8',
+          'content-length': body.length,
+        })
+        return res.end(body)
+      } catch {
+        return sendJson(res, 404, { error: 'not found' })
+      }
+    }
+
+    // 真实服务端：未知类返回 {}（200），不是 404。
+    if (req.method === 'GET' && path.startsWith('/object_info/')) {
+      const name = decodeURIComponent(path.slice('/object_info/'.length))
+      const info = OBJECT_INFO[name]
+      return sendJson(res, 200, info ? { [name]: info } : {})
+    }
+
     if (req.method === 'POST' && path === '/mock/scenario') {
       const raw = await readBody(req)
       const body = JSON.parse(raw || '{}')
@@ -297,6 +485,7 @@ const server = http.createServer(async (req, res) => {
         running: running.size,
         history: history.size,
         sockets: sockets.size,
+        workflows: listWorkflowFiles().length,
         hits: Object.fromEntries(hits),
       })
     }

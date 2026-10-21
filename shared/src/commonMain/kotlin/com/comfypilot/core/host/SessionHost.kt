@@ -222,6 +222,16 @@ class SessionHost(
                 runtime.cancel(message.promptId)
                 true
             }
+
+            HostMessage.Workflows -> {
+                runtime.refreshWorkflows()
+                true
+            }
+
+            is HostMessage.OpenWorkflow -> {
+                runtime.openWorkflow(message.path)
+                true
+            }
         }
     }
 

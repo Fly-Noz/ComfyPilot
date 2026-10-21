@@ -14,6 +14,15 @@ sealed interface ApiCall {
 
     data class Interrupt(val promptId: String?) : ApiCall
 
+    /** 列服务器 `user_data/workflows` 目录。 */
+    data class ListUserData(val dir: String = "workflows", val recurse: Boolean = true) : ApiCall
+
+    /** 读一个 userdata 文件（工作流原文）。 */
+    data class FetchUserData(val path: String) : ApiCall
+
+    /** 只取工作流用到的节点定义：整份 `/object_info` 在装了大量自定义节点的机器上能有几 MB。 */
+    data class FetchObjectInfo(val nodeClass: String) : ApiCall
+
     class UploadImage(
         val filename: String,
         val subfolder: String,
@@ -36,6 +45,8 @@ object ApiPaths {
     const val INTERRUPT = "/interrupt"
     const val VIEW = "/view"
     const val UPLOAD_IMAGE = "/upload/image"
+    const val USERDATA = "/userdata"
+    const val OBJECT_INFO = "/object_info"
 
     fun resolve(baseUrl: String, call: ApiCall, codec: ApiCodec = ApiCodec): ResolvedRequest {
         val base = baseUrl.trimEnd('/')
@@ -68,6 +79,31 @@ object ApiPaths {
                 contentType = "application/json",
             )
 
+            is ApiCall.ListUserData -> ResolvedRequest(
+                method = "GET",
+                url = base + USERDATA +
+                    "?dir=" + percentEncode(call.dir) +
+                    "&recurse=" + call.recurse +
+                    // full_info 才有 size/mtime 可排序；旧服务端忽略未知参数。
+                    "&full_info=true",
+                body = null,
+                contentType = null,
+            )
+
+            is ApiCall.FetchUserData -> ResolvedRequest(
+                method = "GET",
+                url = base + USERDATA + "/" + encodePath(call.path),
+                body = null,
+                contentType = null,
+            )
+
+            is ApiCall.FetchObjectInfo -> ResolvedRequest(
+                method = "GET",
+                url = base + OBJECT_INFO + "/" + percentEncode(call.nodeClass),
+                body = null,
+                contentType = null,
+            )
+
             // multipart 需要 boundary 与字段拼装，阶段一不启用；显式失败好过发出一个畸形请求。
             is ApiCall.UploadImage -> throw UnsupportedOperationException(
                 "/upload/image 尚未实现（阶段二接入）",
@@ -86,6 +122,10 @@ object ApiPaths {
     }
 
     private fun quote(value: String): String = JsonStringWriter.encode(value)
+
+    /** 路径按段编码：`a b/c.json` -> `a%20b/c.json`，斜杠要保留。 */
+    private fun encodePath(path: String): String =
+        path.split('/').joinToString("/") { percentEncode(it) }
 }
 
 internal object JsonStringWriter {
