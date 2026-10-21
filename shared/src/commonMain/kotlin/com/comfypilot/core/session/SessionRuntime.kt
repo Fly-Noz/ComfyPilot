@@ -130,6 +130,9 @@ class SessionRuntime(
                     override fun onText(text: String) =
                         onSocketEvent(SessionInput.SocketText(lease, text, clock.nowMillis()))
 
+                    override fun onBinary(bytes: ByteArray) =
+                        onSocketEvent(SessionInput.SocketBinary(lease, bytes, clock.nowMillis()))
+
                     override fun onClosed(code: Int, reason: String) =
                         onSocketEvent(SessionInput.SocketClosed(lease, code, reason, clock.nowMillis()))
 

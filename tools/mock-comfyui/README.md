@@ -34,8 +34,8 @@ curl -X POST http://127.0.0.1:8188/mock/scenario -H "content-type: application/j
 辅助接口：`GET /mock/state`（含 `hits` 请求计数、`lastPrompt` 最近一次提交的
 prompt 图、`lastUpload` 最近一次上传的文件名）、`POST /mock/drop-sockets`
 （只掐断所有 WebSocket，不清 jobs/history/hits，用来模拟"ComfyUI 进程重启"且保留
-计数以便对比对账前后的 `hits.prompt`）、`POST /mock/reset`（同时清零计数与
-`lastPrompt`）、`GET /view`（返回 1x1 PNG）。
+计数以便对比对账前后的 `hits.prompt`）、`POST /mock/reset`（同时清零计数、
+`lastPrompt` 与 `lastUpload`）、`GET /view`（返回 1x1 PNG）。
 
 ## 工作流夹具
 
@@ -46,6 +46,12 @@ prompt 图、`lastUpload` 最近一次上传的文件名）、`POST /mock/drop-s
 | `GET /userdata?dir=workflows&recurse=true&full_info=true` | 列出 `workflows/` 下所有 `.json`，返回 `[{path,size,modified,created}]` |
 | `GET /userdata/{path}` | 返回文件原文；拒绝跳出夹具目录的路径 |
 | `GET /object_info/{class}` | 返回该节点定义；未知类返回 `{}`（与真实服务端一致） |
+| `GET /system_stats` | 固定 RAM 32/12 GB、VRAM 24/8 GB；**不提供 CPU 利用率** |
+| `GET /queue` | 运行/等待队列，供详情页状态条显示 |
+
+`normal` / `slow` 场景的每次 `progress` 还会发一帧 **二进制采样预览**：
+4 字节大端事件类型 4 + metadata 长度 + `{"prompt_id", "node_id"}` + 1x1 PNG。
+客户端应能解码并在「预览」页显示。
 
 夹具：
 
@@ -53,7 +59,8 @@ prompt 图、`lastUpload` 最近一次上传的文件名）、`POST /mock/drop-s
 - `demo_ui.json`：网页端保存格式（`nodes`/`links`/`widgets_values`），用于格式识别与后续转换器。
 - `demo_upload.json`：只有 `LoadImage` + `SaveImage` 的最小网页格式，用于相册上传链路。
 
-`hits` 里对应 `userdata`（列表）、`workflow`（读原文）、`object_info`（取节点定义）。
+`hits` 里对应 `userdata`（列表）、`workflow`（读原文）、`object_info`（取节点定义）、
+`system`（系统状态）。
 
 ## 手工验证步骤（Android）
 
@@ -70,13 +77,15 @@ prompt 图、`lastUpload` 最近一次上传的文件名）、`POST /mock/drop-s
 
 ## 工作流 UI 手工验证（Android）
 
-1. 连接后应自动进入"选择工作流"，看到 `demo_api` / `demo_ui` 两项。
-2. 打开 `demo_ui`：常用输入应有 2 个 text、width/height/batch_size、seed 等；
-   "全部节点"里被旁路/未连接的节点要标注。
-3. 把 seed 改成别的值，提交；`GET /mock/state` 的
+1. 连接后应自动进入"选择工作流"，看到 `demo_api` / `demo_ui` / `demo_upload`。
+2. 打开 `demo_ui`：顶部状态条显示 RAM/VRAM/队列；输入按节点分组，
+   常用节点默认展开；底栏是「全部节点」和「提交任务」。
+3. 把 KSampler 的 seed 改成别的值，提交；`GET /mock/state` 的
    `lastPrompt["3"].inputs.seed` 应等于界面上的值。
-4. 提交后任务页应经历 执行中 → 已完成，并能取消仍在跑的任务。
-5. 打开 `demo_upload`，点「从相册选择」上传一张图；控件值应变成
+4. 提交后页面应保持在工作流详情并切到「预览」：执行中显示红色 1x1 采样帧，
+   完成后显示 `/view` 的结果；任务页仍可看到 执行中 → 已完成。
+5. 点「全部节点」弹出菜单，点 `#3 KSampler` 应关闭菜单、切回「输入」并滚到该节点。
+6. 打开 `demo_upload`，点「从相册选择」上传一张图；控件值应变成
    `lastUpload.name`，提交后 `lastPrompt["1"].inputs.image` 应与之一致。
 
 > 以上是联调清单，不代表已在真机验证。真机验证结果需在阶段报告中单独记录。

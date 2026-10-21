@@ -3,16 +3,23 @@ package com.comfypilot.app.ui
 import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -24,18 +31,19 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,9 +58,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.comfypilot.android.transport.OkHttpHttpTransport
+import com.comfypilot.core.api.ApiPaths
 import com.comfypilot.core.api.ImageUpload
 import com.comfypilot.core.api.ImageUploadResult
+import com.comfypilot.core.api.ViewRequest
+import com.comfypilot.core.net.PreviewFrame
 import com.comfypilot.core.net.SessionState
+import com.comfypilot.core.task.PromptTask
+import com.comfypilot.core.task.TaskState
 import com.comfypilot.core.workflow.BuildProblem
 import com.comfypilot.core.workflow.PromptBuild
 import com.comfypilot.core.workflow.PromptBuilder
@@ -73,6 +86,7 @@ fun WorkflowDetailScreen(
     onBack: () -> Unit,
     onTasks: () -> Unit,
     onSubmit: (String) -> Unit,
+    onCancel: (String) -> Unit,
 ) {
     val document = state.workflow.document
 
@@ -93,7 +107,13 @@ fun WorkflowDetailScreen(
                     onBack = onBack,
                 )
 
-                else -> DetailBody(document = document, state = state, onSubmit = onSubmit)
+                else -> DetailBody(
+                    document = document,
+                    state = state,
+                    onSubmit = onSubmit,
+                    onCancel = onCancel,
+                    onTasks = onTasks,
+                )
             }
         }
     }
@@ -128,6 +148,8 @@ private fun DetailBody(
     document: WorkflowDocument,
     state: SessionState,
     onSubmit: (String) -> Unit,
+    onCancel: (String) -> Unit,
+    onTasks: () -> Unit,
 ) {
     val fields = remember(document, state.nodeInfo) {
         WorkflowFields.build(document, state.nodeInfo)
@@ -136,8 +158,20 @@ private fun DetailBody(
         mutableStateOf<Map<Int, Map<String, JsonElement>>>(emptyMap())
     }
     var tab by remember(document.path) { mutableStateOf(0) }
+    var expandedOverride by remember(document.path) { mutableStateOf<Set<Int>?>(null) }
+    var sheetVisible by remember { mutableStateOf(false) }
     var blockedProblems by remember { mutableStateOf<List<BuildProblem>?>(null) }
     var pendingReady by remember { mutableStateOf<PromptBuild.Ready?>(null) }
+
+    val autoExpanded = remember(fields) {
+        fields.nodes
+            .filter { node -> node.reachable && node.fields.any { it.common && it.widget && !it.linked } }
+            .map { it.id }
+            .toSet()
+    }
+    val expanded = expandedOverride ?: autoExpanded
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     val pendingClasses = document.nodeClasses.count { it !in state.nodeInfo }
 
@@ -146,9 +180,13 @@ private fun DetailBody(
         overrides = overrides + (nodeId to forNode)
     }
 
+    fun toggleNode(nodeId: Int) {
+        val current = expandedOverride ?: autoExpanded
+        expandedOverride = if (nodeId in current) current - nodeId else current + nodeId
+    }
+
     // 上传只服务 LoadImage 的 image 控件：先传服务器，再用返回的文件名覆盖控件值。
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val uploader = remember { OkHttpHttpTransport() }
     var uploadTarget by remember { mutableStateOf<WorkflowField?>(null) }
     var uploading by remember { mutableStateOf(false) }
@@ -220,141 +258,166 @@ private fun DetailBody(
         picker.launch("image/*")
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Text(
-                document.path,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-            )
-            Text(
-                "格式 ${document.format} · ${document.nodeClasses.size} 个节点类 · ${fields.nodes.count { it.reachable }} 个会提交",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            if (pendingClasses > 0) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                Text(
-                    "正在加载节点定义：还差 $pendingClasses 个类。未加载完时提交会被拒绝。",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            if (fields.problems.isNotEmpty()) {
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer,
-                    ),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Column(modifier = Modifier.padding(8.dp)) {
-                        fields.problems.forEach { problem ->
-                            Text(problem.format(), style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
+    fun submit() {
+        when (val result = PromptBuilder.build(document, state.nodeInfo, overrides)) {
+            is PromptBuild.Ready -> {
+                if (result.warnings.isEmpty()) {
+                    onSubmit(result.prompt.toString())
+                    tab = 1
+                } else {
+                    pendingReady = result
                 }
             }
-            if (uploading) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                Text("正在上传图片…", style = MaterialTheme.typography.bodySmall)
-            }
-            uploadError?.let { message ->
-                Text(
-                    "上传失败：$message",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-                TextButton(onClick = { uploadError = null }) { Text("知道了") }
-            }
-        }
 
-        PrimaryTabRow(selectedTabIndex = tab) {
-            Tab(
+            is PromptBuild.Blocked -> blockedProblems = result.problems
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        ServerStatsStrip(baseUrl = state.lease?.baseUrl)
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            TabButton(
+                text = "输入 (${fields.nodes.sumOf { it.fields.size }})",
                 selected = tab == 0,
                 onClick = { tab = 0 },
-                text = { Text("常用输入 (${fields.commonFields.size})") },
+                modifier = Modifier.weight(1f),
             )
-            Tab(
+            TabButton(
+                text = "预览",
                 selected = tab == 1,
                 onClick = { tab = 1 },
-                text = { Text("全部节点 (${fields.nodes.size})") },
+                modifier = Modifier.weight(1f),
             )
         }
 
-        if (tab == 0) {
-            if (fields.commonFields.isEmpty()) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(16.dp)) {
-                    Text(
-                        "这个工作流没有识别到常用输入，请到「全部节点」里调整。",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    items(fields.commonFields, key = { "${it.nodeId}:${it.inputName}" }) { field ->
-                        FieldEditor(
-                            field = field,
-                            value = overrides[field.nodeId]?.get(field.inputName) ?: field.value,
-                            editable = true,
-                            showNode = true,
-                            onPickImage = if (field.nodeType == "LoadImage" && field.inputName == "image") {
-                                { pickImage(field) }
-                            } else {
-                                null
-                            },
-                            onChange = { value -> applyOverride(field.nodeId, field.inputName, value) },
-                        )
+        if (pendingClasses > 0) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(
+                "正在加载节点定义：还差 $pendingClasses 个类",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
+        }
+        if (uploading) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(
+                "正在上传图片…",
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
+        }
+        uploadError?.let { message ->
+            Text(
+                "上传失败：$message",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
+            TextButton(onClick = { uploadError = null }) { Text("知道了") }
+        }
+        if (fields.problems.isNotEmpty()) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                ),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    fields.problems.forEach { problem ->
+                        Text(problem.format(), style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(fields.nodes, key = { it.id }) { node ->
-                    NodeCard(
-                        node = node,
-                        overrides = overrides[node.id].orEmpty(),
-                        onChange = ::applyOverride,
-                        onPickImage = ::pickImage,
-                    )
-                }
+        }
+
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+            if (tab == 0) {
+                InputPane(
+                    fields = fields,
+                    expanded = expanded,
+                    overrides = overrides,
+                    listState = listState,
+                    onToggle = ::toggleNode,
+                    onOverride = ::applyOverride,
+                    onPickImage = ::pickImage,
+                )
+            } else {
+                PreviewPane(
+                    state = state,
+                    onCancel = onCancel,
+                    onTasks = onTasks,
+                )
             }
         }
 
         Surface(tonalElevation = 3.dp) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                OutlinedButton(onClick = { sheetVisible = true }) { Text("全部节点") }
+                Spacer(modifier = Modifier.weight(1f))
                 Text(
-                    if (pendingClasses > 0) "节点定义未加载完，提交可能被拒绝" else "参数只影响本次提交，不改服务器上的工作流文件",
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.weight(1f),
+                    "${fields.nodes.count { it.reachable }} 个会提交",
+                    style = MaterialTheme.typography.labelSmall,
                 )
-                Button(
-                    onClick = {
-                        when (val result = PromptBuilder.build(document, state.nodeInfo, overrides)) {
-                            is PromptBuild.Ready -> {
-                                if (result.warnings.isEmpty()) {
-                                    onSubmit(result.prompt.toString())
-                                } else {
-                                    pendingReady = result
+                Button(onClick = ::submit) { Text("提交任务") }
+            }
+        }
+    }
+
+    if (sheetVisible) {
+        ModalBottomSheet(
+            onDismissRequest = { sheetVisible = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        ) {
+            Text(
+                "全部节点",
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+            LazyColumn(modifier = Modifier.fillMaxHeight(0.75f)) {
+                items(fields.nodes, key = { it.id }) { node ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                expandedOverride = (expanded + node.id)
+                                tab = 0
+                                sheetVisible = false
+                                val index = fields.nodes.indexOfFirst { it.id == node.id }
+                                if (index >= 0) {
+                                    scope.launch { listState.animateScrollToItem(index) }
                                 }
                             }
-
-                            is PromptBuild.Blocked -> blockedProblems = result.problems
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "#${node.id} ${node.displayName}",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            Text(
+                                node.type,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                            )
                         }
-                    },
-                ) { Text("提交任务") }
+                        val stateLabel = when {
+                            node.missing -> "缺少定义"
+                            !node.reachable -> "不会提交"
+                            else -> "${node.fields.size} 个输入"
+                        }
+                        Text(stateLabel, style = MaterialTheme.typography.labelSmall)
+                    }
+                    HorizontalDivider()
+                }
             }
         }
     }
@@ -394,6 +457,7 @@ private fun DetailBody(
                         val json = ready.prompt.toString()
                         pendingReady = null
                         onSubmit(json)
+                        tab = 1
                     },
                 ) { Text("仍然提交") }
             },
@@ -405,55 +469,229 @@ private fun DetailBody(
 }
 
 @Composable
-private fun NodeCard(
+private fun TabButton(
+    text: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (selected) {
+        Button(onClick = onClick, modifier = modifier) { Text(text) }
+    } else {
+        OutlinedButton(onClick = onClick, modifier = modifier) { Text(text) }
+    }
+}
+
+@Composable
+private fun InputPane(
+    fields: com.comfypilot.core.workflow.WorkflowFieldView,
+    expanded: Set<Int>,
+    overrides: Map<Int, Map<String, JsonElement>>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    onToggle: (Int) -> Unit,
+    onOverride: (Int, String, JsonElement) -> Unit,
+    onPickImage: (WorkflowField) -> Unit,
+) {
+    if (fields.nodes.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            Text("这个工作流没有可编辑的节点输入。", style = MaterialTheme.typography.bodyMedium)
+        }
+        return
+    }
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(fields.nodes, key = { it.id }) { node ->
+            NodeInputCard(
+                node = node,
+                expanded = node.id in expanded,
+                overrides = overrides[node.id].orEmpty(),
+                onToggle = { onToggle(node.id) },
+                onChange = onOverride,
+                onPickImage = onPickImage,
+            )
+        }
+    }
+}
+
+@Composable
+private fun NodeInputCard(
     node: WorkflowNodeView,
+    expanded: Boolean,
     overrides: Map<String, JsonElement>,
+    onToggle: () -> Unit,
     onChange: (Int, String, JsonElement) -> Unit,
     onPickImage: (WorkflowField) -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(node.displayName, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                Text("#${node.id}", style = MaterialTheme.typography.labelSmall)
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggle)
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "#${node.id} ${node.displayName}",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        "${node.type} · ${node.fields.size} 个输入",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                }
+                Text(
+                    if (expanded) "收起" else "展开",
+                    style = MaterialTheme.typography.labelSmall,
+                )
             }
-            Text(
-                node.type,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-            )
+
             when {
                 node.missing -> Text(
                     "服务端没有该节点的定义，不能调参；提交会被拒绝。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 )
 
                 !node.reachable -> Text(
                     "未连接到输出节点，不会被提交。",
                     style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 )
             }
-            node.fields.forEach { field ->
-                FieldEditor(
-                    field = field,
-                    value = overrides[field.inputName] ?: field.value,
-                    editable = node.reachable,
-                    onPickImage = if (node.reachable && field.nodeType == "LoadImage" && field.inputName == "image") {
-                        { onPickImage(field) }
-                    } else {
-                        null
-                    },
-                    onChange = { value -> onChange(node.id, field.inputName, value) },
-                )
-            }
-            if (node.fields.isEmpty() && !node.missing) {
-                Text("没有可调参数。", style = MaterialTheme.typography.bodySmall)
+
+            if (expanded) {
+                Column(
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    node.fields.forEach { field ->
+                        FieldEditor(
+                            field = field,
+                            value = overrides[field.inputName] ?: field.value,
+                            editable = node.reachable,
+                            onPickImage = if (node.reachable && field.nodeType == "LoadImage" && field.inputName == "image") {
+                                { onPickImage(field) }
+                            } else {
+                                null
+                            },
+                            onChange = { value -> onChange(node.id, field.inputName, value) },
+                        )
+                    }
+                    if (node.fields.isEmpty()) {
+                        Text("没有可调参数。", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun PreviewPane(
+    state: SessionState,
+    onCancel: (String) -> Unit,
+    onTasks: () -> Unit,
+) {
+    val active = state.tasks.values.filter { it.isActive }.maxByOrNull { it.createdAtMs }
+    if (active != null) {
+        ActivePreview(task = active, preview = state.preview, onCancel = onCancel)
+        return
+    }
+
+    val latest = state.tasks.values.maxByOrNull { it.updatedAtMs }
+    if (latest == null) {
+        EmptyPreview()
+        return
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            "${taskStateLabel(latest.state)} · ${latest.progress?.percent ?: 0}%",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        val output = latest.outputs.firstOrNull { isImageFile(it.filename) }
+        val baseUrl = state.lease?.baseUrl
+        when {
+            output != null && baseUrl != null -> RemoteOutputImage(
+                url = ApiPaths.viewUrl(
+                    baseUrl,
+                    ViewRequest(output.filename, output.subfolder, output.type),
+                ),
+            )
+
+            latest.outputs.isNotEmpty() -> Text(
+                "产物：${latest.outputs.joinToString("、") { it.filename }}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+
+            latest.state is TaskState.Failed -> Text(
+                "任务失败：${(latest.state as TaskState.Failed).message ?: "未知原因"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+
+            else -> Text("当前没有正在执行的任务。", style = MaterialTheme.typography.bodySmall)
+        }
+        if (latest.outputs.isNotEmpty()) {
+            TextButton(onClick = onTasks) { Text("在任务页查看全部") }
+        }
+    }
+}
+
+@Composable
+private fun ActivePreview(
+    task: PromptTask,
+    preview: PreviewFrame?,
+    onCancel: (String) -> Unit,
+) {
+    val frame = preview?.takeIf { it.promptId == null || it.promptId == task.promptId }
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            "${taskStateLabel(task.state)} · ${task.progress?.percent ?: 0}%",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        val percent = task.progress?.percent ?: 0
+        if (task.state is TaskState.Running) {
+            LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth())
+        }
+        if (frame != null) {
+            LivePreviewImage(bytes = frame.image)
+        } else {
+            Text(
+                if (task.state is TaskState.Queued) "排队中，开始后显示采样画面" else "等待采样画面…",
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 24.dp),
+            )
+        }
+        task.promptId?.let { promptId ->
+            OutlinedButton(onClick = { onCancel(promptId) }) { Text("取消任务") }
+        }
+    }
+}
+
+@Composable
+private fun EmptyPreview() {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("还没有任务。", style = MaterialTheme.typography.bodyMedium)
+        Text("提交后在这里显示采样画面和结果。", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -462,7 +700,6 @@ private fun FieldEditor(
     field: WorkflowField,
     value: JsonElement?,
     editable: Boolean,
-    showNode: Boolean = false,
     onPickImage: (() -> Unit)? = null,
     onChange: (JsonElement) -> Unit,
 ) {
@@ -471,9 +708,8 @@ private fun FieldEditor(
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            val label = field.label ?: field.inputName
             Text(
-                if (showNode) "$label · #${field.nodeId}" else label,
+                field.label ?: field.inputName,
                 style = MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f),
             )

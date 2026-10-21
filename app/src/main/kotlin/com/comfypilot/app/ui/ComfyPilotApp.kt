@@ -88,10 +88,8 @@ fun ComfyPilotApp(
                 state = state,
                 onBack = { screen = Screen.Catalog },
                 onTasks = { screen = Screen.Tasks },
-                onSubmit = { workflowJson ->
-                    onSubmit(workflowJson)
-                    screen = Screen.Tasks
-                },
+                onSubmit = { workflowJson -> onSubmit(workflowJson) },
+                onCancel = onCancel,
             )
 
             Screen.Tasks -> TaskScreen(

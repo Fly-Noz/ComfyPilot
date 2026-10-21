@@ -24,6 +24,9 @@ sealed interface ApiCall {
     /** 只取工作流用到的节点定义：整份 `/object_info` 在装了大量自定义节点的机器上能有几 MB。 */
     data class FetchObjectInfo(val nodeClass: String) : ApiCall
 
+    /** 服务器内存/显存等基础状态；官方路由没有 CPU 利用率。 */
+    data object SystemStats : ApiCall
+
     class UploadImage(
         val filename: String,
         val subfolder: String,
@@ -48,6 +51,7 @@ object ApiPaths {
     const val UPLOAD_IMAGE = "/upload/image"
     const val USERDATA = "/userdata"
     const val OBJECT_INFO = "/object_info"
+    const val SYSTEM_STATS = "/system_stats"
 
     fun resolve(baseUrl: String, call: ApiCall, codec: ApiCodec = ApiCodec): ResolvedRequest {
         val base = baseUrl.trimEnd('/')
@@ -101,6 +105,13 @@ object ApiPaths {
             is ApiCall.FetchObjectInfo -> ResolvedRequest(
                 method = "GET",
                 url = base + OBJECT_INFO + "/" + percentEncode(call.nodeClass),
+                body = null,
+                contentType = null,
+            )
+
+            ApiCall.SystemStats -> ResolvedRequest(
+                method = "GET",
+                url = base + SYSTEM_STATS,
                 body = null,
                 contentType = null,
             )

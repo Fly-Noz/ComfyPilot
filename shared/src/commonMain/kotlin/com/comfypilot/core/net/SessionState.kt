@@ -30,6 +30,8 @@ data class SessionState(
     val nodeInfo: Map<String, NodeDefinition> = emptyMap(),
     /** 已发出过请求的类名：成功/失败都算，避免反复打服务端。 */
     val nodeInfoRequested: Set<String> = emptySet(),
+    /** 最近一帧采样预览；只在内存里，不落库、不进桥协议状态帧。 */
+    val preview: PreviewFrame? = null,
 ) {
     val lease: ConnectionLease? get() = phase.lease()
 
@@ -101,4 +103,12 @@ data class ReconcileSlot(
     val nextAttemptAtMs: Long? = null,
     val probe: HistoryProbe? = null,
     val lastError: String? = null,
+)
+
+/** 采样预览帧；[promptId] 为空表示旧格式，UI 只能挂到当前在跑的任务上。 */
+data class PreviewFrame(
+    val promptId: String?,
+    val nodeId: String?,
+    val image: ByteArray,
+    val receivedAtMs: Long,
 )

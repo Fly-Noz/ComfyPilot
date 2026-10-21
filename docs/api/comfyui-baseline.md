@@ -32,6 +32,7 @@
 | `/userdata?dir=workflows&recurse=true&full_info=true` | GET | `WorkflowEntry` | 列服务器已有工作流；兼容只返回路径字符串的旧服务端 |
 | `/userdata/{path}` | GET | `WorkflowDocument.raw` | 读取工作流原文；路径按段编码、保留 `/` |
 | `/object_info/{class}` | GET | `NodeDefinition` | 只取工作流用到的类；未知类返回 `{}` |
+| `/system_stats` | GET | `SystemStats` | 内存/显存总量与可用量；**没有 CPU/GPU 利用率** |
 
 ## 3. 响应样本
 
@@ -118,7 +119,7 @@
 | `executed` | `data.prompt_id`, `node`, `output` | 累积产物引用 |
 | `execution_error` | `data.prompt_id`, `node_id`, `exception_message` | 立即置失败（随后仍会被 /history 复核） |
 | `execution_interrupted` | `data.prompt_id` | 置取消 |
-| `b_preview` / `b_preview_with_metadata` | `data.node` | 忽略（二进制预览不参与状态） |
+| `b_preview` / `b_preview_with_metadata` | 二进制帧（type=1/4） | 采样画面预览；不改变任务真相 |
 | 其他 | — | `ComfyEvent.Unknown`，不崩溃 |
 
 ## 4. 已明确的不确定性（阶段二需用真实实例核对）
@@ -191,6 +192,16 @@
 响应 `{name, subfolder, type}`。`LoadImage.image` 控件要填服务器上的引用：
 有 `subfolder` 时是 `subfolder/name`，否则就是 `name`。上传本身不进入任务状态机，
 失败只影响当前字段，不会改动已有任务。
+
+### 5.5 服务器状态与采样预览
+
+- `GET /system_stats` 返回 `system.ram_total/ram_free` 与 `devices[].vram_total/vram_free`
+  等；客户端每 2s 轮询一次。官方路由**没有 CPU/GPU 利用率**，界面不伪造。
+- 采样预览是 WebSocket **二进制帧**：前 4 字节是大端事件类型；
+  `type=1` 后面直接是图片字节；`type=4` 再跟 4 字节大端 metadata 长度、
+  JSON metadata（`prompt_id` / `node_id`）和图片字节。客户端只解这两类。
+- 预览帧只进内存状态，不落库、不进 C ABI 状态帧；任务结束或换租约时清空，
+  完成后改从 `/view` 取最终产物。
 
 ## 6. 回归方式
 

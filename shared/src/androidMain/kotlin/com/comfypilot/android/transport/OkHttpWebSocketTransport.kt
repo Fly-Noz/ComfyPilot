@@ -9,6 +9,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
+import okio.ByteString
 import java.util.concurrent.TimeUnit
 import okhttp3.WebSocketListener as OkHttpListener
 
@@ -31,6 +32,10 @@ class OkHttpWebSocketTransport(
 
                     override fun onMessage(webSocket: WebSocket, text: String) {
                         listener.onText(text)
+                    }
+
+                    override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                        listener.onBinary(bytes.toByteArray())
                     }
 
                     override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {

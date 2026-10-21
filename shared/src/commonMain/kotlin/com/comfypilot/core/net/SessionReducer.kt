@@ -9,6 +9,7 @@ import com.comfypilot.core.api.QueueSnapshot
 import com.comfypilot.core.api.TaskOutput
 import com.comfypilot.core.event.ComfyEvent
 import com.comfypilot.core.event.EventDecoder
+import com.comfypilot.core.event.PreviewDecoder
 import com.comfypilot.core.reconcile.HistoryProbe
 import com.comfypilot.core.reconcile.ReconcileBudget
 import com.comfypilot.core.reconcile.ReconcileOutcome
@@ -43,6 +44,7 @@ class SessionReducer(
         is SessionInput.NetworkChanged -> onNetworkChanged(state, input)
         is SessionInput.SocketOpened -> onSocketOpened(state, input)
         is SessionInput.SocketText -> onSocketText(state, input)
+        is SessionInput.SocketBinary -> onSocketBinary(state, input)
         is SessionInput.SocketClosed -> onSocketLost(
             state, input.lease, input.nowMs, "连接关闭 code=${input.code} ${input.reason}", ReconnectCause.SOCKET_CLOSED,
         )
@@ -69,7 +71,7 @@ class SessionReducer(
 
     private fun onStop(state: SessionState, now: Long): ReduceResult {
         val effects = closeCurrent(state, "用户停止")
-        return ReduceResult(state.copy(phase = SessionPhase.Idle("已停止")), effects)
+        return ReduceResult(state.copy(phase = SessionPhase.Idle("已停止"), preview = null), effects)
     }
 
     private fun onUserReconnect(state: SessionState, now: Long): ReduceResult {
@@ -121,6 +123,7 @@ class SessionReducer(
             generation = generation,
             lastOnlineTransport = lastOnline,
             queue = null,
+            preview = null,
         )
 
         if (next.transport == NetworkTransport.NONE) {
@@ -149,7 +152,7 @@ class SessionReducer(
         if (phase.lease.leaseId != input.lease.leaseId) return ReduceResult(state)
 
         val effects = mutableListOf<SessionEffect>()
-        var next = state
+        var next = state.copy(preview = null)
 
         // 建连期间还在提交的任务：结果不可知，不能假装它成功或失败。
         state.tasks.values.filter { it.state is TaskState.Submitting }.forEach { draft ->
@@ -216,6 +219,7 @@ class SessionReducer(
                     startedAtMs = now,
                 ),
                 queue = null,
+                preview = null,
             ),
             listOf(
                 SessionEffect.CloseSocket(lease.leaseId, reason),
@@ -324,6 +328,31 @@ class SessionReducer(
         }
 
         return ReduceResult(next, effects)
+    }
+
+    /**
+     * 采样预览是"活着"的额外信号：只更新内存里的任务与预览帧，不落库
+     * （预览每秒可能好几帧，写存储在手机上不划算）。
+     */
+    private fun onSocketBinary(state: SessionState, input: SessionInput.SocketBinary): ReduceResult {
+        if (!isCurrent(state, input.lease)) return ReduceResult(state)
+        val decoded = PreviewDecoder.decode(input.bytes) ?: return ReduceResult(state)
+        val promptId = decoded.promptId ?: state.activeTasks.firstOrNull()?.promptId ?: return ReduceResult(state)
+        val task = findTask(state, promptId) ?: return ReduceResult(state)
+        if (task.isTerminal) return ReduceResult(state)
+
+        val touched = task.copy(lastProgressAtMs = input.nowMs, updatedAtMs = input.nowMs)
+        return ReduceResult(
+            state.copy(
+                tasks = state.tasks + (touched.id to touched),
+                preview = PreviewFrame(
+                    promptId = promptId,
+                    nodeId = decoded.nodeId,
+                    image = decoded.image,
+                    receivedAtMs = input.nowMs,
+                ),
+            ),
+        )
     }
 
     // ---------------------------------------------------------------- http
@@ -548,7 +577,11 @@ class SessionReducer(
             updatedAtMs = input.nowMs,
         )
         return ReduceResult(
-            state.copy(tasks = state.tasks + (draftId to draft), nextDraftId = state.nextDraftId + 1),
+            state.copy(
+                tasks = state.tasks + (draftId to draft),
+                nextDraftId = state.nextDraftId + 1,
+                preview = null,
+            ),
             listOf(
                 SessionEffect.Persist(draft),
                 SessionEffect.SendHttp(
@@ -834,7 +867,11 @@ class SessionReducer(
             updatedAtMs = now,
         )
         effects += SessionEffect.Persist(updated)
-        var next = state.copy(tasks = state.tasks + (updated.id to updated))
+        var next = state.copy(
+            tasks = state.tasks + (updated.id to updated),
+            // 完成/失败后预览帧就过期了；别的任务还在跑时保留它。
+            preview = state.preview?.takeIf { it.promptId != null && it.promptId != promptId },
+        )
         next = removeSlot(next, promptId, now, effects)
         return ReduceResult(next, effects)
     }
@@ -929,6 +966,7 @@ class SessionReducer(
             phase = SessionPhase.Connecting(lease, attempt, now),
             nextLeaseId = leaseId + 1,
             queue = null,
+            preview = null,
         )
         return ReduceResult(next, listOf(SessionEffect.OpenSocket(lease)))
     }

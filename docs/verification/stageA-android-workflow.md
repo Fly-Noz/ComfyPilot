@@ -1,5 +1,8 @@
 # 阶段 A · S3/S4/S5 Android 工作流、上传与产物验证（mock）
 
+> 注：本文记录的是详情页改版前（S3–S5）的界面；改版后的统计条、节点分组与实时预览
+> 见 [`stageA-detail-layout.md`](stageA-detail-layout.md)。
+
 日期：2026-10-21
 
 ## 范围

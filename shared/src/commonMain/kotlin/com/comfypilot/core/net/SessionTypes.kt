@@ -15,6 +15,9 @@ sealed interface SessionInput {
 
     data class SocketText(val lease: ConnectionLease, val text: String, val nowMs: Long) : SessionInput
 
+    /** ComfyUI 的二进制采样预览帧。 */
+    data class SocketBinary(val lease: ConnectionLease, val bytes: ByteArray, val nowMs: Long) : SessionInput
+
     data class SocketClosed(
         val lease: ConnectionLease,
         val code: Int,

@@ -25,6 +25,12 @@ const HOST = process.env.HOST || '0.0.0.0'
 
 const WORKFLOW_DIR = nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), 'workflows')
 
+/** 1x1 红色 PNG：既给 /view，也给采样预览帧用。 */
+const PREVIEW_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+)
+
 /** 与真实服务端 `/object_info` 同构的最小节点定义。 */
 const OBJECT_INFO = {
   CheckpointLoaderSimple: {
@@ -197,6 +203,21 @@ function broadcast(message) {
   }
 }
 
+/** 采样预览走二进制帧：4 字节事件类型 + 4 字节 metadata 长度 + JSON + 图片。 */
+function previewFrame(promptId) {
+  const meta = Buffer.from(JSON.stringify({ prompt_id: promptId, node_id: '3' }))
+  const head = Buffer.alloc(8)
+  head.writeUInt32BE(4, 0) // BinaryEventTypes.PREVIEW_IMAGE_WITH_METADATA
+  head.writeUInt32BE(meta.length, 4)
+  return Buffer.concat([head, meta, PREVIEW_PNG])
+}
+
+function broadcastBinary(payload) {
+  for (const ws of sockets) {
+    if (ws.readyState === ws.OPEN) ws.send(payload)
+  }
+}
+
 function queueRows(map) {
   return [...map.entries()].map(([id, job]) => [job.number, id, {}, {}, []])
 }
@@ -324,6 +345,7 @@ function startJob(promptId, job) {
         max: job.max,
       },
     })
+    broadcastBinary(previewFrame(promptId))
     if (job.progress >= job.max) {
       finishJob(promptId, job)
     } else {
@@ -377,6 +399,7 @@ const server = http.createServer(async (req, res) => {
     else if (path === '/userdata') hit('userdata')
     else if (path.startsWith('/userdata/')) hit('workflow')
     else if (path.startsWith('/object_info/')) hit('object_info')
+    else if (path === '/system_stats') hit('system')
 
     if (req.method === 'POST' && path === '/prompt') {
       const raw = await readBody(req)
@@ -410,6 +433,29 @@ const server = http.createServer(async (req, res) => {
       })
     }
 
+    // 与真实 ComfyUI 同构；故意不提供 CPU/GPU 利用率（官方路由也没有）。
+    if (req.method === 'GET' && path === '/system_stats') {
+      return sendJson(res, 200, {
+        system: {
+          os: 'posix',
+          ram_total: 32 * 1024 ** 3,
+          ram_free: 12 * 1024 ** 3,
+          comfyui_version: 'mock-0.3',
+          python_version: '3.12',
+          pytorch_version: '2.6',
+        },
+        devices: [
+          {
+            name: 'Mock GPU',
+            type: 'cuda',
+            index: 0,
+            vram_total: 24 * 1024 ** 3,
+            vram_free: 8 * 1024 ** 3,
+          },
+        ],
+      })
+    }
+
     if (req.method === 'GET' && path.startsWith('/history/')) {
       const promptId = decodeURIComponent(path.slice('/history/'.length))
       const entry = history.get(promptId)
@@ -425,11 +471,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && path === '/view') {
-      // 1x1 透明 PNG，足够验证"接续方从服务端取图"的链路
-      const png = Buffer.from(
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-        'base64',
-      )
+      // 1x1 红色 PNG，足够验证"接续方从服务端取图"的链路
+      const png = PREVIEW_PNG
       res.writeHead(200, { 'content-type': 'image/png', 'content-length': png.length })
       return res.end(png)
     }

@@ -27,4 +27,7 @@ object ApiCodec {
 
     fun decodeUploadImage(text: String): UploadImageResponse =
         json.decodeFromString(UploadImageResponse.serializer(), text)
+
+    fun decodeSystemStats(text: String): SystemStats =
+        json.decodeFromString(SystemStats.serializer(), text)
 }

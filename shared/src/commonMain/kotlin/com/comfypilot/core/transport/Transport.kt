@@ -32,6 +32,10 @@ interface HttpTransport {
 interface WebSocketListener {
     fun onOpen()
     fun onText(text: String)
+
+    /** 二进制帧（ComfyUI 的采样预览）；不关心的实现可以不覆盖。 */
+    fun onBinary(bytes: ByteArray) {}
+
     fun onClosed(code: Int, reason: String)
     fun onFailure(message: String)
 }
