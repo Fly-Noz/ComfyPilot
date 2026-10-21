@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "ComfyPilot"
 
 include(":shared")
+include(":app")

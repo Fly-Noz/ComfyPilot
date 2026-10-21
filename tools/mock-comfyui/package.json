@@ -1,0 +1,13 @@
+{
+  "name": "mock-comfyui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "ComfyPilot 阶段一联调用的最小 ComfyUI 兼容服务（HTTP + WebSocket）",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

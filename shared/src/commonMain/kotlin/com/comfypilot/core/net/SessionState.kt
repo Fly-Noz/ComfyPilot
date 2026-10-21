@@ -1,0 +1,93 @@
+package com.comfypilot.core.net
+
+import com.comfypilot.core.api.QueueSnapshot
+import com.comfypilot.core.reconcile.HistoryProbe
+import com.comfypilot.core.task.PromptTask
+import com.comfypilot.core.task.TaskId
+
+/**
+ * 连接状态是枚举化的：没有任何 isConnected / isReconnecting 布尔位。
+ * 网络纪元 (generation) 与连接租约 (lease) 都挂在状态上，UI 读到的永远是一致快照。
+ */
+data class SessionState(
+    val generation: Long = 0,
+    val network: NetworkInfo = NetworkInfo.UNKNOWN,
+    /** 最近一次"在线"的网络类别；用来区分"同类恢复"与"WiFi <-> 蜂窝切换"。 */
+    val lastOnlineTransport: NetworkTransport = NetworkTransport.NONE,
+    val phase: SessionPhase = SessionPhase.Idle("尚未启动"),
+    val tasks: Map<TaskId, PromptTask> = emptyMap(),
+    val queue: QueueSnapshot? = null,
+    val nextLeaseId: Long = 1,
+    val nextDraftId: Long = 1,
+) {
+    val lease: ConnectionLease? get() = phase.lease()
+
+    val activeTasks: List<PromptTask> get() = tasks.values.filter { it.needsReconcile }
+
+    val connectionLabel: String
+        get() = when (phase) {
+            is SessionPhase.Idle -> "未连接"
+            is SessionPhase.Connecting -> "连接中"
+            is SessionPhase.Connected -> "已连接"
+            is SessionPhase.Reconnecting -> "重连中"
+            is SessionPhase.Recovering -> "对齐中"
+        }
+}
+
+sealed interface SessionPhase {
+    fun lease(): ConnectionLease? = when (this) {
+        is Connecting -> lease
+        is Connected -> lease
+        is Recovering -> lease
+        is Idle, is Reconnecting -> null
+    }
+
+    data class Idle(val reason: String) : SessionPhase
+
+    data class Connecting(
+        val lease: ConnectionLease,
+        val attempt: Int,
+        val startedAtMs: Long,
+    ) : SessionPhase
+
+    data class Connected(
+        val lease: ConnectionLease,
+        val sinceMs: Long,
+    ) : SessionPhase
+
+    data class Reconnecting(
+        val attempt: Int,
+        val nextAttemptAtMs: Long,
+        val cause: ReconnectCause,
+        val lastLeaseId: Long?,
+        val startedAtMs: Long,
+    ) : SessionPhase
+
+    /** 连接已建立，但仍有任务需要 /history + /queue 对账。 */
+    data class Recovering(
+        val lease: ConnectionLease,
+        val pending: Map<String, ReconcileSlot>,
+        val queueSeen: Boolean,
+        val totalCount: Int,
+        val queueRequestedAtMs: Long,
+    ) : SessionPhase
+}
+
+enum class ReconnectCause {
+    NETWORK_LOST,
+    NETWORK_SWITCHED,
+    SOCKET_CLOSED,
+    SOCKET_FAILED,
+    CONNECT_TIMEOUT,
+    PROGRESS_TIMEOUT,
+    USER_REQUEST,
+}
+
+data class ReconcileSlot(
+    val promptId: String,
+    val startedAtMs: Long,
+    val attempts: Int = 0,
+    val nextAttemptAtMs: Long? = null,
+    val probe: HistoryProbe? = null,
+    val lastError: String? = null,
+)
