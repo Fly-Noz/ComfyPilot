@@ -3,8 +3,15 @@
 这是鸿蒙侧的 DevEco 工程：一个 ArkTS 页面 + 一个 C++ NAPI 模块，调用
 `ohos/` 编出来的 Kotlin 共享层 `.so`。
 
-当前只验证**共享层能在真机加载、状态机自检能跑**（见
-`../docs/verification/stage2-harmony-build.md`）。网络、任务提交、后台任务都还没有接。
+当前状态分两层，别混着说：
+
+| 层级 | 状态 |
+|---|---|
+| 构建级 | 通过：共享层自检、会话桥、HAP 都能编出来 |
+| 真机级 | **只有**"共享层加载 + 纯逻辑自检"在 Pura 70 Pro+ 上跑过；会话联调还没上真机 |
+
+真机自检结论见 `../docs/verification/stage2-harmony-build.md`。
+网络、任务提交、后台长任务在真机上**尚未验证**。
 
 ## 构建与安装
 
@@ -40,14 +47,15 @@ cd harmony
 
 - bundle 名（`AppScope/app.json5`）必须和 profile 里的 bundle 名一致，
   当前是 `com.fly.comfypilot`；改名要重新生成自动签名。
-- profile 只对生成时选的 bundle 生效，抄别人的 `.p7b` 一定会失败。
+- profile 只对生成时选的那个 bundle 生效，抄别人的 `.p7b` 一定会失败。
 - Debug profile 有有效期，过期后重新生成即可。
 
 ## 目录
 
 ```
 entry/src/main/
-  ets/pages/Index.ets          # 唯一页面：版本 + 自检结果
+  ets/bridge/ComfyBridge.ets   # 宿主循环：pump + 执行 http/ws/persist/notice
+  ets/pages/Index.ets          # 联调页：地址、连接、提交、任务列表、日志
   cpp/napi_init.cpp            # NAPI 模块，转发到 Kotlin C ABI
   cpp/CMakeLists.txt           # 链接 libcomfypilot_core.so
   cpp/types/libentry/          # ArkTS 侧类型声明
@@ -57,19 +65,56 @@ entry/src/main/
 
 ## Kotlin 与 ArkTS 的边界
 
-Kotlin 侧导出的是 C ABI，不是 NAPI：
+**Kotlin 拥有策略与调度，ArkTS 拥有系统调用。** 具体到这一版：
+
+- Kotlin 决定"要做什么"：发哪个 HTTP、开哪个 WebSocket、什么时候重连、任务算不算完成；
+- ArkTS 只负责"怎么做"：`@ohos.net` 的 `http` / `webSocket` / `connection`；
+- 两边只通过 JSON 帧通信，没有共享对象。
+
+C ABI（`ohosArm64Main/.../SessionAbi.kt`）：
 
 | C ABI | 说明 |
 |---|---|
-| `cp_version()` | 共享层 ABI 版本 |
-| `cp_self_test_json(buffer, capacity)` | 跑纯逻辑自检，UTF-8 JSON 写入调用方缓冲区，返回字节数 |
+| `cp_version()` | ABI 版本，2 起有会话接口 |
+| `cp_self_test_json(buffer, capacity)` | 纯逻辑自检，UTF-8 JSON 写入调用方缓冲区 |
+| `cp_session_create(configJson)` | 建会话（配置：`baseUrl` 等），1 成功 |
+| `cp_session_pump(nowMs, buffer, capacity)` | **推进到 nowMs**，返回一帧 JSON |
+| `cp_session_send(json)` | 回投宿主消息（IO 结果、网络变化、提交请求） |
+| `cp_session_destroy()` | 关会话 |
 
 字符串由调用方提供缓冲区，Kotlin 只写入并返回长度，**跨语言边界没有内存所有权转移**。
-NAPI 层（`napi_init.cpp`）负责把 C 字符串转成 JS 字符串。
+NAPI 层负责 C 字符串 ↔ JS 字符串，并在帧超出初始缓冲区时扩容重取；Kotlin 侧对
+同一个 `nowMs` 有帧缓存，所以重取不会重复推进状态机。
+
+`cp_session_*` 会兜住 Kotlin 异常并返回 `{"revision":-1,...,"error":"..."}`：
+异常穿过 NAPI 边界会直接 abort 进程，宁可让上层看到错误。
+
+### 为什么是 pump，不是回调
+
+Kotlin 不在自己的线程里跑：宿主按自己的节奏 `pump(nowMs)`，Kotlin 把到期的定时器、
+协程队列一口气跑完，然后交出一帧命令。好处是：
+
+- 没有跨线程回调，状态机是单线程序列化的，好复现；
+- 所有超时/退避都由宿主喂进来的时间决定，单测里可以直接"快进"；
+- **宿主不 pump，会话就静止**——系统冻结应用时，语义天然就是"暂停监控"。
+
+### 后台冻结
+
+产品承诺是"后台可能暂停监控，回来自动同步"，这句话在 `SessionHost.pump` 里落地：
+如果两次 pump 的间隔超过 `freezeGapMs`（默认 `max(2s, 4×tick)`），这段空档不算
+"在监控"，会从逻辑时间里扣掉。于是回到前台时：
+
+- 进度看门狗不会把我们自己冻结的时间算成 ComfyUI 静默；
+- 对账预算（`reconcileWindowMs`）不会被冻结耗光，任务不会被误判成 `Unknown`；
+- 退避不会被跳过，也不会因为"欠了很多定时器"一次爆发多次重连。
+
+对应的断言在 `shared/src/commonTest/.../host/SessionHostFreezeTest.kt`。
 
 ## 尚未完成
 
-- HTTP / WebSocket 传输（ArkTS `@ohos.net` 通过 NAPI 回调喂给 Kotlin）
-- 时钟、任务存储、网络监视器的 `ohosArm64Main` 实现
-- 前台长任务 / 后台暂停语义（文案须为“后台可能暂停监控，回来自动同步”）
-- 阶段一四个场景在鸿蒙上的真机复现
+- 真机上跑通阶段一的四个场景（连接/提交/完成、`history_error` 立即失败、
+  `silent` 看门狗、ComfyUI 重启后任务 `Unknown` 不重投）——设备掉线，未验证
+- RDB 持久化（现在只有内存存储 + `persist` 命令日志，重启即丢）
+- 前台长任务 / 实况窗（需要 `backgroundTaskManager` 与通知权限）
+- 后台保活的电量策略与用户可见开关
+- 重装/杀进程后的任务恢复（依赖上一条的持久化）

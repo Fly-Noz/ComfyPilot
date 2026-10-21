@@ -42,10 +42,15 @@ class SessionHost(
     private val config: SessionConfig,
     initialTasks: List<PromptTask> = emptyList(),
     private val pollIntervalHintMs: Long = 250,
+    /** 超过这个空档就认为宿主被冻结了，而不是"监控中过去了这么久"。 */
+    private val freezeGapMs: Long = maxOf(2_000L, config.tickIntervalMs * 4),
 ) {
     private val dispatcher = PumpDispatcher()
     private val scope = CoroutineScope(dispatcher + SupervisorJob())
     private var clockNowMs = 0L
+    /** 宿主被冻结的总时长；逻辑时间 = 墙上时间 - 这个偏移。 */
+    private var logicalOffsetMs = 0L
+    private var lastPumpWallMs: Long? = null
     private val clock = object : TimeSource {
         override fun nowMillis(): Long = clockNowMs
     }
@@ -114,11 +119,26 @@ class SessionHost(
     /**
      * 推进到 [nowMs]：先跑到期定时器与协程队列，再产出一帧。
      * 返回值是 JSON 字符串，直接交给宿主解析。
+     *
+     * 宿主被系统冻结时不会调用本函数，所以恢复后的第一个时间戳会跳得很远。
+     * 这段空档不算"在监控"：把它从逻辑时间里扣掉，否则一回到前台，
+     * 进度看门狗就会把我们自己冻结的时间当成 ComfyUI 静默，误判超时。
      */
     fun pump(nowMs: Long): String {
-        clockNowMs = nowMs
-        dispatcher.pump(nowMs)
-        return renderFrame(nowMs)
+        val previous = lastPumpWallMs
+        if (previous != null) {
+            val gap = nowMs - previous
+            // 只有明显超出正常节奏的空档才算冻结；偶尔一两拍的迟到按正常时间处理。
+            // 系统时间被往回调时（gap < 0）也不能让逻辑时间倒流，否则定时器会卡住。
+            if (gap > freezeGapMs || gap < 0) {
+                logicalOffsetMs += gap
+            }
+        }
+        lastPumpWallMs = nowMs
+        val logicalNow = nowMs - logicalOffsetMs
+        clockNowMs = logicalNow
+        dispatcher.pump(logicalNow)
+        return renderFrame(logicalNow)
     }
 
     /**
