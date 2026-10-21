@@ -1,6 +1,6 @@
 # 阶段二 · 鸿蒙构建与真机自检
 
-日期：2026-10-21（会话桥与后台冻结语义为同日追加）
+日期：2026-10-21（会话桥、后台冻结语义、真机四场景均为同日追加）
 
 ## 结论
 
@@ -10,11 +10,13 @@
    115 个 JVM 测试全绿（含桥协议、冻结语义、重启恢复）。
    其中 4 个是端到端测试：用 JVM 版宿主执行器真的发 HTTP、真的握 WebSocket，
    对端是 `tools/mock-comfyui`，把阶段一的四个场景跑了一遍。
-2. **真机级**：只验证过“共享层能在真机加载、纯逻辑自检能跑通”。
-   会话联调（网络 / WebSocket / 任务）**尚未上真机**——设备在开发过程中掉线
-   （`hdc list targets -v` 返回 `[Empty]`），不是“没时间跑”。
+2. **真机级**：`cp_version() == 2` 的 HAP 在 Pura 70 Pro+ 上跑通了会话联调——
+   ArkTS 宿主循环、`@ohos.net` 的 HTTP/WebSocket、`/history` 三分类、
+   `/queue` 兜底、120s 进度看门狗重连、服务端丢任务后判 `Unknown` 且不重投。
+   四个场景逐条有 hilog 与 mock 计数器作为证据（见下）。
 
-所以现在的准确说法是：**桥协议本身可用（JVM 宿主验证），ArkTS 宿主与真机未验证**。
+仍然**没有**真机验证的：ArkTS 侧 RDB 持久化、切前后台的冻结检测、
+WiFi↔蜂窝切换时 `generation` 递增（该机 `gsm.sim.state = ABSENT`，只能单测）。
 
 ```
 shared/src/commonMain (Kotlin)
@@ -31,7 +33,7 @@ shared/src/commonMain (Kotlin)
 | 系统 | HarmonyOS 7.0.0.109，API 26 |
 | hdc 序列号 | `33Z0224613077036` |
 | bundle 名 | `com.fly.comfypilot` |
-| HAP | `entry-default-signed.hap`，约 6.6 MB（v1 自检版） |
+| HAP | `entry-default-signed.hap`，约 6.7 MB（v2，含会话桥） |
 
 bundle 名由 DevEco 自动签名流程确定（AGC 中的应用标识），不是最初计划的
 `com.comfypilot.harmony`。签名 profile 里的 bundle 名与 `AppScope/app.json5`
@@ -65,7 +67,7 @@ T cp_session_send
 T cp_version
 ```
 
-### 真机级（仅限 v1 自检版）
+### 真机级 · 共享层自检（v1，历史记录）
 
 | 项 | 证据 |
 |---|---|
@@ -82,19 +84,88 @@ T cp_version
 
 截图（本地生成，不入库）：`artifacts/ohos-selftest.jpeg`。
 
-注意：这次真机运行的是 `cp_version() == 1` 的 HAP，**不含会话桥**。当前仓库里的
-HAP 是 `cp_version() == 2`，只做过构建级验证。
+### 真机级 · 会话联调（v2，本次）
+
+这一轮跑的是 `cp_version() == 2` 的 HAP：ArkTS `ComfyBridge` 按 500ms 调
+`cp_session_pump`，`@ohos.net` 真发 HTTP、真握 WebSocket，对端是开发机上的
+`tools/mock-comfyui`，手机通过 `hdc rport tcp:18188 tcp:8188` 访问。
+页面只保留连接/断开/提交与任务列表，手机不联网也能跑（走 rport）。
+
+| 场景 | 真机结果 | 证据 |
+|---|---|---|
+| `normal` | 任务 `Completed`，100%，产物 1 | UI `Completed · 100% · 产物 1`；mock `hits={prompt:1, history:1}` |
+| `history_error` | 任务 `Failed`，只查一次 `/history` | UI `Failed · 0% · 产物 0`；mock `hits={prompt:1, history:1}`（无重试） |
+| `silent` | 120s 后看门狗重连，对账后仍 `Running`，未重投 | 最后一次进度 19:51:24 → 19:53:24 `phase=Reconnecting` + `ws.close` → 19:53:26 `ws.open`、`Recovering`，`GET /queue`、`GET /history/<id>` → `Connected` 且 `Running:1`；mock `hits={prompt:1, queue:1, history:1}` |
+| `lost` | 任务被判 `Unknown`，没有二次提交 | 提交后 mock 立即从队列丢掉（`hits={prompt:1}`）→ 掐断 WS 模拟 ComfyUI 重启 → 重连对账 `GET /queue`、`GET /history/<id>`（空）→ UI `Unknown · 0%`；最终 `hits={prompt:1, queue:1, history:1}` |
+
+`silent` 的 hilog 原文（节选，`A03D00/com.fly.comfypilot/JSAPP`）：
+
+```
+19:51:24.612 CP> frame rev=55 phase=Connected tasks=Completed:100,Failed:0,Running:1
+19:51:24.612 CP> cmd persist task=Running
+19:53:24.566 CP> frame rev=58 phase=Reconnecting tasks=Completed:100,Failed:0,Running:1
+19:53:24.568 CP> cmd notice
+19:53:24.570 CP> cmd ws.close
+19:53:26.098 CP> frame rev=60 phase=Connecting ...
+19:53:26.101 CP> cmd ws.open
+19:53:26.168 CP> frame rev=63 phase=Recovering ...
+19:53:26.234 CP> http GET http://127.0.0.1:18188/queue -> 200 len=90
+19:53:26.236 CP> http GET http://127.0.0.1:18188/history/57e1fe54-... -> 200 len=2
+19:53:26.268 CP> frame rev=66 phase=Connected tasks=Completed:100,Failed:0,Running:1
+```
+
+最后一次进度（19:51:24）到看门狗触发（19:53:24）恰好 120.0s，说明
+`progressSilenceMs` 确实传到了共享层；对账后任务仍是 `Running`、`hits.prompt`
+始终是 1，说明没有走重投分支。
+预算翻倍（120s → 240s）在状态帧里不可见，这一条只有 `BridgeEndToEndTest` 的断言作证。
+
+`lost` 的 hilog 原文（节选）：
+
+```
+19:54:52.247 CP> cmd ws.close          # 服务端掐断（/mock/drop-sockets）
+19:54:53.350 CP> frame rev=92 phase=Connecting tasks=...Unknown:1,Queued:0
+19:54:53.413 CP> frame rev=95 phase=Recovering ...
+19:54:53.427 CP> http GET .../queue -> 200 len=39
+19:54:53.434 CP> http GET .../history/6d14cbac-... -> 200 len=2
+19:54:53.461 CP> frame rev=99 phase=Connected tasks=...Unknown:1,Unknown:0
+19:54:53.462 CP> cmd notice            # task_lost
+```
+
+另有一次**非计划内**的真实重启：排查过程中重启了 mock 进程，旧连接被掐断，
+客户端把上一个仍在 `Running` 的任务对账成 `Unknown`，新进程的 `hits` 里没有 `prompt`——
+相当于“ComfyUI 重启后不自动重投”的现场验证。
+
+截图（本地生成，不入库）：`artifacts/ohos-four-scenarios.jpeg`（四个任务并列：
+`Completed` / `Failed` / `Unknown` / `Unknown`）。
+
+#### 真机联调发现并修掉的两个 bug
+
+1. **`ComfyBridge.start()` 从来没发 `{"t":"start"}`**。`cp_session_create` 只把状态机装好，
+   真正让 `SessionRuntime.connect()` 跑起来的是这条消息；缺了它页面永远停在
+   `未连接 · 第 0 代`，而 HTTP/WS 一个请求都不会发。JVM 端到端测试用宿主执行器直接
+   调 `deliver(start)`，绕过了 ArkTS 宿主，所以只有真机能暴露。
+2. **任务行永远停在第一次渲染的状态**。`ForEach` 的 key 生成器只用了 `task.id`，
+   ArkUI 认为 key 没变就不重建子项，于是共享层已经 `Completed:100`，界面还写着
+   `Queued · 0%`。hilog 里 `ForEachNode skip mark dirty. Ids.size[...]` 是同一个现象。
+   改成 `${task.id}:${state}:${percent}:${outputs}` 的组合 key 后立刻正常。
+
+第一条也说明为什么“JVM 全绿”不能代替真机：宿主边界（谁负责发哪条消息）不在共享层里。
+
+#### 真机联调的坑
+
+`hdc rport` 不是永久的。中途 hdc 服务重启后转发规则消失，设备侧直接
+`ECONNREFUSED`，而应用只会显示“重连中 · 第 1 代”。`hdc fport ls` 为空即中招，
+重新执行 `hdc rport tcp:18188 tcp:8188` 即可。hilog 里对应
+`Lws client connection error conn fail: ECONNREFUSED`。
 
 ## 未验证
 
-- 会话桥在真机上跑通（`cp_session_pump` → NAPI → ArkTS → 回投）——JVM 宿主已跑通，ArkTS 宿主没有
-- ArkTS `@ohos.net` 的 HTTP / WebSocket 实际收发（只在构建级确认能编译）
-- ArkTS 侧 RDB 读写（共享侧的快照 schema 与恢复规则已有单测，数据库本身还没实现）
-- 任务提交、`/history` 三分类、`/queue` 兜底在 **ArkTS 宿主**上的表现（JVM 宿主已覆盖）
-- 断线重连、退避、进度看门狗在真机上的行为
-- 前台 ↔ 背景切换时的冻结检测（逻辑有单测，真机未跑）
-- 阶段一的四个连接场景在鸿蒙上的复现
-- `generation` 在真机网络切换时的行为（Android 侧也仅单测）
+- ArkTS 侧 RDB 读写（共享侧的快照 schema 与恢复规则已有单测，数据库本身还没实现；
+  真机重启后任务列表目前会清空）
+- 前台 ↔ 背景切换时的冻结检测在真机上的表现（逻辑有 4 个单测）
+- `generation` 在 WiFi↔蜂窝切换时递增（该机没有 SIM，`gsm.sim.state = ABSENT`）
+- `silent` 场景里“静默预算翻倍到 240s”的现场观察（状态帧不暴露预算）
+- 后台长任务 / 实况窗（`backgroundTaskManager`、通知权限）
 
 这些在 `harmony/README.md` 的“尚未完成”里也列了，不能当成已完成。
 
@@ -214,12 +285,14 @@ bundle 名从 `AppScope/app.json5` 读取，不写死。
 
 ## 下一步
 
-设备恢复后按这个顺序：
+四个场景已经在真机上过了，接下来按这个顺序：
 
-1. `hdc rport tcp:18188 tcp:8188`，让手机访问开发机的 mock ComfyUI；
-2. `cd harmony; .\install.ps1`，页面填 `http://127.0.0.1:18188`；
-3. 跑阶段一的四个场景：连接/提交/完成、`history_error` 立即失败、`silent` 看门狗、
-   ComfyUI 重启后任务 `Unknown` 且不重投；
-4. 切前后台，确认冻结检测在真机上按预期工作（不误报超时、回来能补对账）；
-5. 以上都过了，再补 RDB 持久化与前台长任务/实况窗（需要 `backgroundTaskManager`
-   与通知权限）。
+1. ArkTS 侧 RDB 持久化：把 `persist` / `persist.remove` 命令真正写库，启动时用
+   `restoredTasksFromJson` 送回去（共享层 schema 已经就绪，只差宿主这一半）；
+2. 切前后台验证冻结检测：页面把逻辑时间与看门狗预算显示出来，切出去几分钟再回来，
+   确认不误报超时、且能补对账；
+3. 前台长任务 / 实况窗：需要 `backgroundTaskManager` 与通知权限，文案保持
+   “后台可能暂停监控，回来自动同步”，不要说“实时监控”；
+4. 拿到有 SIM 的设备后补 WiFi↔蜂窝的 `generation` 递增验证（当前只有单测）。
+
+复现四个场景时注意：`hdc rport` 每次 hdc 服务重启都会丢，先 `hdc fport ls` 确认。

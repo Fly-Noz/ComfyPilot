@@ -7,11 +7,11 @@
 
 | 层级 | 状态 |
 |---|---|
-| 构建级 | 通过：共享层自检、会话桥、HAP 都能编出来 |
-| 真机级 | **只有**"共享层加载 + 纯逻辑自检"在 Pura 70 Pro+ 上跑过；会话联调还没上真机 |
+| 构建级 | 通过：共享层自检、会话桥、HAP 都能编出来，115 个 JVM 测试全绿 |
+| 真机级 | 通过：自检、ArkTS 宿主循环、HTTP/WebSocket、四个连接场景（`normal` / `history_error` / `silent` / `lost`） |
 
-真机自检结论见 `../docs/verification/stage2-harmony-build.md`。
-网络、任务提交、后台长任务在真机上**尚未验证**。
+四个场景的真机证据（hilog + mock 计数器）见 `../docs/verification/stage2-harmony-build.md`。
+仍未真机验证的是：RDB 持久化、切前后台的冻结检测、WiFi↔蜂窝切换的 `generation` 递增。
 
 ## 构建与安装
 
@@ -33,6 +33,48 @@ cd harmony
 
 > PowerShell 5.1 下这些脚本必须是纯 ASCII：无 BOM 的 UTF-8 会被当成 ANSI 读，
 > 中文注释会破坏变量（曾经把 `OHOS_SDK_HOME` 设成空串）。
+
+## 真机联调
+
+联调页默认连 `http://127.0.0.1:18188`，这个端口由 `hdc rport` 转到开发机的
+`tools/mock-comfyui`（8188）：
+
+```powershell
+hdc rport tcp:18188 tcp:8188    # hdc 服务重启后必须重做
+hdc fport ls                    # 空列表 = 转发已经丢了
+```
+
+转发丢了的表现是设备侧 `ECONNREFUSED`，页面只有"重连中 · 第 N 代"，
+hilog 里是 `Lws client connection error conn fail: ECONNREFUSED`。
+
+mock 的场景与计数器：
+
+```powershell
+$m = "http://127.0.0.1:8188"
+Invoke-RestMethod "$m/mock/reset" -Method Post -Body "{}" -ContentType "application/json"
+Invoke-RestMethod "$m/mock/scenario" -Method Post -Body '{"scenario":"silent"}' -ContentType "application/json"
+Invoke-RestMethod "$m/mock/state"       # sockets / hits / pending / running / history
+Invoke-RestMethod "$m/mock/drop-sockets" -Method Post -Body "{}" -ContentType "application/json"
+```
+
+`/mock/drop-sockets` 只掐断 WebSocket，不清 jobs/history/hits，用来模拟
+"ComfyUI 进程重启"——这样对账前后的 `hits.prompt` 才能在同一个进程里对比。
+
+`ComfyBridge.ets` 里的 `CP_TRACE` 打开时，每帧状态、每条命令、每次 WS/HTTP 往返
+都会打一行 `CP>` 到 hilog：
+
+```powershell
+hdc shell "hilog -x" | Select-String "CP>"
+```
+
+真机上有用的几条：
+
+```powershell
+hdc shell uitest dumpLayout -p /data/local/tmp/layout.json   # 拿控件坐标
+hdc shell uitest uiInput click 237 619                       # 按坐标点
+hdc shell snapshot_display -f /data/local/tmp/shot.jpeg      # 截图
+hdc shell power-shell wakeup                                 # 等 120s 看门狗时别让屏幕睡
+```
 
 ## 签名
 
@@ -129,12 +171,14 @@ ArkTS 侧的 RDB 还没写（见下面的“尚未完成”），但恢复语义
 
 ## 尚未完成
 
-- 真机上跑通阶段一的四个场景（连接/提交/完成、`history_error` 立即失败、
-  `silent` 看门狗、ComfyUI 重启后任务 `Unknown` 不重投）——设备掉线，未验证。
-  协议本身已用 JVM 宿主 + `tools/mock-comfyui` 跑过（`BridgeEndToEndTest`），
-  但那证明的是桥能执行，不是 ArkTS 能执行
 - ArkTS 侧 RDB：共享侧的快照 schema 与恢复规则已完成并有单测，但数据库读写还没实现
   （现在只有内存存储 + `persist` 命令日志，重启即丢）
+- 切前后台的冻结检测在真机上的表现（逻辑有 `SessionHostFreezeTest` 的 4 个断言）
+- WiFi↔蜂窝切换时 `generation` 递增（测试机没有 SIM，只能单测）
 - 前台长任务 / 实况窗（需要 `backgroundTaskManager` 与通知权限）
 - 后台保活的电量策略与用户可见开关
 - 重装/杀进程后的任务恢复（等 RDB 接上）
+
+真机已经跑过的东西见 `docs/verification/stage2-harmony-build.md`：
+`cp_version() == 2` 的 HAP 上，四个场景（`normal` / `history_error` / `silent` / `lost`）
+逐条有 hilog 与 mock 计数器证据。

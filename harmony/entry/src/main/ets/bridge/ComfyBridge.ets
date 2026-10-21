@@ -82,6 +82,18 @@ interface BridgeConfig {
 const MIN_PUMP_MS = 16;
 const MAX_PUMP_MS = 500;
 
+/**
+ * 联调诊断：打开后每帧状态、每条命令、每次 WS/HTTP 往返都打一行 hilog（tag `CP>`）。
+ * 真机排查靠它区分"共享层没走"和"UI 没刷新"，正式发布前关掉即可。
+ */
+const CP_TRACE: boolean = true;
+
+function trace(line: string): void {
+  if (CP_TRACE) {
+    console.info(`CP> ${line}`);
+  }
+}
+
 export class ComfyBridge {
   onState: (state: BridgeState) => void = () => {};
   onNotice: (text: string) => void = () => {};
@@ -112,6 +124,8 @@ export class ComfyBridge {
     this.running = true;
     this.revision = -1;
     this.subscribeNetwork();
+    // 建会话只是把状态机装好；真正发起连接的是这条 start，少了它状态会一直停在 Idle。
+    this.send({ t: 'start' });
     this.tick();
   }
 
@@ -164,6 +178,9 @@ export class ComfyBridge {
       }
       if (frame.state !== null && frame.state !== undefined && frame.revision !== this.revision) {
         this.revision = frame.revision;
+        // 联调诊断：只在状态帧变化时打一行，便于用 hilog 对照 mock 的 hits。
+        trace(`frame rev=${frame.revision} phase=${frame.state.phase} tasks=` +
+          frame.state.tasks.map((t: BridgeTask) => `${t.state}:${t.percent}`).join(','));
         this.onState(frame.state);
       }
       if (frame.commands !== undefined) {
@@ -191,6 +208,7 @@ export class ComfyBridge {
   }
 
   private execute(command: BridgeCommand): void {
+    trace(`cmd ${command.t}${command.task ? ` task=${command.task.state}` : ''}`);
     switch (command.t) {
       case 'http':
         this.runHttp(command);
@@ -281,9 +299,11 @@ export class ComfyBridge {
     request.request(command.url, options).then((response: http.HttpResponse) => {
       request.destroy();
       const body: string = typeof response.result === 'string' ? response.result : '';
+      trace(`http ${command.method ?? 'GET'} ${command.url} -> ${response.responseCode} len=${body.length}`);
       this.send({ t: 'http.result', id: id, status: response.responseCode, body: body });
     }).catch((err: BusinessError) => {
       request.destroy();
+      trace(`http fail ${command.url} ${err.message}`);
       this.send({ t: 'http.result', id: id, failure: err.message ?? 'HTTP 请求失败' });
     });
   }
@@ -301,6 +321,8 @@ export class ComfyBridge {
     });
     socket.on('message', (err: BusinessError, data: string | ArrayBuffer) => {
       if (typeof data === 'string') {
+        const head: string = data.length > 120 ? data.substring(0, 120) : data;
+        trace(`ws text len=${data.length} ${head}`);
         this.send({ t: 'ws.text', id: id, text: data });
       } else {
         // 预览图走二进制帧，阶段二暂不显示；不把它当文本塞给状态机。

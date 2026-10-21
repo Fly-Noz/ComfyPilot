@@ -310,6 +310,21 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true })
     }
 
+    // 模拟 "ComfyUI 进程重启"：只掐断 WebSocket，不重建 jobs/history/hits，
+    // 这样客户端重连对账的过程可以在计数器不被清零的前提下验证。
+    if (req.method === 'POST' && path === '/mock/drop-sockets') {
+      const dropped = sockets.size
+      for (const ws of sockets) {
+        try {
+          ws.close(1012, 'server restart')
+        } catch {
+          /* 已断开 */
+        }
+      }
+      sockets.clear()
+      return sendJson(res, 200, { dropped })
+    }
+
     sendJson(res, 404, { error: 'not found', path })
   } catch (error) {
     sendJson(res, 500, { error: String(error) })

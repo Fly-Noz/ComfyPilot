@@ -31,7 +31,9 @@ curl -X POST http://127.0.0.1:8188/mock/scenario -H "content-type: application/j
 | `lost` | 提交后立刻从 queue 消失，不写 history | 对账判定 `Unknown`，不自动重提 |
 | `slow` | 每 10s 才发一次进度（8 步 = 80s） | 自适应静默预算；也用于"跑到一半重启服务端" |
 
-辅助接口：`GET /mock/state`（含 `hits` 请求计数）、`POST /mock/reset`（同时清零计数）、
+辅助接口：`GET /mock/state`（含 `hits` 请求计数）、`POST /mock/drop-sockets`
+（只掐断所有 WebSocket，不清 jobs/history/hits，用来模拟"ComfyUI 进程重启"且保留
+计数以便对比对账前后的 `hits.prompt`）、`POST /mock/reset`（同时清零计数）、
 `GET /view`（返回 1x1 PNG）。
 
 ## 手工验证步骤（Android）

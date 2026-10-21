@@ -129,7 +129,7 @@ struct Index {
             .alignItems(HorizontalAlign.Start)
             .width('100%')
           }
-        }, (task: BridgeTask) => task.id)
+        }, (task: BridgeTask) => `${task.id}:${task.state}:${task.percent}:${task.outputs}`)
       }
       .width('100%')
       .layoutWeight(1)
