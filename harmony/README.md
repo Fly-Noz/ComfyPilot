@@ -130,7 +130,9 @@ ArkTS 侧的 RDB 还没写（见下面的“尚未完成”），但恢复语义
 ## 尚未完成
 
 - 真机上跑通阶段一的四个场景（连接/提交/完成、`history_error` 立即失败、
-  `silent` 看门狗、ComfyUI 重启后任务 `Unknown` 不重投）——设备掉线，未验证
+  `silent` 看门狗、ComfyUI 重启后任务 `Unknown` 不重投）——设备掉线，未验证。
+  协议本身已用 JVM 宿主 + `tools/mock-comfyui` 跑过（`BridgeEndToEndTest`），
+  但那证明的是桥能执行，不是 ArkTS 能执行
 - ArkTS 侧 RDB：共享侧的快照 schema 与恢复规则已完成并有单测，但数据库读写还没实现
   （现在只有内存存储 + `persist` 命令日志，重启即丢）
 - 前台长任务 / 实况窗（需要 `backgroundTaskManager` 与通知权限）

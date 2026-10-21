@@ -7,12 +7,14 @@
 分两层说，不要混：
 
 1. **构建级**：共享层 + 会话桥 + 宿主循环 + HAP 都能编出来，C ABI 导出正确，
-   111 个 JVM 测试全绿（含桥协议、冻结语义、重启恢复）。
+   115 个 JVM 测试全绿（含桥协议、冻结语义、重启恢复）。
+   其中 4 个是端到端测试：用 JVM 版宿主执行器真的发 HTTP、真的握 WebSocket，
+   对端是 `tools/mock-comfyui`，把阶段一的四个场景跑了一遍。
 2. **真机级**：只验证过“共享层能在真机加载、纯逻辑自检能跑通”。
    会话联调（网络 / WebSocket / 任务）**尚未上真机**——设备在开发过程中掉线
    （`hdc list targets -v` 返回 `[Empty]`），不是“没时间跑”。
 
-所以现在的准确说法是：**鸿蒙端骨架已通，网络与任务语义未在真机验证**。
+所以现在的准确说法是：**桥协议本身可用（JVM 宿主验证），ArkTS 宿主与真机未验证**。
 
 ```
 shared/src/commonMain (Kotlin)
@@ -46,7 +48,9 @@ bundle 名由 DevEco 自动签名流程确定（AGC 中的应用标识），不�
 | HAP 包含 Kotlin 产物 | zip 内 `libs/arm64-v8a/libcomfypilot_core.so`（已 strip） |
 | NAPI 模块链接正确 | `libentry.so` 的 `NEEDED` 含 `libcomfypilot_core.so`，`RUNPATH` 含 `$ORIGIN` |
 | 自检逻辑本身正确 | `SelfTestTest` 在 JVM 上通过 |
-| 桥协议与状态机正确 | `SessionHostTest`（7）+ `SessionHostFreezeTest`（4）+ `SessionHostConfigTest`（4）等，共 111 个 JVM 测试、0 失败 |
+| 桥协议与状态机正确 | `SessionHostTest`（7）+ `SessionHostFreezeTest`（4）+ `SessionHostConfigTest`（4）等，共 115 个 JVM 测试、0 失败 |
+| 桥协议能真跑（四个场景） | `BridgeEndToEndTest`（4）：JVM 宿主执行器 + `tools/mock-comfyui`，真 HTTP / 真 WebSocket。正常完成、`history_error` 不重试、`silent` 触发看门狗后仍能对账、服务端丢任务后 `Unknown` 且 `hits.prompt == 1` |
+| 持久化载荷可执行 | 端到端测试里 `persist` 命令写出的快照含 `state=Completed` 与产物文件名 |
 | 重启恢复语义正确 | `RestoreTest`（7）+ `PersistedTaskTest`（7）+ `SessionHostRestoreTest`（4）：`Submitting` → `Unknown`、未完成任务先对账、永不自动重投 |
 | 签名 HAP 可产出 | `harmony/build.ps1` → `BUILD SUCCESSFUL`，产物 `entry-default-signed.hap` |
 
@@ -83,10 +87,10 @@ HAP 是 `cp_version() == 2`，只做过构建级验证。
 
 ## 未验证
 
-- 会话桥在真机上跑通（`cp_session_pump` → NAPI → ArkTS → 回投）
+- 会话桥在真机上跑通（`cp_session_pump` → NAPI → ArkTS → 回投）——JVM 宿主已跑通，ArkTS 宿主没有
 - ArkTS `@ohos.net` 的 HTTP / WebSocket 实际收发（只在构建级确认能编译）
 - ArkTS 侧 RDB 读写（共享侧的快照 schema 与恢复规则已有单测，数据库本身还没实现）
-- 任务提交、`/history` 三分类、`/queue` 兜底
+- 任务提交、`/history` 三分类、`/queue` 兜底在 **ArkTS 宿主**上的表现（JVM 宿主已覆盖）
 - 断线重连、退避、进度看门狗在真机上的行为
 - 前台 ↔ 背景切换时的冻结检测（逻辑有单测，真机未跑）
 - 阶段一的四个连接场景在鸿蒙上的复现
@@ -94,13 +98,34 @@ HAP 是 `cp_version() == 2`，只做过构建级验证。
 
 这些在 `harmony/README.md` 的“尚未完成”里也列了，不能当成已完成。
 
-## 共享层的两个关键设计（构建级已验证）
+## 端到端夹具（离线）
+
+`shared/src/jvmTest/.../host/BridgeHarness.kt` 是一个**真的**宿主执行器：按 C ABI 的命令
+出栈就执行，`http` 用 JDK `HttpClient` 真发，`ws.open` 真握手，收到的帧再按协议回投。
+对端是 `tools/mock-comfyui`，端口现挑，测试之间会 `POST /mock/reset`。
+
+它验证的是协议本身可执行：URL、方法、请求头、base64 请求体、WS 文本帧、`persist` 载荷。
+不验证 ArkTS 对 `@ohos.net` 的用法——那部分仍然只有真机说话。
+
+```powershell
+$env:JAVA_HOME = "D:\Tools\Java\jdk-21.0.6"
+.\gradlew.bat :shared:jvmTest --tests "com.comfypilot.core.host.BridgeEndToEndTest"
+```
+
+需要本机有 `node` 和 `tools/mock-comfyui/node_modules`；缺依赖时测试会 skip 而不是失败，
+所以**看到 skip 不算验证过**。
+
+踩到的一个坑：JDK 客户端默认会带 `Upgrade: h2c`，而 mock 的 `upgrade` 处理只认 `/ws`，
+会直接把连接掐掉（`header parser received no bytes`）。夹具固定用 HTTP/1.1，和真实的
+OkHttp、`@ohos.net` 一致。
+
+## 共享层的三个关键设计（构建级已验证）
 
 ### 1. pump 模型
 
 Kotlin 不跑自己的线程：宿主按自己的节奏调 `cp_session_pump(nowMs)`，Kotlin 把到期的
-定时器与协程队列跑到该时刻，吐出一帧命令（`http` / `ws.open` / `ws.send` /
-`ws.close` / `persist` / `notice`），宿主执行完把结果用 `cp_session_send` 回投。
+定时器与协程队列跑到该时刻，吐出一帧命令（`http` / `ws.open` / `ws.close` /
+`persist` / `notice`），宿主执行完把结果用 `cp_session_send` 回投。
 
 好处是可复现：整套超时、退避、看门狗都由传入时间驱动，JVM 单测能直接“快进”，
 不需要 `Thread.sleep`，也不需要真机。
