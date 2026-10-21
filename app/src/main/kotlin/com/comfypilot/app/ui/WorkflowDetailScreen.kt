@@ -4,6 +4,7 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -56,6 +58,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.comfypilot.android.transport.OkHttpHttpTransport
 import com.comfypilot.core.api.ApiPaths
@@ -72,6 +75,7 @@ import com.comfypilot.core.workflow.PromptBuilder
 import com.comfypilot.core.workflow.WorkflowDocument
 import com.comfypilot.core.workflow.WorkflowField
 import com.comfypilot.core.workflow.WorkflowFields
+import com.comfypilot.core.workflow.WorkflowGraphs
 import com.comfypilot.core.workflow.WorkflowNodeView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -93,7 +97,13 @@ fun WorkflowDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(document?.name?.takeIf { it.isNotBlank() } ?: "工作流") },
+                title = {
+                    Text(
+                        document?.name?.takeIf { it.isNotBlank() } ?: "工作流",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
                 actions = { TextButton(onClick = onTasks) { Text("任务") } },
             )
@@ -151,17 +161,45 @@ private fun DetailBody(
     onCancel: (String) -> Unit,
     onTasks: () -> Unit,
 ) {
-    val fields = remember(document, state.nodeInfo) {
-        WorkflowFields.build(document, state.nodeInfo)
+    val graphs = remember(document, state.nodeInfo) {
+        WorkflowGraphs.analyze(document, state.nodeInfo)
+    }
+    var enabledGraphOverride by remember(document.path) { mutableStateOf<Set<String>?>(null) }
+    val selectedGraphIds = enabledGraphOverride ?: graphs.filter { it.enabled }.map { it.id }.toSet()
+    val selectedGraphs = graphs.filter { it.id in selectedGraphIds }
+    val enabledOutputIds = selectedGraphs.flatMap { it.outputNodeIds }.toSet()
+    val forcedNormalNodeIds = selectedGraphs.flatMap { it.nodeIds }.toSet()
+    val disabledNodeIds = graphs
+        .filter { it.id !in selectedGraphIds }
+        .flatMap { it.nodeIds }
+        .toSet()
+    val showGraphPicker = graphs.size > 1 || (graphs.size == 1 && !graphs[0].enabled)
+
+    val fields = remember(document, state.nodeInfo, enabledOutputIds, forcedNormalNodeIds) {
+        WorkflowFields.build(
+            document = document,
+            definitions = state.nodeInfo,
+            forcedNormalNodeIds = forcedNormalNodeIds,
+            enabledOutputIds = if (graphs.isEmpty()) null else enabledOutputIds,
+        )
     }
     var overrides by remember(document.path) {
         mutableStateOf<Map<Int, Map<String, JsonElement>>>(emptyMap())
+    }
+    // 缺值/需要用户填写的节点排前面；其余保持原 order。
+    val orderedNodes = remember(fields) {
+        fields.nodes.sortedBy { if (it.needsInput) 0 else 1 }
     }
     var tab by remember(document.path) { mutableStateOf(0) }
     var expandedOverride by remember(document.path) { mutableStateOf<Set<Int>?>(null) }
     var sheetVisible by remember { mutableStateOf(false) }
     var blockedProblems by remember { mutableStateOf<List<BuildProblem>?>(null) }
     var pendingReady by remember { mutableStateOf<PromptBuild.Ready?>(null) }
+    var dismissedFailureAt by remember(document.path) { mutableStateOf(Long.MIN_VALUE) }
+
+    val latestFailure = state.tasks.values
+        .filter { it.state is TaskState.Failed }
+        .maxByOrNull { it.updatedAtMs }
 
     val autoExpanded = remember(fields) {
         fields.nodes
@@ -259,7 +297,15 @@ private fun DetailBody(
     }
 
     fun submit() {
-        when (val result = PromptBuilder.build(document, state.nodeInfo, overrides)) {
+        when (
+            val result = PromptBuilder.build(
+                document = document,
+                definitions = state.nodeInfo,
+                overrides = overrides,
+                enabledOutputIds = if (graphs.isEmpty()) null else enabledOutputIds,
+                forcedNormalNodeIds = forcedNormalNodeIds,
+            )
+        ) {
             is PromptBuild.Ready -> {
                 if (result.warnings.isEmpty()) {
                     onSubmit(result.prompt.toString())
@@ -275,6 +321,60 @@ private fun DetailBody(
 
     Column(modifier = Modifier.fillMaxSize()) {
         ServerStatsStrip(baseUrl = state.lease?.baseUrl)
+
+        if (latestFailure != null && latestFailure.updatedAtMs > dismissedFailureAt) {
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer,
+                ),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            ) {
+                Column(modifier = Modifier.padding(8.dp)) {
+                    Text("ComfyUI 报错", style = MaterialTheme.typography.labelSmall)
+                    Text(
+                        latestFailure.error ?: "任务失败",
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row {
+                        TextButton(onClick = onTasks) { Text("查看任务") }
+                        TextButton(onClick = { dismissedFailureAt = latestFailure.updatedAtMs }) {
+                            Text("关闭")
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showGraphPicker) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                graphs.forEach { graph ->
+                    FilterChip(
+                        selected = graph.id in selectedGraphIds,
+                        onClick = {
+                            val next = selectedGraphIds.toMutableSet()
+                            if (!next.add(graph.id)) next.remove(graph.id)
+                            enabledGraphOverride = next
+                            expandedOverride = null
+                        },
+                        label = {
+                            Text(
+                                graph.title,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        },
+                    )
+                }
+            }
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -337,10 +437,11 @@ private fun DetailBody(
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             if (tab == 0) {
                 InputPane(
-                    fields = fields,
+                    nodes = orderedNodes,
                     expanded = expanded,
                     overrides = overrides,
                     listState = listState,
+                    disabledNodeIds = disabledNodeIds,
                     onToggle = ::toggleNode,
                     onOverride = ::applyOverride,
                     onPickImage = ::pickImage,
@@ -390,7 +491,7 @@ private fun DetailBody(
                                 expandedOverride = (expanded + node.id)
                                 tab = 0
                                 sheetVisible = false
-                                val index = fields.nodes.indexOfFirst { it.id == node.id }
+                                val index = orderedNodes.indexOfFirst { it.id == node.id }
                                 if (index >= 0) {
                                     scope.launch { listState.animateScrollToItem(index) }
                                 }
@@ -411,6 +512,7 @@ private fun DetailBody(
                         }
                         val stateLabel = when {
                             node.missing -> "缺少定义"
+                            node.id in disabledNodeIds -> "未启用"
                             !node.reachable -> "不会提交"
                             else -> "${node.fields.size} 个输入"
                         }
@@ -484,15 +586,16 @@ private fun TabButton(
 
 @Composable
 private fun InputPane(
-    fields: com.comfypilot.core.workflow.WorkflowFieldView,
+    nodes: List<WorkflowNodeView>,
     expanded: Set<Int>,
     overrides: Map<Int, Map<String, JsonElement>>,
     listState: androidx.compose.foundation.lazy.LazyListState,
+    disabledNodeIds: Set<Int>,
     onToggle: (Int) -> Unit,
     onOverride: (Int, String, JsonElement) -> Unit,
     onPickImage: (WorkflowField) -> Unit,
 ) {
-    if (fields.nodes.isEmpty()) {
+    if (nodes.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize().padding(16.dp)) {
             Text("这个工作流没有可编辑的节点输入。", style = MaterialTheme.typography.bodyMedium)
         }
@@ -504,11 +607,12 @@ private fun InputPane(
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(fields.nodes, key = { it.id }) { node ->
+        items(nodes, key = { it.id }) { node ->
             NodeInputCard(
                 node = node,
                 expanded = node.id in expanded,
                 overrides = overrides[node.id].orEmpty(),
+                graphDisabled = node.id in disabledNodeIds,
                 onToggle = { onToggle(node.id) },
                 onChange = onOverride,
                 onPickImage = onPickImage,
@@ -522,6 +626,7 @@ private fun NodeInputCard(
     node: WorkflowNodeView,
     expanded: Boolean,
     overrides: Map<String, JsonElement>,
+    graphDisabled: Boolean,
     onToggle: () -> Unit,
     onChange: (Int, String, JsonElement) -> Unit,
     onPickImage: (WorkflowField) -> Unit,
@@ -546,6 +651,14 @@ private fun NodeInputCard(
                         fontFamily = FontFamily.Monospace,
                     )
                 }
+                if (node.needsInput) {
+                    Text(
+                        "待填写",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
                 Text(
                     if (expanded) "收起" else "展开",
                     style = MaterialTheme.typography.labelSmall,
@@ -557,6 +670,12 @@ private fun NodeInputCard(
                     "服务端没有该节点的定义，不能调参；提交会被拒绝。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                )
+
+                graphDisabled -> Text(
+                    "节点图未启用，不会被提交。",
+                    style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                 )
 
@@ -719,9 +838,13 @@ private fun FieldEditor(
         when {
             field.linked -> Text("由连线提供", style = MaterialTheme.typography.bodySmall)
             !field.widget -> Text(
-                "需要连线；当前未连接，提交会被拒绝。",
+                if (field.required) {
+                    "需要连线；当前未连接，提交会被拒绝。"
+                } else {
+                    "可选连线；当前未连接。"
+                },
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
+                color = if (field.required) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             !editable -> Text(

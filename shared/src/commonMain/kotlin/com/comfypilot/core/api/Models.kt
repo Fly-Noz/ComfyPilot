@@ -33,14 +33,42 @@ data class PromptResponse(
 ) {
     val accepted: Boolean get() = error == null && promptId != null
 
-    val failureMessage: String?
-        get() = when {
-            error != null -> listOfNotNull(error.type, error.message, error.details)
-                .joinToString(" / ")
-                .ifBlank { "提交被 ComfyUI 拒绝" }
+    /** ComfyUI 的 `node_errors` 是 `{nodeId: {class_type, errors[]}}`；把常用字段摊平成可读行。 */
+    val nodeErrorMessages: List<String>
+        get() = nodeErrors.orEmpty().mapNotNull { (nodeId, element) ->
+            val node = element as? JsonObject ?: return@mapNotNull null
+            val classType = node.stringOrNull("class_type")
+            val errors = (node["errors"] as? JsonArray).orEmpty().mapNotNull { item ->
+                val error = item as? JsonObject ?: return@mapNotNull null
+                listOfNotNull(error.stringOrNull("message"), error.stringOrNull("details"))
+                    .joinToString(" / ")
+                    .ifBlank { error.stringOrNull("type") ?: "错误" }
+            }
+            if (errors.isEmpty()) {
+                null
+            } else {
+                buildString {
+                    append('#').append(nodeId)
+                    if (!classType.isNullOrBlank()) append(' ').append(classType)
+                    append('：').append(errors.joinToString("；"))
+                }
+            }
+        }
 
-            promptId == null -> "ComfyUI 未返回 prompt_id"
-            else -> null
+    val failureMessage: String?
+        get() {
+            val details = nodeErrorMessages
+            if (error == null && promptId != null) return null
+            val head = when {
+                error != null -> listOfNotNull(error.type, error.message, error.details)
+                    .joinToString(" / ")
+                    .ifBlank { "提交被 ComfyUI 拒绝" }
+
+                else -> "ComfyUI 未返回 prompt_id"
+            }
+            val shown = details.take(6)
+            val suffix = if (details.size > shown.size) listOf("…另有 ${details.size - shown.size} 条") else emptyList()
+            return (listOf(head) + shown + suffix).joinToString("\n")
         }
 }
 

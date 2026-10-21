@@ -61,6 +61,10 @@ object PromptBuilder {
         document: WorkflowDocument,
         definitions: Map<String, NodeDefinition>,
         overrides: Map<Int, Map<String, JsonElement>> = emptyMap(),
+        /** null = 按保存时的模式；非 null = 只提交这些输出节点。 */
+        enabledOutputIds: Set<Int>? = null,
+        /** 选中的节点图内的节点：临时当作正常执行，用于在 App 里启用被旁路的分支。 */
+        forcedNormalNodeIds: Set<Int> = emptySet(),
     ): PromptBuild {
         when (document.format) {
             WorkflowFormat.API -> {
@@ -81,8 +85,9 @@ object PromptBuilder {
             WorkflowFormat.UI -> Unit
         }
 
-        val graph = UiWorkflowParser.parse(document.raw)
+        val parsed = UiWorkflowParser.parse(document.raw)
             ?: return PromptBuild.Blocked(listOf(BuildProblem(message = "工作流不是有效的网页格式 JSON")))
+        val graph = parsed.withForcedNormal(forcedNormalNodeIds)
         if (graph.hasSubgraphs) {
             return PromptBuild.Blocked(
                 listOf(BuildProblem(message = "工作流包含子图（subgraph），当前版本不支持转换")),
@@ -132,12 +137,23 @@ object PromptBuilder {
         // 服务端只校验/执行"输出节点及其上游"。孤立节点（画布上忘了删的）不该阻断提交，
         // 也不该出现在提交的图里——真实工作流里就有这种节点。
         val roots = ordered
-            .filter { definitions[it.type]?.isOutputNode == true }
+            .filter { node ->
+                definitions[node.type]?.isOutputNode == true &&
+                    (enabledOutputIds == null || node.id in enabledOutputIds)
+            }
             .map { it.id }
             .toSet()
         if (roots.isEmpty()) {
             return PromptBuild.Blocked(
-                listOf(BuildProblem(message = "工作流没有输出节点（如 SaveImage / SaveVideo），不能提交")),
+                listOf(
+                    BuildProblem(
+                        message = if (enabledOutputIds != null) {
+                            "没有启用任何节点图，不能提交"
+                        } else {
+                            "工作流没有输出节点（如 SaveImage / SaveVideo），不能提交"
+                        },
+                    ),
+                ),
             )
         }
 

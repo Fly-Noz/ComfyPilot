@@ -97,7 +97,9 @@ object ApiPaths {
 
             is ApiCall.FetchUserData -> ResolvedRequest(
                 method = "GET",
-                url = base + USERDATA + "/" + encodePath(call.path),
+                // 真实 ComfyUI 前端用 encodeURIComponent("workflows/<path>")，
+                // 斜杠也编码在同一个路径段里；拆成多段会被服务端当成 404。
+                url = base + USERDATA + "/" + percentEncode(userDataPath(call.path)),
                 body = null,
                 contentType = null,
             )
@@ -141,9 +143,11 @@ object ApiPaths {
 
     private fun quote(value: String): String = JsonStringWriter.encode(value)
 
-    /** 路径按段编码：`a b/c.json` -> `a%20b/c.json`，斜杠要保留。 */
-    private fun encodePath(path: String): String =
-        path.split('/').joinToString("/") { percentEncode(it) }
+    /** 列表返回的是相对 workflows 的路径；读取时要带上这个前缀。 */
+    private fun userDataPath(path: String): String {
+        val normalized = path.trimStart('/')
+        return if (normalized.startsWith("workflows/")) normalized else "workflows/$normalized"
+    }
 
     /**
      * ComfyUI 只认 `image` 文件字段，`type` 默认 input；`subfolder` 为空时省略。

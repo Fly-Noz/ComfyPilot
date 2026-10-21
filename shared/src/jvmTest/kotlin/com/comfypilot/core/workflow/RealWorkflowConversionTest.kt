@@ -57,6 +57,28 @@ class RealWorkflowConversionTest {
                             "commonFields=${fields.commonFields.size} warnings=${result.warnings.size}",
                     )
                     result.warnings.forEach { println("    WARN $it") }
+                    val graphs = WorkflowGraphs.analyze(document, definitions)
+                    if (graphs.size > 1) {
+                        println("    graphs=${graphs.size}")
+                        graphs.forEach { graph ->
+                            val selected = PromptBuilder.build(
+                                document = document,
+                                definitions = definitions,
+                                enabledOutputIds = graph.outputNodeIds,
+                                forcedNormalNodeIds = graph.nodeIds,
+                            )
+                            when (selected) {
+                                is PromptBuild.Ready -> println(
+                                    "      ${graph.title}: ${graph.nodeIds.size} 节点 -> ${selected.prompt.size} 提交节点",
+                                )
+
+                                is PromptBuild.Blocked -> println(
+                                    "      ${graph.title}: BLOCKED " +
+                                        selected.problems.joinToString("; ") { it.format() },
+                                )
+                            }
+                        }
+                    }
                     System.getenv("CP_REAL_DUMP_DIR")?.let { dumpDir ->
                         val out = File(dumpDir)
                         out.mkdirs()

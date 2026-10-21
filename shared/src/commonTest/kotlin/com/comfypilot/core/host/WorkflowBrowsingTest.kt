@@ -82,7 +82,7 @@ class WorkflowBrowsingTest {
         driver.openWorkflow("sub/demo ui.json")
 
         assertEquals("sub/demo ui.json", driver.workflowField("loadingPath"))
-        val read = assertNotNull(driver.httpCommand("/userdata/sub/demo%20ui.json"))
+        val read = assertNotNull(driver.httpCommand("/userdata/workflows%2Fsub%2Fdemo%20ui.json"))
 
         driver.deliver(httpResult(read, UI_WORKFLOW))
 
@@ -112,7 +112,7 @@ class WorkflowBrowsingTest {
     fun `a class the server does not know is marked missing, not invented`() {
         val driver = connected()
         driver.openWorkflow("custom.json")
-        val read = assertNotNull(driver.httpCommand("/userdata/custom.json"))
+        val read = assertNotNull(driver.httpCommand("/userdata/workflows%2Fcustom.json"))
         driver.deliver(httpResult(read, API_WITH_CUSTOM_NODE))
 
         val command = assertNotNull(driver.httpCommand("/object_info/MyCustomNode"))
@@ -129,9 +129,9 @@ class WorkflowBrowsingTest {
         val driver = connected()
 
         driver.openWorkflow("a.json")
-        val readA = assertNotNull(driver.httpCommand("/userdata/a.json"))
+        val readA = assertNotNull(driver.httpCommand("/userdata/workflows%2Fa.json"))
         driver.openWorkflow("b.json")
-        val readB = assertNotNull(driver.httpCommand("/userdata/b.json"))
+        val readB = assertNotNull(driver.httpCommand("/userdata/workflows%2Fb.json"))
         assertEquals("b.json", driver.workflowField("loadingPath"))
 
         driver.deliver(httpResult(readA, API_WORKFLOW))
@@ -147,7 +147,7 @@ class WorkflowBrowsingTest {
     fun `reopening a workflow does not refetch cached node definitions`() {
         val driver = connected()
         driver.openWorkflow("a.json")
-        val read = assertNotNull(driver.httpCommand("/userdata/a.json"))
+        val read = assertNotNull(driver.httpCommand("/userdata/workflows%2Fa.json"))
         driver.deliver(httpResult(read, UI_WORKFLOW))
         val samplerRequest = assertNotNull(driver.httpCommand("/object_info/KSampler"))
         val clipRequest = assertNotNull(driver.httpCommand("/object_info/CLIPTextEncode"))
@@ -156,7 +156,7 @@ class WorkflowBrowsingTest {
 
         val before = driver.httpUrls().count { it.contains("/object_info/") }
         driver.openWorkflow("a.json")
-        val readAgain = assertNotNull(driver.httpCommand("/userdata/a.json"))
+        val readAgain = assertNotNull(driver.httpCommand("/userdata/workflows%2Fa.json"))
         driver.deliver(httpResult(readAgain, UI_WORKFLOW))
 
         val after = driver.httpUrls().count { it.contains("/object_info/") }
@@ -167,7 +167,7 @@ class WorkflowBrowsingTest {
     fun `an unreadable body becomes a visible error, not an empty document`() {
         val driver = connected()
         driver.openWorkflow("broken.json")
-        val read = assertNotNull(driver.httpCommand("/userdata/broken.json"))
+        val read = assertNotNull(driver.httpCommand("/userdata/workflows%2Fbroken.json"))
 
         driver.deliver(httpResult(read, "not json"))
 

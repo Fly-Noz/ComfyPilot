@@ -20,7 +20,15 @@ data class WorkflowField(
     val widget: Boolean,
     val required: Boolean,
     val common: Boolean,
-)
+) {
+    /** 没有可用值、需要用户填/连线的字段；用于把这类节点排在输入区最前面。 */
+    val needsInput: Boolean
+        get() = when {
+            linked -> false
+            widget -> value == null
+            else -> required
+        }
+}
 
 data class WorkflowNodeView(
     val id: Int,
@@ -32,7 +40,9 @@ data class WorkflowNodeView(
     /** 该节点在输出节点的上游，提交时会真正执行。 */
     val reachable: Boolean,
     val fields: List<WorkflowField>,
-)
+) {
+    val needsInput: Boolean get() = fields.any { it.needsInput }
+}
 
 data class WorkflowFieldView(
     val path: String,
@@ -63,7 +73,12 @@ object WorkflowFields {
         "KSampler", "KSamplerAdvanced", "SamplerCustomAdvanced", "BasicScheduler", "KSamplerSelect", "RandomNoise",
     )
 
-    fun build(document: WorkflowDocument, definitions: Map<String, NodeDefinition>): WorkflowFieldView {
+    fun build(
+        document: WorkflowDocument,
+        definitions: Map<String, NodeDefinition>,
+        forcedNormalNodeIds: Set<Int> = emptySet(),
+        enabledOutputIds: Set<Int>? = null,
+    ): WorkflowFieldView {
         if (document.format != WorkflowFormat.UI) {
             return WorkflowFieldView(
                 path = document.path,
@@ -75,7 +90,7 @@ object WorkflowFields {
             )
         }
 
-        val graph = UiWorkflowParser.parse(document.raw)
+        val parsed = UiWorkflowParser.parse(document.raw)
             ?: return WorkflowFieldView(
                 path = document.path,
                 name = document.name,
@@ -84,6 +99,7 @@ object WorkflowFields {
                 nodes = emptyList(),
                 problems = listOf(BuildProblem(message = "工作流不是有效的网页格式 JSON")),
             )
+        val graph = parsed.withForcedNormal(forcedNormalNodeIds)
 
         val resolver = UiGraphResolver(graph)
         val problems = mutableListOf<BuildProblem>()
@@ -92,7 +108,11 @@ object WorkflowFields {
         }
 
         val roots = graph.nodes
-            .filter { it.mode == UiWorkflowParser.MODE_NORMAL && definitions[it.type]?.isOutputNode == true }
+            .filter { node ->
+                node.mode == UiWorkflowParser.MODE_NORMAL &&
+                    definitions[node.type]?.isOutputNode == true &&
+                    (enabledOutputIds == null || node.id in enabledOutputIds)
+            }
             .map { it.id }
             .toSet()
         val reachable = reachableNodeIds(roots, graph, resolver)

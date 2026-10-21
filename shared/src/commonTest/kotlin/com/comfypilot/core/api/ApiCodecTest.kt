@@ -25,6 +25,33 @@ class ApiCodecTest {
     }
 
     @Test
+    fun promptNodeErrorsAreFlattenedForTheUser() {
+        val response = ApiCodec.decodePromptResponse(
+            """
+            {
+              "error": {"type": "prompt_outputs_failed_validation", "message": "Prompt outputs failed validation"},
+              "node_errors": {
+                "3": {
+                  "class_type": "KSampler",
+                  "errors": [{"message": "value not in list", "details": "sampler_name"}]
+                },
+                "4": {
+                  "class_type": "LoadImage",
+                  "errors": [{"type": "invalid_image"}]
+                }
+              }
+            }
+            """.trimIndent(),
+        )
+
+        val message = response.failureMessage!!
+        assertTrue(message.contains("failed validation"))
+        assertTrue(message.contains("#3 KSampler"))
+        assertTrue(message.contains("value not in list"))
+        assertTrue(message.contains("#4 LoadImage"))
+    }
+
+    @Test
     fun queueParsesPositionArrays() {
         val snapshot = ApiCodec.decodeQueue(
             """{"queue_running":[[0,"p-run",{}, {}, []]],"queue_pending":[[1,"p-wait",{}, {}, []]]}""",

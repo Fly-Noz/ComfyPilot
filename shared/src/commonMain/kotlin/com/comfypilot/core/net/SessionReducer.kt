@@ -531,7 +531,11 @@ class SessionReducer(
             }.getOrNull()
         }
 
-        val message = response?.failureMessage ?: "提交失败：无法解析 ComfyUI 响应"
+        val message = when {
+            outcome is HttpOutcome.Failed -> "提交失败：${outcome.message}"
+            response != null -> response.failureMessage ?: "提交失败：ComfyUI 未返回 prompt_id"
+            else -> "提交失败：服务器返回 ${(outcome as? HttpOutcome.Received)?.status ?: 0}，无法解析响应"
+        }
         if (response == null || !response.accepted) {
             val failed = draft.copy(state = TaskState.Failed(message), error = message, updatedAtMs = now)
             return ReduceResult(

@@ -44,7 +44,7 @@ prompt 图、`lastUpload` 最近一次上传的文件名）、`POST /mock/drop-s
 | 路由 | 行为 |
 |---|---|
 | `GET /userdata?dir=workflows&recurse=true&full_info=true` | 列出 `workflows/` 下所有 `.json`，返回 `[{path,size,modified,created}]` |
-| `GET /userdata/{path}` | 返回文件原文；拒绝跳出夹具目录的路径 |
+| `GET /userdata/workflows%2F{path}` | 返回文件原文；与真实前端一致把 `workflows/<path>` 整体编码，斜杠是 `%2F`；同时兼容未编码写法 |
 | `GET /object_info/{class}` | 返回该节点定义；未知类返回 `{}`（与真实服务端一致） |
 | `GET /system_stats` | 固定 RAM 32/12 GB、VRAM 24/8 GB；**不提供 CPU 利用率** |
 | `GET /queue` | 运行/等待队列，供详情页状态条显示 |

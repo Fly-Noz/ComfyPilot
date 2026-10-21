@@ -495,7 +495,9 @@ const server = http.createServer(async (req, res) => {
 
     // 真实服务端：/userdata/{file} 直接返回原文（JSON 文件没有额外包装）。
     if (req.method === 'GET' && path.startsWith('/userdata/')) {
-      const rel = decodeURIComponent(path.slice('/userdata/'.length))
+      let rel = decodeURIComponent(path.slice('/userdata/'.length))
+      // 与真实服务端一致：读取路径是 "workflows/<相对路径>"，前端整体 encodeURIComponent。
+      if (rel.startsWith('workflows/')) rel = rel.slice('workflows/'.length)
       const root = nodePath.resolve(WORKFLOW_DIR)
       const full = nodePath.resolve(root, rel)
       if (full !== root && !full.startsWith(root + nodePath.sep)) {

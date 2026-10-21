@@ -30,7 +30,7 @@
 | `/view` | GET | `ApiPaths.viewUrl` | 图片不跨设备搬运，接续方直接来取 |
 | `/ws?clientId=...` | WS | `ComfyEvent` / `EventDecoder` | 事件是广播，客户端按自己的 lease 过滤 |
 | `/userdata?dir=workflows&recurse=true&full_info=true` | GET | `WorkflowEntry` | 列服务器已有工作流；兼容只返回路径字符串的旧服务端 |
-| `/userdata/{path}` | GET | `WorkflowDocument.raw` | 读取工作流原文；路径按段编码、保留 `/` |
+| `/userdata/{path}` | GET | `WorkflowDocument.raw` | 读取工作流原文；`path` 是 `workflows/<相对路径>` 整体编码（斜杠变 `%2F`） |
 | `/object_info/{class}` | GET | `NodeDefinition` | 只取工作流用到的类；未知类返回 `{}` |
 | `/system_stats` | GET | `SystemStats` | 内存/显存总量与可用量；**没有 CPU/GPU 利用率** |
 
@@ -147,7 +147,8 @@
 - `GET /userdata?dir=workflows&recurse=true&full_info=true` 返回
   `[{path,size,modified,created}]`；旧服务端也可能只返回路径字符串。客户端只保留
   `.json`，路径相对 `workflows`、用 `/` 分隔。
-- `GET /userdata/{path}` 直接返回工作流原文；路径按段编码、保留 `/`。
+- `GET /userdata/{path}` 直接返回工作流原文；`path` 是 `workflows/<相对路径>` **整体编码**
+  （斜杠也变 `%2F`），与真实前端 `encodeURIComponent("workflows/...")` 一致。
 - `GET /object_info/{class}` 未知类返回 `{}`（HTTP 200），客户端记为 `missing`，
   不按"大概是这样"补定义。
 
@@ -202,6 +203,35 @@
   JSON metadata（`prompt_id` / `node_id`）和图片字节。客户端只解这两类。
 - 预览帧只进内存状态，不落库、不进 C ABI 状态帧；任务结束或换租约时清空，
   完成后改从 `/view` 取最终产物。
+
+### 5.6 多个独立节点图
+
+一个工作流文件里可以有多条互不连线的分支（例如 Qwen 的「图像编辑」和「生图」）：
+
+- 以**包含视觉输出的连通分量**为单位；视觉输出指 `output_node=true` 且
+  `output` 类型是 `IMAGE` / `VIDEO` / `LATENT` / `AUDIO`。
+- 提示词增强器这类只输出 `STRING` 的节点不算独立图；同一分支里的
+  `PreviewImage` / `Image Comparer` 也不会重复拆图。
+- 图名优先取画布 `groups` 中包含输出的分组标题（取最大分组）。
+- 默认启用状态看保存时输出节点是否为正常模式。
+- App 启用一个被旁路的图时，只把该图**分组内**的节点临时当作正常执行；
+  分组外的可选 LoadImage / Lora 保持原样，避免被一起打开。
+- 未启用的图，其输出节点不进入 `/prompt`；一个都没启用时直接拒绝提交。
+
+### 5.7 错误回传
+
+客户端能收到的 ComfyUI 错误有三条路径：
+
+1. **提交被拒**：`POST /prompt` 返回 `error` 与 `node_errors`；客户端把
+   `node_errors` 摊平成 `#节点 类名：message / details`，写入失败任务并提示。
+2. **执行报错**：WebSocket `execution_error` 立即置失败，保留
+   `exception_message`；随后仍会用 `/history` 复核。
+3. **历史报错**：`/history` 的 `status_str=error` 或 `messages` 里的
+   `execution_error`，对账时置失败。
+
+详情页顶部会显示最近一次失败任务的 ComfyUI 原始错误（可关闭）；
+任务页和预览页保留完整错误文本。ComfyUI 控制台里没有进入协议的日志
+（例如节点自己 print 的内容）不在这个范围内。
 
 ## 6. 回归方式
 

@@ -4,8 +4,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 /**
- * 工作流路径要按段编码：中文、空格是真实存在的（网页端允许中文文件名），
- * 但 `/` 是目录分隔符，必须保留。
+ * 工作流读取路径要和真实前端一致：`workflows/<相对路径>` 整体编码成一个路径段，
+ * 斜杠也变成 `%2F`；列表里的中文、空格同样要编码。
  */
 class ApiPathsTest {
 
@@ -20,13 +20,13 @@ class ApiPathsTest {
     }
 
     @Test
-    fun `workflow path keeps separators and encodes every segment`() {
+    fun `workflow path is encoded as one segment with the workflows prefix`() {
         val request = ApiPaths.resolve(
             "http://host:8188",
             ApiCall.FetchUserData("sub dir/我的 工作流.json"),
         )
         assertEquals(
-            "http://host:8188/userdata/sub%20dir/%E6%88%91%E7%9A%84%20%E5%B7%A5%E4%BD%9C%E6%B5%81.json",
+            "http://host:8188/userdata/workflows%2Fsub%20dir%2F%E6%88%91%E7%9A%84%20%E5%B7%A5%E4%BD%9C%E6%B5%81.json",
             request.url,
         )
     }

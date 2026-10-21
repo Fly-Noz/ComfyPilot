@@ -12,15 +12,24 @@ import kotlinx.serialization.json.contentOrNull
  * 网页端（UI 格式）工作流的可执行视图。
  *
  * 只保留转换到 API 格式必需的东西：节点、连线、控件值、模式。
- * 坐标、颜色、分组一概不读——提交用不到，读多了只会多一种出错方式。
+ * 坐标只用于把节点归到分组（多个独立节点图），不参与提交图本身。
  */
 data class UiGraph(
     val nodes: List<UiNode>,
     val links: Map<Int, UiLink>,
     /** 顶层带 `definitions.subgraphs`：当前版本不展开子图，直接拒绝。 */
     val hasSubgraphs: Boolean,
+    val groups: List<UiGroup> = emptyList(),
 ) {
     val byId: Map<Int, UiNode> = nodes.associateBy { it.id }
+
+    /** 把某一个独立节点图里的节点临时当作正常执行（用于在 App 里启用被旁路的图）。 */
+    fun withForcedNormal(ids: Set<Int>): UiGraph =
+        if (ids.isEmpty()) {
+            this
+        } else {
+            copy(nodes = nodes.map { node -> if (node.id in ids) node.copy(mode = UiWorkflowParser.MODE_NORMAL) else node })
+        }
 }
 
 data class UiNode(
@@ -35,8 +44,29 @@ data class UiNode(
     val widgets: JsonArray?,
     /** `widgets_values_named`（新版）或对象形式的 `widgets_values`。 */
     val widgetsNamed: Map<String, JsonElement>,
+    /** 画布坐标，只用于分组归属判断。 */
+    val x: Double = 0.0,
+    val y: Double = 0.0,
+    val width: Double = 0.0,
+    val height: Double = 0.0,
 ) {
     val hasWidgetValuesNamed: Boolean get() = widgetsNamed.isNotEmpty()
+}
+
+/** 网页端画布上的一个分组（group）。 */
+data class UiGroup(
+    val id: Int,
+    val title: String,
+    val x: Double,
+    val y: Double,
+    val width: Double,
+    val height: Double,
+) {
+    fun contains(node: UiNode): Boolean {
+        val centerX = node.x + node.width / 2.0
+        val centerY = node.y + node.height / 2.0
+        return centerX >= x && centerX <= x + width && centerY >= y && centerY <= y + height
+    }
 }
 
 data class UiInput(
@@ -75,10 +105,13 @@ object UiWorkflowParser {
             .associateBy { it.id }
 
         val subgraphs = ((root["definitions"] as? JsonObject)?.get("subgraphs") as? JsonArray)
+        val groups = (root["groups"] as? JsonArray).orEmpty()
+            .mapNotNull { element -> parseGroup(element as? JsonObject ?: return@mapNotNull null) }
         return UiGraph(
             nodes = nodes,
             links = links,
             hasSubgraphs = subgraphs != null && subgraphs.isNotEmpty(),
+            groups = groups,
         )
     }
 
@@ -89,6 +122,8 @@ object UiWorkflowParser {
         val named = (obj["widgets_values_named"] as? JsonObject)?.toMap()
             ?: (widgetValues as? JsonObject)?.toMap()
             ?: emptyMap()
+        val pos = obj["pos"] as? JsonArray
+        val size = obj["size"] as? JsonArray
         return UiNode(
             id = id,
             type = type,
@@ -99,6 +134,24 @@ object UiWorkflowParser {
             outputs = (obj["outputs"] as? JsonArray).orEmpty().mapNotNull { parseOutput(it as? JsonObject) },
             widgets = widgetValues as? JsonArray,
             widgetsNamed = named,
+            x = pos?.getOrNull(0).asDoubleOrNull() ?: 0.0,
+            y = pos?.getOrNull(1).asDoubleOrNull() ?: 0.0,
+            width = size?.getOrNull(0).asDoubleOrNull() ?: 0.0,
+            height = size?.getOrNull(1).asDoubleOrNull() ?: 0.0,
+        )
+    }
+
+    private fun parseGroup(obj: JsonObject): UiGroup? {
+        val id = obj["id"].asIntOrNull() ?: return null
+        val bounding = obj["bounding"] as? JsonArray ?: return null
+        if (bounding.size < 4) return null
+        return UiGroup(
+            id = id,
+            title = obj.stringOrNull("title")?.takeIf { it.isNotBlank() } ?: "节点图 #$id",
+            x = bounding[0].asDoubleOrNull() ?: return null,
+            y = bounding[1].asDoubleOrNull() ?: return null,
+            width = bounding[2].asDoubleOrNull() ?: return null,
+            height = bounding[3].asDoubleOrNull() ?: return null,
         )
     }
 
@@ -152,3 +205,6 @@ object UiWorkflowParser {
 
 private fun JsonElement?.asIntOrNull(): Int? =
     (this as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()?.toInt()
+
+private fun JsonElement?.asDoubleOrNull(): Double? =
+    (this as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
