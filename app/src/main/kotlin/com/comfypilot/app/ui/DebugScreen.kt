@@ -91,6 +91,7 @@ fun DebugScreen(
                 tasks = state.tasks.values.sortedByDescending { it.createdAtMs },
                 onCancel = { task -> onCancel(task.promptId ?: task.id) },
                 modifier = Modifier.weight(1f),
+                viewBaseUrl = state.lease?.baseUrl,
             )
         }
     }

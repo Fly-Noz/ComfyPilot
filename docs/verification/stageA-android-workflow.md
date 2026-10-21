@@ -1,12 +1,12 @@
-# 阶段 A · S3/S4 Android 工作流与图片上传验证（mock）
+# 阶段 A · S3/S4/S5 Android 工作流、上传与产物验证（mock）
 
 日期：2026-10-21
 
 ## 范围
 
 这一轮只验证 **Android 端**的「连接 → 工作流列表 → 详情/调参 → 提交 → 任务」
-与相册图片上传，对端是 `tools/mock-comfyui`，**不是真实 ComfyUI**。真实实例
-（`100.x.x.x:8188`）的提交仍受手机 Tailscale 可达性阻塞，未在本文档中声称。
+、相册图片上传与产物预览，对端是 `tools/mock-comfyui`，**不是真实 ComfyUI**。
+真实实例（`100.x.x.x:8188`）的提交仍受手机 Tailscale 可达性阻塞，未在本文档中声称。
 
 ## 结论
 
@@ -14,7 +14,7 @@
 |---|---|
 | 构建级 | `:app:assembleDebug` 成功 |
 | JVM 测试级 | `:shared:jvmTest` **163 通过 / 0 跳过 / 0 失败**（新增 3 个覆盖值与 5 个上传用例） |
-| Android 真机级（mock） | 通过：列表、详情、调参、提交、任务完成、相册上传 |
+| Android 真机级（mock） | 通过：列表、详情、调参、提交、任务完成、相册上传、产物预览 |
 
 ## 设备与环境
 
@@ -38,13 +38,15 @@
    控件值从 `example.png` 变为上传返回的文件名（本轮为 `1000198369.png`）；
    `lastUpload.bytes = 380870`，说明文件真的发到了 `/upload/image`。
    提交后 `lastPrompt["1"].inputs.image` 等于该文件名，任务正常完成。
+6. **产物预览**：任务完成后点「查看产物」，弹出产物对话框；
+   `GET /view` 的 1x1 PNG 能解码并显示，另有「在浏览器打开」入口。
 
 ## 未验证
 
 - 真实 ComfyUI 提交（手机 Tailscale 可达性未确认：`ping` 与 TCP 8188 都不通；
   `/object_info` 6.4 MB 的真实实例只在 JVM 诊断里用过）。
 - 取消按钮在真机上的行为（本轮没有点）。
-- 产物预览（S5）、鸿蒙对齐（S6）。
+- 视频产物的内嵌播放（现在只提供浏览器打开）；鸿蒙对齐（S6）。
 - 进程被杀/重启后的任务恢复：Android 侧仍是 `InMemoryTaskStore`，阶段一设计如此。
 
 ## 证据
@@ -56,6 +58,7 @@
 - `android-nodes.png`：全部节点与连线字段
 - `android-picker.png`：系统相册选择器
 - `android-task.png`：任务完成
+- `android-output.png`：产物预览对话框
 
 复现命令：
 
