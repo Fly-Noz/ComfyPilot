@@ -1,0 +1,34 @@
+# Gradle / Kotlin
+.gradle/
+build/
+.kotlin/
+captures/
+local.properties
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Android
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+
+# HarmonyOS / DevEco
+oh_modules/
+node_modules/
+.hvigor/
+ohos/build/
+ohos/.preview/
+*.hap
+*.hsp
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
