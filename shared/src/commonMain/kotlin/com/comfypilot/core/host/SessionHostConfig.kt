@@ -2,6 +2,9 @@ package com.comfypilot.core.host
 
 import com.comfypilot.core.api.stringOrNull
 import com.comfypilot.core.net.SessionConfig
+import com.comfypilot.core.task.DEFAULT_RESTORE_LIMIT
+import com.comfypilot.core.task.PromptTask
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -35,4 +38,21 @@ fun sessionConfigFromJson(
         progressSilenceMaxMs = obj.longOrNull("progressSilenceMaxMs") ?: defaults.progressSilenceMaxMs,
         tickIntervalMs = obj.longOrNull("tickIntervalMs") ?: defaults.tickIntervalMs,
     )
+}
+
+/**
+ * 宿主从本地存储里读出来的历史任务：`configJson` 里的 `tasks` 数组，
+ * 每项是 [toPersistJson] 写出去的快照。
+ *
+ * 解析坏了就当没有历史——一条任务都不恢复，也绝不因此让会话起不来。
+ * 恢复之后怎么对待这些任务（尤其"上次还在跑"的），由 `restoreTasks` 决定。
+ */
+fun restoredTasksFromJson(
+    raw: String,
+    limit: Int = DEFAULT_RESTORE_LIMIT,
+): List<PromptTask> {
+    val obj = runCatching { bridgeJson.parseToJsonElement(raw) as? JsonObject }.getOrNull()
+        ?: return emptyList()
+    val tasks = obj["tasks"] as? JsonArray ?: return emptyList()
+    return parsePersistedTasks(tasks, limit)
 }

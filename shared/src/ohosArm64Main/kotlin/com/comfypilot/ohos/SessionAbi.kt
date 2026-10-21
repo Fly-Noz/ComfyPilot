@@ -3,6 +3,7 @@
 package com.comfypilot.ohos
 
 import com.comfypilot.core.host.SessionHost
+import com.comfypilot.core.host.restoredTasksFromJson
 import com.comfypilot.core.host.sessionConfigFromJson
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CPointer
@@ -39,7 +40,10 @@ fun cpSessionCreate(configJson: CPointer<ByteVar>?): Int {
         session?.shutdown()
         cachedFrame = null
         cachedFrameAtMs = -1
-        session = SessionHost(config).also { it.start() }
+        session = SessionHost(
+            config = config,
+            initialTasks = restoredTasksFromJson(raw),
+        ).also { it.start() }
         1
     } catch (error: Throwable) {
         session = null

@@ -6,6 +6,7 @@ import com.comfypilot.core.session.SessionRuntime
 import com.comfypilot.core.task.PromptTask
 import com.comfypilot.core.task.TaskId
 import com.comfypilot.core.task.TaskStore
+import com.comfypilot.core.task.restoreTasks
 import com.comfypilot.core.transport.HttpRequest
 import com.comfypilot.core.transport.HttpResponse
 import com.comfypilot.core.transport.HttpTransport
@@ -75,7 +76,10 @@ class SessionHost(
     private val socketListeners = mutableMapOf<Long, WebSocketListener>()
     private var started = false
 
-    private val store = BridgeTaskStore(initialTasks.associateBy { it.id }.toMutableMap())
+    /** 宿主从本地读出来的历史任务；规则见 [restoreTasks]。 */
+    private val restored = restoreTasks(initialTasks)
+
+    private val store = BridgeTaskStore(restored.tasks.associateBy { it.id }.toMutableMap())
 
     val runtime = SessionRuntime(
         config = config,
@@ -85,7 +89,8 @@ class SessionHost(
         clock = clock,
         jitter = jitter,
         scope = scope,
-        initialTasks = initialTasks,
+        initialTasks = restored.tasks,
+        nextDraftId = restored.nextDraftId,
         onNotice = { notice ->
             // 通知也是命令，宿主自己决定怎么展示（Toast/系统通知/日志）。
             enqueue(
@@ -313,7 +318,7 @@ class SessionHost(
             enqueue(
                 buildJsonObject {
                     put("t", "persist")
-                    put("task", task.toBridgeJson())
+                    put("task", task.toPersistJson())
                 },
             )
         }

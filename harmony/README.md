@@ -77,7 +77,7 @@ C ABI（`ohosArm64Main/.../SessionAbi.kt`）：
 |---|---|
 | `cp_version()` | ABI 版本，2 起有会话接口 |
 | `cp_self_test_json(buffer, capacity)` | 纯逻辑自检，UTF-8 JSON 写入调用方缓冲区 |
-| `cp_session_create(configJson)` | 建会话（配置：`baseUrl` 等），1 成功 |
+| `cp_session_create(configJson)` | 建会话（配置：`baseUrl` 等；`tasks` 数组可带上次落盘的任务），1 成功 |
 | `cp_session_pump(nowMs, buffer, capacity)` | **推进到 nowMs**，返回一帧 JSON |
 | `cp_session_send(json)` | 回投宿主消息（IO 结果、网络变化、提交请求） |
 | `cp_session_destroy()` | 关会话 |
@@ -110,11 +110,29 @@ Kotlin 不在自己的线程里跑：宿主按自己的节奏 `pump(nowMs)`，Ko
 
 对应的断言在 `shared/src/commonTest/.../host/SessionHostFreezeTest.kt`。
 
+### 持久化与重启
+
+快照的 schema 由 Kotlin 单方面拥有（`host/PersistedTask.kt`）：`persist` 命令里带的就是它，
+宿主只负责原样存、原样取，不要自己解析状态。启动时把上次的行拼成
+`cp_session_create` 的 `tasks` 数组塞回去即可。
+
+恢复规则（`task/Restore.kt`）只有一句话：**恢复历史，不恢复控制权**。
+
+- `Submitting` 的任务没有 `promptId`，无从对账，直接变 `Unknown`；
+- `Queued` / `Running` 保留原状态，等连上 WebSocket 后按 `/history`、`/queue` 核对，
+  核对不上就是 `Unknown`，**永不自动重投**；
+- 已结束的任务原样保留，作为历史；
+- 草稿编号会接着恢复出来的 `draft-N` 往后排，不会撞车。
+
+ArkTS 侧的 RDB 还没写（见下面的“尚未完成”），但恢复语义本身已经在 JVM 上锁住了：
+`RestoreTest`、`PersistedTaskTest`、`SessionHostRestoreTest`。
+
 ## 尚未完成
 
 - 真机上跑通阶段一的四个场景（连接/提交/完成、`history_error` 立即失败、
   `silent` 看门狗、ComfyUI 重启后任务 `Unknown` 不重投）——设备掉线，未验证
-- RDB 持久化（现在只有内存存储 + `persist` 命令日志，重启即丢）
+- ArkTS 侧 RDB：共享侧的快照 schema 与恢复规则已完成并有单测，但数据库读写还没实现
+  （现在只有内存存储 + `persist` 命令日志，重启即丢）
 - 前台长任务 / 实况窗（需要 `backgroundTaskManager` 与通知权限）
 - 后台保活的电量策略与用户可见开关
-- 重装/杀进程后的任务恢复（依赖上一条的持久化）
+- 重装/杀进程后的任务恢复（等 RDB 接上）

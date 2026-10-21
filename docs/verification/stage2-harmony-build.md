@@ -7,7 +7,7 @@
 分两层说，不要混：
 
 1. **构建级**：共享层 + 会话桥 + 宿主循环 + HAP 都能编出来，C ABI 导出正确，
-   93 个 JVM 测试全绿（含桥协议、冻结语义）。
+   111 个 JVM 测试全绿（含桥协议、冻结语义、重启恢复）。
 2. **真机级**：只验证过“共享层能在真机加载、纯逻辑自检能跑通”。
    会话联调（网络 / WebSocket / 任务）**尚未上真机**——设备在开发过程中掉线
    （`hdc list targets -v` 返回 `[Empty]`），不是“没时间跑”。
@@ -46,7 +46,8 @@ bundle 名由 DevEco 自动签名流程确定（AGC 中的应用标识），不�
 | HAP 包含 Kotlin 产物 | zip 内 `libs/arm64-v8a/libcomfypilot_core.so`（已 strip） |
 | NAPI 模块链接正确 | `libentry.so` 的 `NEEDED` 含 `libcomfypilot_core.so`，`RUNPATH` 含 `$ORIGIN` |
 | 自检逻辑本身正确 | `SelfTestTest` 在 JVM 上通过 |
-| 桥协议与状态机正确 | `SessionHostTest`（7）+ `SessionHostFreezeTest`（4）+ `SessionHostConfigTest`（4）等，共 93 个 JVM 测试、0 失败 |
+| 桥协议与状态机正确 | `SessionHostTest`（7）+ `SessionHostFreezeTest`（4）+ `SessionHostConfigTest`（4）等，共 111 个 JVM 测试、0 失败 |
+| 重启恢复语义正确 | `RestoreTest`（7）+ `PersistedTaskTest`（7）+ `SessionHostRestoreTest`（4）：`Submitting` → `Unknown`、未完成任务先对账、永不自动重投 |
 | 签名 HAP 可产出 | `harmony/build.ps1` → `BUILD SUCCESSFUL`，产物 `entry-default-signed.hap` |
 
 导出的符号（本次构建实测，`.so` 9.87 MB）：
@@ -84,6 +85,7 @@ HAP 是 `cp_version() == 2`，只做过构建级验证。
 
 - 会话桥在真机上跑通（`cp_session_pump` → NAPI → ArkTS → 回投）
 - ArkTS `@ohos.net` 的 HTTP / WebSocket 实际收发（只在构建级确认能编译）
+- ArkTS 侧 RDB 读写（共享侧的快照 schema 与恢复规则已有单测，数据库本身还没实现）
 - 任务提交、`/history` 三分类、`/queue` 兜底
 - 断线重连、退避、进度看门狗在真机上的行为
 - 前台 ↔ 背景切换时的冻结检测（逻辑有单测，真机未跑）
@@ -123,6 +125,18 @@ Kotlin 不跑自己的线程：宿主按自己的节奏调 `cp_session_pump(nowM
 | 退避期间冻结半小时，不爆发多次重连 | 定时器按逻辑时间到期 |
 
 顺便挡住系统时间被往回调的情况：负跳变同样不推进逻辑时间，避免定时器卡住。
+
+### 3. 重启恢复：恢复历史，不恢复控制权
+
+持久化快照的 schema 由 Kotlin 单方面拥有（`host/PersistedTask.kt`）；宿主只搬字节。
+`cp_session_create` 的配置里可以带 `tasks` 数组，把上次落盘的任务送回来。
+
+恢复规则（`task/Restore.kt`）要防的是"重启把任务偷偷跑两遍"：`Submitting` 没有 `promptId`，
+直接记 `Unknown`；`Queued`/`Running` 保留状态但对账后才算数；核对不上依旧是 `Unknown`，
+**永远不自动重投**。草稿编号接着恢复出来的 `draft-N` 往后排，避免覆盖旧任务。
+
+这条链路不依赖鸿蒙 API，所以能纯 JVM 验证：`SessionHostRestoreTest` 断言"恢复的 Running
+任务只发 `/history` + `/queue`，一个 `/prompt` 都不发"。
 
 ## 签名
 

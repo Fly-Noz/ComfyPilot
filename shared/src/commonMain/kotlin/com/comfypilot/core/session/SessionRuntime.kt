@@ -44,12 +44,13 @@ class SessionRuntime(
     private val jitter: JitterSource,
     private val scope: CoroutineScope,
     initialTasks: List<PromptTask> = emptyList(),
+    nextDraftId: Long = 1L,
     private val onNotice: (UserNotice) -> Unit = {},
 ) {
     private val reducer = SessionReducer(config, jitter)
     private val inputs = Channel<SessionInput>(Channel.UNLIMITED)
     private val _state = MutableStateFlow(
-        SessionState(tasks = initialTasks.associateBy { it.id }),
+        SessionState(tasks = initialTasks.associateBy { it.id }, nextDraftId = nextDraftId),
     )
     val state: StateFlow<SessionState> = _state.asStateFlow()
 

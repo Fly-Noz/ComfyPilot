@@ -1,6 +1,7 @@
 package com.comfypilot.core.host
 
 import com.comfypilot.core.net.SessionConfig
+import com.comfypilot.core.task.PromptTask
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -40,8 +41,14 @@ internal class HostDriver(
     val config: SessionConfig = testSessionConfig(),
     startAtMs: Long = 1_000,
     freezeGapMs: Long = 2_000,
+    initialTasks: List<PromptTask> = emptyList(),
 ) {
-    val host = SessionHost(config, pollIntervalHintMs = 250, freezeGapMs = freezeGapMs)
+    val host = SessionHost(
+        config = config,
+        initialTasks = initialTasks,
+        pollIntervalHintMs = 250,
+        freezeGapMs = freezeGapMs,
+    )
 
     private var now = startAtMs
     var frame: JsonObject = parse(host.pump(now))
@@ -49,25 +56,30 @@ internal class HostDriver(
 
     /** 通知只出现在产生它的那一帧里，测试要跨多帧看就必须自己累计。 */
     private val seenNotices = mutableListOf<String>()
+    private val seenCommands = mutableListOf<JsonObject>()
 
     init {
-        recordNotices()
+        recordFrame()
     }
 
     fun pump(advanceMs: Long = 20): JsonObject {
         now += advanceMs
         frame = parse(host.pump(now))
-        recordNotices()
+        recordFrame()
         return frame
     }
 
-    private fun recordNotices() {
+    private fun recordFrame() {
+        seenCommands += commands
         seenNotices += commands
             .filter { (it["t"] as? JsonPrimitive)?.content == "notice" }
             .mapNotNull { command ->
                 (command["notice"] as? JsonObject)?.get("kind")?.let { kind -> (kind as JsonPrimitive).content }
             }
     }
+
+    /** 到当前帧为止宿主见过的所有命令，用于断言"从来没有发过"。 */
+    fun allCommands(): List<JsonObject> = seenCommands.toList()
 
     fun deliver(raw: String): Boolean {
         val accepted = host.deliver(raw)
@@ -80,6 +92,19 @@ internal class HostDriver(
 
     fun command(type: String): JsonObject? =
         commands.lastOrNull { (it["t"] as? JsonPrimitive)?.content == type }
+
+    /** 当前帧里某个路径的 HTTP 命令（`url` 以 [pathSuffix] 结尾）。 */
+    fun httpCommand(pathSuffix: String): JsonObject? =
+        commands.lastOrNull { command ->
+            (command["t"] as? JsonPrimitive)?.content == "http" &&
+                (command["url"] as? JsonPrimitive)?.content?.endsWith(pathSuffix) == true
+        }
+
+    fun submitCount(): Int = allCommands().count { command ->
+        (command["t"] as? JsonPrimitive)?.content == "http" &&
+            (command["method"] as? JsonPrimitive)?.content == "POST" &&
+            (command["url"] as? JsonPrimitive)?.content?.endsWith("/prompt") == true
+    }
 
     fun notices(): List<String> = seenNotices.toList()
 
