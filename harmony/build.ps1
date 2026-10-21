@@ -53,10 +53,22 @@ try {
     if ($Rest.Count -eq 0) {
         $Rest = @("assembleHap", "--mode", "module", "-p", "product=default", "-p", "buildMode=debug", "--no-daemon")
     }
-    & (Join-Path $devEco "tools\hvigor\bin\hvigorw.bat") @Rest
+    # hvigor writes progress/warnings to stderr; with $ErrorActionPreference = "Stop"
+    # PowerShell would turn the first such line into a terminating NativeCommandError
+    # even though hvigor succeeds. Relay output with the preference relaxed and rely on
+    # the real exit code.
+    $previousEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & (Join-Path $devEco "tools\hvigor\bin\hvigorw.bat") @Rest 2>&1 | ForEach-Object { Write-Host $_ }
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousEap
+    }
 }
 finally {
     Pop-Location
 }
 
-exit $LASTEXITCODE
+exit $exitCode

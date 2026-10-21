@@ -36,3 +36,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local device artifacts (screenshots, dumps)
+artifacts/
