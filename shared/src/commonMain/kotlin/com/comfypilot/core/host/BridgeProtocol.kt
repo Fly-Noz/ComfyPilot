@@ -206,15 +206,7 @@ sealed interface HostMessage {
 }
 
 internal fun JsonObject.longOrNull(key: String): Long? =
-    stringOrNull(key)?.toLongOrNull() ?: (this[key] as? kotlinx.serialization.json.JsonPrimitive)
-        ?.let { if (it.isString) null else it.content.toLongOrNull() }
-
-internal fun buildNetworkCommand(network: NetworkInfo): JsonObject = buildJsonObject {
-    put("t", "net")
-    put("transport", network.transport.name.lowercase())
-    put("validated", network.validated)
-    put("handle", jsonString(network.handle))
-}
+    stringOrNull(key)?.toLongOrNull()
 
 internal fun buildHttpCommand(
     id: Long,

@@ -168,7 +168,6 @@ class SessionHost(
             }
 
             is HostMessage.NetworkChanged -> {
-                enqueue(buildNetworkCommand(message.network))
                 runtime.onNetworkChanged(message.network)
                 true
             }

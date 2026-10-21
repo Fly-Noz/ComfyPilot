@@ -202,6 +202,7 @@ class SessionHostTest {
 
         fake.deliver("""{"t":"net","transport":"wifi","validated":true,"handle":"wlan1"}""")
         assertEquals("1", fake.stateString("generation"))
+        assertNull(fake.command("ws.open"), "同一网络类别的重复上报不应重建连接")
     }
 
     @Test
