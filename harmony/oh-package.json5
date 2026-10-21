@@ -1,0 +1,11 @@
+{
+  "modelVersion": "5.0.0",
+  "name": "comfypilot_harmony",
+  "version": "0.1.0",
+  "description": "ComfyPilot HarmonyOS client",
+  "main": "",
+  "author": "comfypilot",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}

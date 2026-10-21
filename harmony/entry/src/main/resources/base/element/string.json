@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "ComfyPilot 鸿蒙客户端"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "ComfyPilot 主界面"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "ComfyPilot"
+    }
+  ]
+}

@@ -26,6 +26,10 @@ ohos/.preview/
 *.hap
 *.hsp
 
+# HarmonyOS native artifacts (generated)
+harmony/entry/libs/
+harmony/entry/src/main/cpp/include/*.h
+
 # OS
 Thumbs.db
 .DS_Store

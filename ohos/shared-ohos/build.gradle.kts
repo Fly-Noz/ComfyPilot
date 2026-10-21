@@ -24,5 +24,10 @@ kotlin {
                 implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.1-KBA-003")
             }
         }
+
+        val ohosArm64Main by getting {
+            // 平台侧 C ABI（@CName 导出）也放在 shared 下，Android 构建不会包含它。
+            kotlin.srcDir("../../shared/src/ohosArm64Main/kotlin")
+        }
     }
 }

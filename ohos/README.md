@@ -38,6 +38,9 @@ ohos\shared-ohos\build\bin\ohosArm64\debugShared\libcomfypilot_core_api.h
 
 `DEVECO_SDK_HOME` 需指向 DevEco Studio 的 `sdk` 目录（例如
 `D:\Huawei\DevEco Studio\sdk`）。`build.ps1` 会在未设置时自动探测并设置。
+链接阶段真正读取的是 `OHOS_SDK_HOME`（`<sdk>\default\openharmony`），脚本也会一并设置；
+如果只手动设置了 `DEVECO_SDK_HOME`，请确认 `OHOS_SDK_HOME` 也存在，否则链接器会回退到
+`C:\Program Files\Huawei\...` 并报 “OHOS SDK is not found”。
 
 ## 与 Android 构建的关系
 
@@ -48,6 +51,6 @@ ohos\shared-ohos\build\bin\ohosArm64\debugShared\libcomfypilot_core_api.h
 
 ## 尚未完成
 
-- C ABI / NAPI 封装（ArkTS 侧如何调用 Kotlin）
+- 异步回调桥（HTTP / WebSocket 由 ArkTS 执行，结果回传 Kotlin）
 - `ohosArm64Main` 的平台实现（时钟、存储、网络监视器）
 - HAP 集成与真机验证

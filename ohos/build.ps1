@@ -29,12 +29,26 @@ if (-not $env:DEVECO_SDK_HOME) {
     $env:DEVECO_SDK_HOME = $found
 }
 
-Write-Host "DEVECO_SDK_HOME=$env:DEVECO_SDK_HOME"
-
-if ($autoDetected) {
-    # Daemons started before this variable existed keep looking at the default SDK path.
-    & (Join-Path $PSScriptRoot "gradlew.bat") --stop 2>&1 | Out-Null
+if (-not $env:OHOS_SDK_HOME) {
+    # Kotlin/Native reads OHOS_SDK_HOME when linking; without it the compiler
+    # falls back to a hard-coded DevEco install path.
+    $env:OHOS_SDK_HOME = Join-Path $env:DEVECO_SDK_HOME "default\openharmony"
+    $autoDetected = $true
 }
 
-& (Join-Path $PSScriptRoot "gradlew.bat") @Rest
+Write-Host "DEVECO_SDK_HOME=$env:DEVECO_SDK_HOME"
+Write-Host "OHOS_SDK_HOME=$env:OHOS_SDK_HOME"
+
+Push-Location $PSScriptRoot
+try {
+    if ($autoDetected) {
+        # Daemons started before this variable existed keep looking at the default SDK path.
+        & (Join-Path $PSScriptRoot "gradlew.bat") --stop 2>&1 | Out-Null
+    }
+
+    & (Join-Path $PSScriptRoot "gradlew.bat") @Rest
+}
+finally {
+    Pop-Location
+}
 exit $LASTEXITCODE
