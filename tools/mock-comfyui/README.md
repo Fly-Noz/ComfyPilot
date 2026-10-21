@@ -25,21 +25,26 @@ curl -X POST http://127.0.0.1:8188/mock/scenario -H "content-type: application/j
 | 场景 | 行为 | 对应验收点 |
 |---|---|---|
 | `normal` | 每 500ms 一个 `progress`，8 步后 `executed` + history 成功 | 正常完成 |
-| `error` | `execution_error` + history `status_str=error` | /history error 立即失败、零重试 |
-| `silent` | 接受提交后不再发任何事件，也不写 history | 进度静默看门狗 → 重连 → 对账 |
+| `error` | `execution_error`（WS 直接报错） | WS 错误立即失败 |
+| `history_error` | WS 只发 `executing(node=null)`，错误只写进 history | /history 可读 + error 立即失败、零重试 |
+| `silent` | 先发 `execution_start` + 一次 `progress`，然后彻底静默；任务留在 /queue | 进度静默看门狗 → 重连 → 对账后仍是"执行中" |
 | `lost` | 提交后立刻从 queue 消失，不写 history | 对账判定 `Unknown`，不自动重提 |
-| `slow` | 每 10s 才发一次进度 | 自适应静默预算 |
+| `slow` | 每 10s 才发一次进度（8 步 = 80s） | 自适应静默预算；也用于"跑到一半重启服务端" |
 
-辅助接口：`GET /mock/state`、`POST /mock/reset`、`GET /view`（返回 1x1 PNG）。
+辅助接口：`GET /mock/state`（含 `hits` 请求计数）、`POST /mock/reset`（同时清零计数）、
+`GET /view`（返回 1x1 PNG）。
 
 ## 手工验证步骤（Android）
 
 1. `node server.mjs`，场景保持 `normal`。
 2. App 里连接 `http://10.0.2.2:8188`，点"提交"。
 3. 观察任务从 提交中 → 排队中 → 执行中(0–100%) → 已完成。
-4. 切到 `error` 再提交：任务应直接失败，日志里 `/history/p1` 只出现一次。
-5. 切到 `silent` 再提交：约 2 分钟后（默认静默预算 120s）客户端应主动断开重连，
-   重连后对账仍显示进行中，静默预算翻倍。
+4. 切到 `history_error` 再提交：任务应直接失败，`GET /mock/state` 的
+   `hits.history` 为 1（零重试）、`hits.queue` 不出现。
+5. 切到 `silent` 再提交：静默预算到点后客户端应主动断开重连（`clientId` 变化、
+   `generation` 不变），重连后对账仍显示"执行中"，`hits.history`/`hits.queue` 各 1。
 6. 切到 `lost` 再提交：对账后任务变为"状态未知"，且不会被自动重新提交。
+7. 切到 `slow` 提交后立刻杀掉 `node server.mjs`，再重启：重连对账后该任务变为
+   "状态未知"（服务端 history/queue 都没有它）。
 
 > 以上是联调清单，不代表已在真机验证。真机验证结果需在阶段报告中单独记录。

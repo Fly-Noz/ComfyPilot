@@ -52,10 +52,13 @@ data class SessionConfig(
     val reconcileMaxAttempts: Int = 4,
     val reconcileWindowMs: Long = 20_000,
     val reconcileRetryBaseMs: Long = 1_000,
-    val progressSilenceMs: Long = 120_000,
+    val progressSilenceMs: Long = DEFAULT_PROGRESS_SILENCE_MS,
     val progressSilenceMaxMs: Long = 600_000,
     val tickIntervalMs: Long = 1_000,
 ) {
+    companion object {
+        const val DEFAULT_PROGRESS_SILENCE_MS = 120_000L
+    }
     /** 指数退避 + 随机抖动；attempt 从 1 开始。 */
     fun backoffMs(attempt: Int, jitter: com.comfypilot.core.transport.JitterSource): Long {
         val exponent = (attempt - 1).coerceAtLeast(0)

@@ -26,17 +26,25 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         requestNotificationPermissionIfNeeded()
 
+        // 仅供调试/联调：允许通过 adb 指定地址并自动连接，避免手点 UI 引入不确定性
+        val initialUrl = intent.getStringExtra(EXTRA_BASE_URL) ?: SessionHost.DEFAULT_BASE_URL
+        val silenceMs = intent.getLongExtra(EXTRA_SILENCE_MS, 0L)
+        if (savedInstanceState == null && intent.getBooleanExtra(EXTRA_AUTO_CONNECT, false)) {
+            startKeepAliveService()
+            viewModel.connect(initialUrl, silenceMs)
+        }
+
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
             val notice by viewModel.notice.collectAsStateWithLifecycle()
             DebugScreen(
                 state = state,
+                initialUrl = initialUrl,
                 notice = notice,
                 onConnect = { url ->
                     startKeepAliveService()
-                    viewModel.connect(url)
-                },
-                onDisconnect = {
+                    viewModel.connect(url, silenceMs)
+                },                onDisconnect = {
                     viewModel.disconnect()
                     stopService(Intent(this, ComfyForegroundService::class.java))
                 },
@@ -61,5 +69,11 @@ class MainActivity : ComponentActivity() {
             return
         }
         notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    companion object {
+        const val EXTRA_BASE_URL = "baseUrl"
+        const val EXTRA_AUTO_CONNECT = "autoConnect"
+        const val EXTRA_SILENCE_MS = "silenceMs"
     }
 }

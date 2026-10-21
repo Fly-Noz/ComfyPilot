@@ -251,14 +251,22 @@ class SessionReducer(
             }
 
             is ComfyEvent.Executing -> {
-                if (event.promptId == null) return ReduceResult(state)
-                val task = findTask(next, event.promptId) ?: return ReduceResult(state)
+                val id = event.promptId ?: return ReduceResult(state)
+                val task = findTask(next, id) ?: return ReduceResult(state)
                 // executing 也是一次"活着"的信号
                 next = touchTask(
                     next,
                     task.copy(lastProgressAtMs = input.nowMs, updatedAtMs = input.nowMs),
                     effects,
                 )
+                // node == null 是 ComfyUI 的"该 prompt 已执行完"信号。它仍然只是提示，
+                // 但必须立刻用 /history 复核，否则完成态只能等静默看门狗（默认 2 分钟），
+                // 还会把"执行完了"误判成"连接卡住"而白重连一次。
+                if (event.node == null) {
+                    val verify = beginVerification(next, id, input.nowMs)
+                    next = verify.state
+                    effects += verify.effects
+                }
             }
 
             is ComfyEvent.Executed -> {
@@ -350,9 +358,16 @@ class SessionReducer(
         )
         if (snapshot == null) return ReduceResult(next)
 
+        // 快照本身就能给已有 /history 结果的槽位下结论；这里必须把 effects 一起带出去，
+        // 否则"凭 /queue 判定丢失"会静默丢弃 Persist 与通知。
+        val effects = mutableListOf<SessionEffect>()
         val ids = phase.pending.filterValues { it.probe != null }.keys.toList()
-        ids.forEach { id -> next = resolveSlot(next, id, now).state }
-        return ReduceResult(next)
+        ids.forEach { id ->
+            val resolved = resolveSlot(next, id, now)
+            next = resolved.state
+            effects += resolved.effects
+        }
+        return ReduceResult(next, effects)
     }
 
     private fun onSubmitResult(
@@ -507,7 +522,10 @@ class SessionReducer(
             .values
             .filter { now - it.startedAtMs > hardDeadline }
         stale.forEach { slot ->
-            next = giveUp(next, slot.promptId, "对账超过 ${hardDeadline / 1000}s 仍无结论", now, effects).state
+            val local = mutableListOf<SessionEffect>()
+            val resolved = giveUp(next, slot.promptId, "对账超过 ${hardDeadline / 1000}s 仍无结论", now, local)
+            next = resolved.state
+            effects += local
         }
 
         if (next === state && effects.isEmpty()) return ReduceResult(state)
@@ -539,6 +557,47 @@ class SessionReducer(
             listOf(
                 SessionEffect.CloseSocket(lease.leaseId, "进度静默超时"),
                 SessionEffect.Notify(UserNotice.ProgressTimeout(ids)),
+            ),
+        )
+    }
+
+    /**
+     * WebSocket 说"这个 prompt 完了"——只是提示。立即在**同一个租约**上取 /history 复核：
+     * 不关 socket、不递增 generation，只在复核期间把阶段标成 Recovering（"对齐中"）。
+     */
+    private fun beginVerification(state: SessionState, promptId: String, now: Long): ReduceResult {
+        val lease = state.lease ?: return ReduceResult(state)
+        val pending = when (val phase = state.phase) {
+            is SessionPhase.Recovering -> {
+                if (phase.pending.containsKey(promptId)) return ReduceResult(state)
+                phase.pending
+            }
+
+            is SessionPhase.Connected -> emptyMap()
+            else -> return ReduceResult(state)
+        }
+        val slot = ReconcileSlot(promptId = promptId, startedAtMs = now)
+        val phase = when (val current = state.phase) {
+            is SessionPhase.Recovering -> current.copy(pending = pending + (promptId to slot))
+            is SessionPhase.Connected -> SessionPhase.Recovering(
+                lease = current.lease,
+                pending = mapOf(promptId to slot),
+                queueSeen = false,
+                totalCount = 1,
+                // 让下一个 tick 立刻补一次 /queue：history 若"可读但无输出"，需要它区分进行中/丢失
+                queueRequestedAtMs = now - QUEUE_RETRY_MS,
+            )
+
+            else -> return ReduceResult(state)
+        }
+        return ReduceResult(
+            state.copy(phase = phase),
+            listOf(
+                SessionEffect.SendHttp(
+                    lease,
+                    ApiCall.FetchHistory(promptId),
+                    RequestTag.History(promptId),
+                ),
             ),
         )
     }

@@ -17,7 +17,7 @@ import { WebSocketServer } from 'ws'
 const PORT = Number(process.env.PORT || 8188)
 const HOST = process.env.HOST || '0.0.0.0'
 
-const SCENARIOS = new Set(['normal', 'error', 'silent', 'lost', 'slow'])
+const SCENARIOS = new Set(['normal', 'error', 'history_error', 'silent', 'lost', 'slow'])
 
 let scenario = 'normal'
 let seq = 0
@@ -26,6 +26,12 @@ const pending = new Map()
 const running = new Map()
 const history = new Map()
 const sockets = new Set()
+/** 只统计 ComfyUI 真实接口的命中次数，便于验证"失败不重试"之类的承诺。 */
+const hits = new Map()
+
+function hit(key) {
+  hits.set(key, (hits.get(key) ?? 0) + 1)
+}
 
 const tickMs = () => (scenario === 'slow' ? 10_000 : 500)
 
@@ -65,8 +71,13 @@ function startJob(promptId, job) {
     return
   }
   if (scenario === 'silent') {
-    // 故意什么都不发：用于验证客户端进度静默看门狗
+    // 先让它真的开始跑，然后彻底静默：任务留在 /queue 里，用来验证
+    // "WS 静默 -> 看门狗重连 -> /history+/queue 对账后仍在执行中"
     pending.delete(promptId)
+    running.set(promptId, job)
+    job.status = 'running'
+    broadcast({ type: 'execution_start', data: { prompt_id: promptId, timestamp: Date.now() } })
+    broadcast({ type: 'progress', data: { prompt_id: promptId, node: '3', value: 1, max: 100 } })
     return
   }
 
@@ -78,6 +89,34 @@ function startJob(promptId, job) {
     type: 'execution_start',
     data: { prompt_id: promptId, timestamp: Date.now() },
   })
+
+  if (scenario === 'history_error') {
+    // WebSocket 只发"结束"提示，错误只写进 /history：验证"可读 + error -> 立即失败、不重试"
+    setTimeout(() => {
+      running.delete(promptId)
+      broadcast({ type: 'executing', data: { prompt_id: promptId, node: null } })
+      history.set(promptId, {
+        prompt: [],
+        outputs: {},
+        status: {
+          status_str: 'error',
+          completed: false,
+          messages: [
+            ['execution_start', { prompt_id: promptId }],
+            [
+              'execution_error',
+              {
+                prompt_id: promptId,
+                node_id: '3',
+                exception_message: 'history-only error (mock)',
+              },
+            ],
+          ],
+        },
+      })
+    }, 500)
+    return
+  }
 
   if (scenario === 'error') {
     setTimeout(() => {
@@ -176,6 +215,11 @@ const server = http.createServer(async (req, res) => {
   const path = url.pathname
 
   try {
+    if (path === '/prompt') hit('prompt')
+    else if (path === '/queue') hit('queue')
+    else if (path.startsWith('/history/')) hit('history')
+    else if (path === '/interrupt') hit('interrupt')
+
     if (req.method === 'POST' && path === '/prompt') {
       const raw = await readBody(req)
       let payload
@@ -253,6 +297,7 @@ const server = http.createServer(async (req, res) => {
         running: running.size,
         history: history.size,
         sockets: sockets.size,
+        hits: Object.fromEntries(hits),
       })
     }
 
@@ -260,6 +305,7 @@ const server = http.createServer(async (req, res) => {
       pending.clear()
       running.clear()
       history.clear()
+      hits.clear()
       seq = 0
       return sendJson(res, 200, { ok: true })
     }

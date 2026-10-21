@@ -42,16 +42,17 @@ object SessionHost {
     var baseUrl: String = DEFAULT_BASE_URL
         private set
 
-    fun connect(context: Context, url: String) {
+    fun connect(context: Context, url: String, progressSilenceMs: Long? = null) {
         stopRuntime()
         baseUrl = url
-
-        monitor = AndroidNetworkMonitor(context.applicationContext) { info: NetworkInfo ->
-            runtime?.onNetworkChanged(info)
-        }.also { it.start() }
+        _lastNotice.value = null
 
         val created = SessionRuntime(
-            config = SessionConfig(baseUrl = url),
+            config = SessionConfig(
+                baseUrl = url,
+                // 仅调试入口可覆盖：真机联调时用来缩短"静默看门狗"的等待
+                progressSilenceMs = progressSilenceMs ?: SessionConfig.DEFAULT_PROGRESS_SILENCE_MS,
+            ),
             http = OkHttpHttpTransport(),
             sockets = OkHttpWebSocketTransport(),
             store = InMemoryTaskStore(),
@@ -61,13 +62,19 @@ object SessionHost {
             onNotice = { notice -> _lastNotice.value = notice.describe() },
         )
         runtime = created
-        created.start()
-        created.connect()
 
         collector = scope.launch {
             created.state.collect { snapshot -> _state.value = snapshot }
         }
-        _lastNotice.value = null
+
+        // 必须在 runtime 就绪后再注册：registerDefaultNetworkCallback 会立即回调一次，
+        // 否则首帧网络信息会丢，导致第一次 WiFi <-> 蜂窝切换不递增 generation。
+        monitor = AndroidNetworkMonitor(context.applicationContext) { info: NetworkInfo ->
+            created.onNetworkChanged(info)
+        }.also { it.start() }
+
+        created.start()
+        created.connect()
     }
 
     fun disconnect() {

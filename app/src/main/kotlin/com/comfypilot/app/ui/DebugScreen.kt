@@ -28,7 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
-import com.comfypilot.app.SessionHost
 import com.comfypilot.core.net.SessionState
 import com.comfypilot.core.task.PromptTask
 import com.comfypilot.core.task.TaskState
@@ -37,6 +36,7 @@ import com.comfypilot.core.task.TaskState
 @Composable
 fun DebugScreen(
     state: SessionState,
+    initialUrl: String,
     notice: String?,
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
@@ -44,7 +44,7 @@ fun DebugScreen(
     onSubmit: () -> Unit,
     onCancel: (String) -> Unit,
 ) {
-    var url by rememberSaveable { mutableStateOf(SessionHost.DEFAULT_BASE_URL) }
+    var url by rememberSaveable { mutableStateOf(initialUrl) }
 
     MaterialTheme {
         Scaffold(
@@ -142,6 +142,13 @@ private fun TaskRow(task: PromptTask, onCancel: () -> Unit) {
             if (percent != null) {
                 LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth())
                 Text("$percent%", style = MaterialTheme.typography.labelSmall)
+            }
+
+            if (task.outputs.isNotEmpty()) {
+                Text(
+                    "输出：${task.outputs.joinToString("、") { it.filename }}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
 
             task.error?.let {

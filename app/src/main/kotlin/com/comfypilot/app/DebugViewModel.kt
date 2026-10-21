@@ -9,7 +9,12 @@ class DebugViewModel(application: Application) : AndroidViewModel(application) {
     val state: StateFlow<SessionState> = SessionHost.state
     val notice: StateFlow<String?> = SessionHost.lastNotice
 
-    fun connect(url: String) = SessionHost.connect(getApplication(), url)
+    fun connect(url: String, progressSilenceMs: Long = 0L) =
+        SessionHost.connect(
+            getApplication(),
+            url,
+            progressSilenceMs.takeIf { it > 0L },
+        )
 
     fun disconnect() = SessionHost.disconnect()
 
