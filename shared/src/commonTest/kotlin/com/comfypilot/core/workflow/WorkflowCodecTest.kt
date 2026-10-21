@@ -171,6 +171,93 @@ class WorkflowCodecTest {
     }
 
     @Test
+    fun `input order decides the widget order`() {
+        val def = assertNotNull(
+            WorkflowCodec.parseNodeDefinition(
+                """
+                {
+                  "X": {
+                    "input": {
+                      "required": {"a": ["INT"], "b": ["INT"]},
+                      "optional": {"c": ["FLOAT"]}
+                    },
+                    "input_order": {"required": ["b", "a"], "optional": ["c"]}
+                  }
+                }
+                """.trimIndent(),
+                "X",
+            ),
+        )
+        assertEquals(listOf("b", "a", "c"), def.inputs.map { it.name })
+    }
+
+    @Test
+    fun `dynamic combo expands option inputs as optional dynamic fields`() {
+        val def = assertNotNull(
+            WorkflowCodec.parseNodeDefinition(
+                """
+                {
+                  "SaveVideo": {
+                    "input": {
+                      "required": {
+                        "images": ["IMAGE", {"forceInput": true}],
+                        "format": {
+                          "type": "COMFY_DYNAMICCOMBO_V3",
+                          "options": [
+                            {"key": "mp4", "inputs": {"required": {"quality": ["INT", {"default": 8}]}}},
+                            {"key": "webm", "inputs": {"required": {"crf": ["INT", {"default": 30}]}}}
+                          ]
+                        }
+                      }
+                    },
+                    "output": [],
+                    "output_node": true
+                  }
+                }
+                """.trimIndent(),
+                "SaveVideo",
+            ),
+        )
+
+        val format = assertNotNull(def.inputs.firstOrNull { it.name == "format" })
+        assertEquals("COMFY_DYNAMICCOMBO_V3", format.type)
+        assertEquals(listOf("mp4", "webm"), format.options)
+        assertTrue(format.isWidget)
+
+        val quality = assertNotNull(def.inputs.firstOrNull { it.name == "quality" })
+        assertEquals(false, quality.required)
+        assertTrue(quality.dynamic)
+        assertTrue(quality.isWidget)
+
+        val images = assertNotNull(def.inputs.firstOrNull { it.name == "images" })
+        assertEquals(false, images.isWidget)
+        assertTrue(def.isOutputNode)
+    }
+
+    @Test
+    fun `autogrow and image upload flags are recorded`() {
+        val math = assertNotNull(
+            WorkflowCodec.parseNodeDefinition(
+                """{"Math": {"input": {"required": {"values": ["COMFY_AUTOGROW_V3"]}}}}""",
+                "Math",
+            ),
+        )
+        val values = assertNotNull(math.inputs.firstOrNull())
+        assertTrue(values.autogrow)
+        assertEquals(false, values.isWidget)
+
+        val load = assertNotNull(
+            WorkflowCodec.parseNodeDefinition(
+                """{"Load": {"input": {"required": {"image": [["a.png"], {"image_upload": true}]}}}}""",
+                "Load",
+            ),
+        )
+        val image = assertNotNull(load.inputs.firstOrNull())
+        assertTrue(image.imageUpload)
+        assertTrue(image.isWidget)
+    }
+
+    @Test
     fun `unknown class response marks nothing as a definition`() {
         assertNull(WorkflowCodec.parseNodeDefinition("{}", "NopeNode"))
         assertNull(WorkflowCodec.parseNodeDefinition("not json", "NopeNode"))

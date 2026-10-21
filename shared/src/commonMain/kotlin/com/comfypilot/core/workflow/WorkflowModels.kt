@@ -70,6 +70,14 @@ data class NodeInputDef(
     /** 前端会在该控件后面多塞一个"生成后控制"值，转换时要跳过一格。 */
     val controlAfterGenerate: Boolean = false,
     val tooltip: String? = null,
+    /** `forceInput`：类型本来是控件，但被强制改成连线输入。 */
+    val forceInput: Boolean = false,
+    /** 该控件后面还跟着一个前端专用的上传按钮值（LoadImage）。 */
+    val imageUpload: Boolean = false,
+    /** 自动增长输入（`COMFY_AUTOGROW_V3`），在 API 里是 `name.sub` 形式的多个键。 */
+    val autogrow: Boolean = false,
+    /** 动态下拉框按当前选项展开出来的附加输入；是否必填取决于选项，不能一概而论。 */
+    val dynamic: Boolean = false,
 )
 
 data class NodeDefinition(
@@ -79,6 +87,8 @@ data class NodeDefinition(
     val inputs: List<NodeInputDef> = emptyList(),
     val outputs: List<String> = emptyList(),
     val outputNames: List<String> = emptyList(),
+    /** 服务端标记的输出节点：提交的图必须至少有一个。 */
+    val isOutputNode: Boolean = false,
     /** 服务端没有这个类：多半缺自定义节点。不要假装能调参。 */
     val missing: Boolean = false,
 )

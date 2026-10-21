@@ -23,6 +23,12 @@ object WorkflowCodec {
     /** 控件类型：这些类型的输入在图里是字面量，其余类型必须来自连线。 */
     private val WIDGET_TYPES = setOf("INT", "FLOAT", "STRING", "BOOLEAN", "COMBO")
 
+    /** 新版前端的动态下拉框：仍然是控件，但选项会带出附加输入。 */
+    private const val DYNAMIC_COMBO = "COMFY_DYNAMICCOMBO_V3"
+
+    /** 自动增长输入：在 API 里展开成 `name.sub` 的多个键，本身不是控件。 */
+    private const val AUTOGROW = "COMFY_AUTOGROW_V3"
+
     // ------------------------------------------------------------ /userdata 列表
 
     /**
@@ -99,10 +105,31 @@ object WorkflowCodec {
         val input = entry["input"] as? JsonObject
         val required = (input?.get("required") as? JsonObject).orEmpty()
         val optional = (input?.get("optional") as? JsonObject).orEmpty()
-        val inputs = buildList {
-            required.forEach { (name, spec) -> parseInput(name, spec, required = true)?.let(::add) }
-            optional.forEach { (name, spec) -> parseInput(name, spec, required = false)?.let(::add) }
+
+        // input_order 是前端控件顺序的权威来源；没有它时退化为"必填在前、可选在后"。
+        val order = entry["input_order"] as? JsonObject
+        val ordered = buildList {
+            (order?.get("required") as? JsonArray)?.forEach { (it as? JsonPrimitive)?.contentOrNull?.let(::add) }
+            (order?.get("optional") as? JsonArray)?.forEach { (it as? JsonPrimitive)?.contentOrNull?.let(::add) }
+            required.keys.forEach { if (it !in this) add(it) }
+            optional.keys.forEach { if (it !in this) add(it) }
         }
+
+        val inputs = mutableListOf<NodeInputDef>()
+        for (name in ordered) {
+            val isRequired = required.containsKey(name)
+            val spec = required[name] ?: optional[name] ?: continue
+            parseInput(name, spec, required = isRequired)?.let(inputs::add)
+        }
+
+        // 动态下拉框会把当前选项下的附加输入展开出来；它们不在顶层 required 里，
+        // 但工作流里可能确实有值。统一收集成"非必填"的附加控件。
+        val seen = inputs.map { it.name }.toMutableSet()
+        for (def in inputs.toList()) {
+            val spec = required[def.name] ?: optional[def.name] ?: continue
+            collectDynamicInputs(spec, inputs, seen, depth = 0)
+        }
+
         val outputs = (entry["output"] as? JsonArray)
             .orEmpty()
             .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
@@ -118,6 +145,7 @@ object WorkflowCodec {
             inputs = inputs,
             outputs = outputs,
             outputNames = outputNames,
+            isOutputNode = entry.boolOrNull("output_node"),
         )
     }
 
@@ -127,42 +155,31 @@ object WorkflowCodec {
      * - 新：`{"type":"COMBO","options":[...]}`。
      * 两种都要认，认不出类型就丢弃这一项（少一个控件好过认错一个）。
      */
-    private fun parseInput(name: String, spec: JsonElement, required: Boolean): NodeInputDef? {
-        val typeElement: JsonElement
-        val config: JsonObject?
-        when (spec) {
-            is JsonArray -> {
-                typeElement = spec.getOrNull(0) ?: return null
-                config = spec.getOrNull(1) as? JsonObject
+    private fun parseInput(
+        name: String,
+        spec: JsonElement,
+        required: Boolean,
+        dynamic: Boolean = false,
+    ): NodeInputDef? {
+        val (typeElement, config) = specParts(spec) ?: return null
+        val type = typeName(typeElement) ?: return null
+
+        val options = when {
+            typeElement is JsonArray -> typeElement.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+            type == "COMBO" -> (config?.get("options") as? JsonArray).orEmpty()
+                .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+            type == DYNAMIC_COMBO -> (config?.get("options") as? JsonArray).orEmpty().mapNotNull { option ->
+                when (option) {
+                    is JsonObject -> option.stringOrNull("key")
+                    is JsonPrimitive -> option.contentOrNull
+                    else -> null
+                }
             }
-
-            is JsonObject -> {
-                typeElement = spec["type"] ?: return null
-                config = spec
-            }
-
-            else -> return null
-        }
-
-        val options = when (typeElement) {
-            is JsonArray -> typeElement.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-            is JsonPrimitive -> if (typeElement.content == "COMBO") {
-                (config?.get("options") as? JsonArray).orEmpty()
-                    .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-            } else {
-                emptyList()
-            }
-
-            else -> return null
-        }
-        val type = when (typeElement) {
-            is JsonArray -> "COMBO"
-            is JsonPrimitive -> typeElement.content
-            else -> return null
+            else -> emptyList()
         }
 
         val forceInput = config.boolOrNull("forceInput")
-        val isWidget = !forceInput && (type in WIDGET_TYPES || options.isNotEmpty())
+        val isWidget = !forceInput && (type in WIDGET_TYPES || type == DYNAMIC_COMBO || options.isNotEmpty())
         return NodeInputDef(
             name = name,
             type = type,
@@ -172,7 +189,59 @@ object WorkflowCodec {
             required = required,
             controlAfterGenerate = config.boolOrNull("control_after_generate"),
             tooltip = config?.stringOrNull("tooltip"),
+            forceInput = forceInput,
+            imageUpload = config.boolOrNull("image_upload"),
+            autogrow = type == AUTOGROW,
+            dynamic = dynamic,
         )
+    }
+
+    /**
+     * `COMFY_DYNAMICCOMBO_V3` 的 `options[].inputs` 是当前选项下额外要求的输入。
+     * 只展开名字与类型用于识别；是否必填取决于用户选了哪个选项，所以一律按非必填处理。
+     */
+    private fun collectDynamicInputs(
+        spec: JsonElement,
+        into: MutableList<NodeInputDef>,
+        seen: MutableSet<String>,
+        depth: Int,
+    ) {
+        if (depth > 6) return
+        val (typeElement, config) = specParts(spec) ?: return
+        if (typeName(typeElement) != DYNAMIC_COMBO) return
+        val options = config?.get("options") as? JsonArray ?: return
+        for (option in options) {
+            val optionInputs = ((option as? JsonObject)?.get("inputs") as? JsonObject) ?: continue
+            for (bucket in listOf("required", "optional")) {
+                val map = optionInputs[bucket] as? JsonObject ?: continue
+                for ((name, childSpec) in map) {
+                    if (seen.add(name)) {
+                        parseInput(name, childSpec, required = false, dynamic = true)?.let(into::add)
+                    }
+                    collectDynamicInputs(childSpec, into, seen, depth + 1)
+                }
+            }
+        }
+    }
+
+    private fun specParts(spec: JsonElement): Pair<JsonElement, JsonObject?>? = when (spec) {
+        is JsonArray -> {
+            val type = spec.getOrNull(0) ?: return null
+            type to (spec.getOrNull(1) as? JsonObject)
+        }
+
+        is JsonObject -> {
+            val type = spec["type"] ?: return null
+            type to spec
+        }
+
+        else -> null
+    }
+
+    private fun typeName(element: JsonElement): String? = when (element) {
+        is JsonArray -> "COMBO"
+        is JsonPrimitive -> element.content
+        else -> null
     }
 
     private fun JsonObject?.boolOrNull(key: String): Boolean =

@@ -8,9 +8,9 @@
 
 | 来源 | 用途 |
 |---|---|
-| <https://docs.comfy.org/development/comfyui-server/comms_routes> | 官方路由清单（`/prompt`、`/queue`、`/history/{prompt_id}`、`/interrupt`、`/upload/image`、`/view`、`/ws`） |
-| `tools/mock-comfyui` | 阶段一可复现的请求/响应样本，覆盖正常、失败、静默、丢失四种场景 |
-| 真实 ComfyUI 实例 | **尚未接入**，阶段二联调时补录；在此之前不得声称"已对真实服务验证" |
+| <https://docs.comfy.org/development/comfyui-server/comms_routes> | 官方路由清单（`/prompt`、`/queue`、`/history/{prompt_id}`、`/interrupt`、`/upload/image`、`/view`、`/userdata`、`/object_info`、`/ws`） |
+| `tools/mock-comfyui` | 可复现的请求/响应样本，覆盖正常、失败、静默、丢失四种连接场景与工作流读取 |
+| 真实 ComfyUI 实例（0.37.4，前端 1.52.7） | 已核对 `/object_info`、`/userdata` 与 5 份真实网页格式工作流的转换；**尚未提交真实任务**（S3 联调） |
 
 ### 关于 "v2 API" 的说明
 
@@ -26,9 +26,12 @@
 | `/queue` | GET | `QueueResponse` → `QueueSnapshot` | 条目是**位置数组**而非对象，见下 |
 | `/history/{prompt_id}` | GET | `Map<String, HistoryEntry>` | 未知 prompt 返回 `{}` |
 | `/interrupt` | POST | `ApiCall.Interrupt` | 可选 `prompt_id` |
-| `/upload/image` | POST | `UploadImageResponse` | multipart；阶段二再启用 |
+| `/upload/image` | POST | `UploadImageResponse` | multipart；S4 接入，当前调用显式失败 |
 | `/view` | GET | `ApiPaths.viewUrl` | 图片不跨设备搬运，接续方直接来取 |
 | `/ws?clientId=...` | WS | `ComfyEvent` / `EventDecoder` | 事件是广播，客户端按自己的 lease 过滤 |
+| `/userdata?dir=workflows&recurse=true&full_info=true` | GET | `WorkflowEntry` | 列服务器已有工作流；兼容只返回路径字符串的旧服务端 |
+| `/userdata/{path}` | GET | `WorkflowDocument.raw` | 读取工作流原文；路径按段编码、保留 `/` |
+| `/object_info/{class}` | GET | `NodeDefinition` | 只取工作流用到的类；未知类返回 `{}` |
 
 ## 3. 响应样本
 
@@ -133,13 +136,64 @@
 6. **认证**：当前只支持无鉴权的局域网部署。若需要 token，需在 `HttpRequest.headers`
    与 WS 握手 header 上扩展（阶段二再定）。
 
-## 5. 回归方式
+## 5. 工作流读取与网页格式转换
+
+手机不导入新工作流，只读取 ComfyUI 主机 `user_data/workflows` 下已有的文件。
+相关契约集中在 `core/workflow`，转换入口是 `PromptBuilder.build(document, definitions)`。
+
+### 5.1 列表与读取
+
+- `GET /userdata?dir=workflows&recurse=true&full_info=true` 返回
+  `[{path,size,modified,created}]`；旧服务端也可能只返回路径字符串。客户端只保留
+  `.json`，路径相对 `workflows`、用 `/` 分隔。
+- `GET /userdata/{path}` 直接返回工作流原文；路径按段编码、保留 `/`。
+- `GET /object_info/{class}` 未知类返回 `{}`（HTTP 200），客户端记为 `missing`，
+  不按"大概是这样"补定义。
+
+### 5.2 节点定义
+
+`input_order` 是**顶层**字段（与 `input` 平级），决定控件读取顺序；`input` 里的
+`required` / `optional` 只负责声明与默认值。客户端还识别：
+
+| 声明 | 含义 |
+|---|---|
+| `forceInput` | 类型本来是控件，但必须由连线提供 |
+| `image_upload` | 控件后面还有一个前端专用上传值（`LoadImage`） |
+| `COMFY_AUTOGROW_V3` | API 里是 `name.sub` 的扁平键（如 `images.image_1`） |
+| `COMFY_DYNAMICCOMBO_V3` | 控件；`options[].inputs` 是选中该选项后才出现的附加输入 |
+
+### 5.3 网页格式 → API 图
+
+规则对齐前端 1.52.x 的 `graphToPrompt` / `ExecutableNodeDTO`：
+
+1. `mode=2`（静音）不执行；`mode=4`（旁路）按输入/输出类型穿透到上游，
+   找不到可穿透的输入则报错；
+2. 控件值优先 `widgets_values_named`，否则按 `input_order` 位置读取；跳过
+   `control_after_generate`（`fixed/increment/decrement/randomize`）与 `image_upload` 槽位；
+3. 只提交 `/object_info` 声明过的输入，前端专用控件值丢弃；
+4. 从输出节点沿连线回溯，只保留可达节点；孤立节点忽略并给出告警；
+5. 子图、缺失自定义节点、必填输入未连接、上游被静音且无法穿透等构造直接
+   `Blocked`，并指出节点与原因——不猜。
+
+验证级别：`PromptBuilderTest` / `WorkflowCodecTest` 是 JVM 单测；
+`RealWorkflowConversionTest` 是可选的本机诊断（环境变量指向真实工作流与
+`/object_info`，夹具不入库）。**尚未在真机上提交真实任务**，那属于 S3。
+
+## 6. 回归方式
 
 ```powershell
 # 1) 单元测试（不需要真实 ComfyUI）
 .\gradlew.bat :shared:jvmTest
 
-# 2) mock 服务（可选，手工联调）
+# 2) 只看转换层
+.\gradlew.bat :shared:jvmTest --tests "*PromptBuilderTest" --tests "*WorkflowCodecTest"
+
+# 3) 本机真实工作流诊断（夹具不入库；未设置变量时跳过）
+$env:CP_REAL_WORKFLOWS = "<工作流目录>"
+$env:CP_REAL_OBJECT_INFO = "<object_info.json>"
+.\gradlew.bat :shared:jvmTest --tests "*RealWorkflowConversionTest*"
+
+# 4) mock 服务（可选，手工联调）
 cd tools\mock-comfyui
 npm install
 node server.mjs
