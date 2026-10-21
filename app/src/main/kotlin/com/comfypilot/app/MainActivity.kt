@@ -13,7 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.comfypilot.android.service.ComfyForegroundService
-import com.comfypilot.app.ui.DebugScreen
+import com.comfypilot.app.ui.ComfyPilotApp
 
 class MainActivity : ComponentActivity() {
     private val viewModel: DebugViewModel by viewModels()
@@ -37,20 +37,24 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
             val notice by viewModel.notice.collectAsStateWithLifecycle()
-            DebugScreen(
+            ComfyPilotApp(
                 state = state,
                 initialUrl = initialUrl,
                 notice = notice,
                 onConnect = { url ->
                     startKeepAliveService()
                     viewModel.connect(url, silenceMs)
-                },                onDisconnect = {
+                },
+                onDisconnect = {
                     viewModel.disconnect()
                     stopService(Intent(this, ComfyForegroundService::class.java))
                 },
                 onReconnect = viewModel::reconnect,
-                onSubmit = viewModel::submit,
+                onSubmit = { workflowJson -> viewModel.submit(workflowJson) },
+                onSubmitSample = { viewModel.submit() },
                 onCancel = viewModel::cancel,
+                onRefreshWorkflows = viewModel::refreshWorkflows,
+                onOpenWorkflow = viewModel::openWorkflow,
             )
         }
     }

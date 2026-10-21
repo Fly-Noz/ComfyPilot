@@ -31,10 +31,11 @@ curl -X POST http://127.0.0.1:8188/mock/scenario -H "content-type: application/j
 | `lost` | 提交后立刻从 queue 消失，不写 history | 对账判定 `Unknown`，不自动重提 |
 | `slow` | 每 10s 才发一次进度（8 步 = 80s） | 自适应静默预算；也用于"跑到一半重启服务端" |
 
-辅助接口：`GET /mock/state`（含 `hits` 请求计数）、`POST /mock/drop-sockets`
+辅助接口：`GET /mock/state`（含 `hits` 请求计数与 `lastPrompt` 最近一次提交的
+prompt 图）、`POST /mock/drop-sockets`
 （只掐断所有 WebSocket，不清 jobs/history/hits，用来模拟"ComfyUI 进程重启"且保留
-计数以便对比对账前后的 `hits.prompt`）、`POST /mock/reset`（同时清零计数）、
-`GET /view`（返回 1x1 PNG）。
+计数以便对比对账前后的 `hits.prompt`）、`POST /mock/reset`（同时清零计数与
+`lastPrompt`）、`GET /view`（返回 1x1 PNG）。
 
 ## 工作流夹具
 
@@ -65,5 +66,14 @@ curl -X POST http://127.0.0.1:8188/mock/scenario -H "content-type: application/j
 6. 切到 `lost` 再提交：对账后任务变为"状态未知"，且不会被自动重新提交。
 7. 切到 `slow` 提交后立刻杀掉 `node server.mjs`，再重启：重连对账后该任务变为
    "状态未知"（服务端 history/queue 都没有它）。
+
+## 工作流 UI 手工验证（Android）
+
+1. 连接后应自动进入"选择工作流"，看到 `demo_api` / `demo_ui` 两项。
+2. 打开 `demo_ui`：常用输入应有 2 个 text、width/height/batch_size、seed 等；
+   "全部节点"里被旁路/未连接的节点要标注。
+3. 把 seed 改成别的值，提交；`GET /mock/state` 的
+   `lastPrompt["3"].inputs.seed` 应等于界面上的值。
+4. 提交后任务页应经历 执行中 → 已完成，并能取消仍在跑的任务。
 
 > 以上是联调清单，不代表已在真机验证。真机验证结果需在阶段报告中单独记录。

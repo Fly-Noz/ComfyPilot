@@ -179,6 +179,8 @@ const history = new Map()
 const sockets = new Set()
 /** 只统计 ComfyUI 真实接口的命中次数，便于验证"失败不重试"之类的承诺。 */
 const hits = new Map()
+/** 最近一次 /prompt 的 prompt 图：只用于端到端核对提交内容，不落盘。 */
+let lastPrompt = null
 
 function hit(key) {
   hits.set(key, (hits.get(key) ?? 0) + 1)
@@ -388,6 +390,7 @@ const server = http.createServer(async (req, res) => {
           node_errors: {},
         })
       }
+      lastPrompt = payload.prompt
       const promptId = randomUUID()
       const number = seq++
       const job = { number, createdAt: Date.now(), progress: 0, max: 8, status: 'pending' }
@@ -487,6 +490,7 @@ const server = http.createServer(async (req, res) => {
         sockets: sockets.size,
         workflows: listWorkflowFiles().length,
         hits: Object.fromEntries(hits),
+        lastPrompt,
       })
     }
 
@@ -495,6 +499,7 @@ const server = http.createServer(async (req, res) => {
       running.clear()
       history.clear()
       hits.clear()
+      lastPrompt = null
       seq = 0
       return sendJson(res, 200, { ok: true })
     }

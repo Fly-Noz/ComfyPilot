@@ -36,6 +36,8 @@ kotlin {
 dependencies {
     implementation(project(":shared"))
     implementation(libs.kotlinx.coroutines.android)
+    // 参数编辑直接用 JsonElement 表达控件值；shared 的 implementation 不传递给 app。
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

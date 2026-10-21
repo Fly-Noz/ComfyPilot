@@ -57,7 +57,11 @@ object PromptBuilder {
         "Fast Groups Bypasser (rgthree)",
     )
 
-    fun build(document: WorkflowDocument, definitions: Map<String, NodeDefinition>): PromptBuild {
+    fun build(
+        document: WorkflowDocument,
+        definitions: Map<String, NodeDefinition>,
+        overrides: Map<Int, Map<String, JsonElement>> = emptyMap(),
+    ): PromptBuild {
         when (document.format) {
             WorkflowFormat.API -> {
                 val root = runCatching {
@@ -112,7 +116,16 @@ object PromptBuilder {
             }
 
             val nodeProblems = mutableListOf<BuildProblem>()
-            val json = convertNode(node, definition, graph, definitions, resolver, nodeProblems, warnings)
+            val json = convertNode(
+                node,
+                definition,
+                graph,
+                definitions,
+                resolver,
+                overrides[node.id].orEmpty(),
+                nodeProblems,
+                warnings,
+            )
             converted[node.id] = ConvertedNode(node, json, nodeProblems)
         }
 
@@ -163,6 +176,7 @@ object PromptBuilder {
         graph: UiGraph,
         definitions: Map<String, NodeDefinition>,
         resolver: UiGraphResolver,
+        overrides: Map<String, JsonElement>,
         problems: MutableList<BuildProblem>,
         warnings: MutableList<String>,
     ): JsonObject {
@@ -206,6 +220,38 @@ object PromptBuilder {
             inputs[uiInput.name] = buildJsonArray {
                 add(JsonPrimitive(resolved.nodeId))
                 add(JsonPrimitive(resolved.slot))
+            }
+        }
+
+        // 用户在本次会话里改过的控件值。只允许覆盖"服务端声明为控件、且没有被连线驱动"的输入：
+        // 覆盖连线会悄悄改变拓扑，覆盖不存在的字段说明界面和定义已经对不上，两者都直接拒绝。
+        for ((name, value) in overrides) {
+            val declared = declaredByName[name]
+            if (declared == null || !declared.isWidget || declared.forceInput) {
+                problems += BuildProblem(
+                    node.id,
+                    node.type,
+                    "字段 $name 不能覆盖（不存在或由连线提供）",
+                )
+                continue
+            }
+            val linked = node.inputs.any { uiInput ->
+                if (uiInput.linkId == null) {
+                    false
+                } else {
+                    val base = declaredByName[uiInput.name]
+                        ?: declaredByName[uiInput.name.substringBeforeLast('.', "")]
+                    base?.name == declared.name
+                }
+            }
+            if (linked) {
+                problems += BuildProblem(node.id, node.type, "字段 ${declared.name} 由连线提供，不能覆盖")
+                continue
+            }
+            inputs[declared.name] = value
+            // 控件值原本缺失时，上面的读取会记一条问题；覆盖之后这条问题不再成立。
+            problems.removeAll {
+                it.nodeId == node.id && it.message.contains("缺少控件 ${declared.name} 的值")
             }
         }
 

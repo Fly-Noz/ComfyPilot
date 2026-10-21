@@ -57,6 +57,51 @@ class PromptBuilderTest {
     }
 
     @Test
+    fun `overrides replace widget values without touching links`() {
+        val overrides = mapOf(
+            3 to mapOf(
+                "seed" to JsonPrimitive(99),
+                "steps" to JsonPrimitive(30),
+            ),
+        )
+        val ready = ready(PromptBuilder.build(document(DEMO_UI), DEFINITIONS, overrides))
+
+        assertEquals(99, ready.int("3", "seed"))
+        assertEquals(30, ready.int("3", "steps"))
+        assertEquals(4 to 0, ready.link("3", "model"))
+    }
+
+    @Test
+    fun `overriding a linked input is rejected`() {
+        val blocked = blocked(
+            PromptBuilder.build(
+                document(DEMO_UI),
+                DEFINITIONS,
+                mapOf(3 to mapOf("model" to JsonPrimitive(9))),
+            ),
+        )
+        assertTrue(
+            blocked.problems.any { it.nodeId == 3 && it.message.contains("不能覆盖") },
+            "覆盖连线必须被拒绝：${blocked.problems}",
+        )
+    }
+
+    @Test
+    fun `overriding an unknown field is rejected`() {
+        val blocked = blocked(
+            PromptBuilder.build(
+                document(DEMO_UI),
+                DEFINITIONS,
+                mapOf(3 to mapOf("not_a_field" to JsonPrimitive(1))),
+            ),
+        )
+        assertTrue(
+            blocked.problems.any { it.message.contains("not_a_field") },
+            "未知字段必须被拒绝：${blocked.problems}",
+        )
+    }
+
+    @Test
     fun `bypassed node is pierced to the upstream output`() {
         val ready = ready(PromptBuilder.build(document(modelPatchGraph(mode = 4)), DEFINITIONS))
 

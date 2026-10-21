@@ -89,6 +89,14 @@ object SessionHost {
         runtime?.submit(workflowJson)
     }
 
+    fun refreshWorkflows() {
+        runtime?.refreshWorkflows()
+    }
+
+    fun openWorkflow(path: String) {
+        runtime?.openWorkflow(path)
+    }
+
     fun cancel(promptId: String) {
         runtime?.cancel(promptId)
     }

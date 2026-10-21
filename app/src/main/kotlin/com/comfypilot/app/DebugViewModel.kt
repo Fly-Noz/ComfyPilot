@@ -22,6 +22,12 @@ class DebugViewModel(application: Application) : AndroidViewModel(application) {
 
     fun submit() = SessionHost.submit(SAMPLE_WORKFLOW)
 
+    fun submit(workflowJson: String) = SessionHost.submit(workflowJson)
+
+    fun refreshWorkflows() = SessionHost.refreshWorkflows()
+
+    fun openWorkflow(path: String) = SessionHost.openWorkflow(path)
+
     fun cancel(promptId: String) = SessionHost.cancel(promptId)
 
     companion object {
