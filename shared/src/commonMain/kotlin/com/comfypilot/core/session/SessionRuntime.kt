@@ -110,6 +110,7 @@ class SessionRuntime(
                 is SessionEffect.CloseSocket -> scope.launch { closeSocket(effect.leaseId) }
                 is SessionEffect.SendHttp -> scope.launch { sendHttp(effect) }
                 is SessionEffect.Persist -> scope.launch { store.save(effect.task) }
+                is SessionEffect.PersistRemoved -> scope.launch { store.remove(effect.id) }
                 is SessionEffect.Notify -> onNotice(effect.notice)
             }
         }

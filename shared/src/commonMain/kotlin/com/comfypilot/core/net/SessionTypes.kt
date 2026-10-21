@@ -2,6 +2,7 @@ package com.comfypilot.core.net
 
 import com.comfypilot.core.api.ApiCall
 import com.comfypilot.core.task.PromptTask
+import com.comfypilot.core.task.TaskId
 
 sealed interface SessionInput {
     data class Start(val nowMs: Long) : SessionInput
@@ -70,6 +71,9 @@ sealed interface SessionEffect {
     data class SendHttp(val lease: ConnectionLease, val call: ApiCall, val tag: RequestTag) : SessionEffect
 
     data class Persist(val task: PromptTask) : SessionEffect
+
+    /** 任务已从状态里消失（草稿被正式 promptId 取代）：存储里那条也要删掉。 */
+    data class PersistRemoved(val id: TaskId) : SessionEffect
 
     data class Notify(val notice: UserNotice) : SessionEffect
 }

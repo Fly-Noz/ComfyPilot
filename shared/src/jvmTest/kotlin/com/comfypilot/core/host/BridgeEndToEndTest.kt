@@ -84,6 +84,8 @@ class BridgeEndToEndTest {
             val outputs = snapshot["outputs"]!!.jsonArray
             assertEquals(1, outputs.size)
             assertEquals(task.outputs.single().filename, outputs.single().jsonObject.stringOrNull("filename"))
+            // 草稿已经转正，宿主那边不能再留着 draft-*：重启会把它变成幽灵 Unknown。
+            assertTrue(driver.persisted.keys.none { it.startsWith("draft-") }, "持久化里不该残留草稿：${driver.persisted.keys}")
         }
     }
 

@@ -1,6 +1,6 @@
 # 阶段二 · 鸿蒙构建与真机自检
 
-日期：2026-10-21（会话桥、后台冻结语义、真机四场景均为同日追加）
+日期：2026-10-21（会话桥、后台冻结语义、真机四场景、RDB 重启恢复均为同日追加）
 
 ## 结论
 
@@ -14,8 +14,12 @@
    ArkTS 宿主循环、`@ohos.net` 的 HTTP/WebSocket、`/history` 三分类、
    `/queue` 兜底、120s 进度看门狗重连、服务端丢任务后判 `Unknown` 且不重投。
    四个场景逐条有 hilog 与 mock 计数器作为证据（见下）。
+3. **真机级（RDB）**：任务快照真的写进了 `relationalStore`；杀进程再拉起后，
+   未连接就能看到恢复出来的历史，连上以后按 `/history` + `/queue` 对账：
+   `Completed` 保持、仍在跑的保持 `Running`、服务端已丢的转 `Unknown`，
+   全程没有二次 `/prompt`。
 
-仍然**没有**真机验证的：ArkTS 侧 RDB 持久化、切前后台的冻结检测、
+仍然**没有**真机验证的：切前后台的冻结检测、
 WiFi↔蜂窝切换时 `generation` 递增（该机 `gsm.sim.state = ABSENT`，只能单测）。
 
 ```
@@ -52,7 +56,7 @@ bundle 名由 DevEco 自动签名流程确定（AGC 中的应用标识），不�
 | 自检逻辑本身正确 | `SelfTestTest` 在 JVM 上通过 |
 | 桥协议与状态机正确 | `SessionHostTest`（7）+ `SessionHostFreezeTest`（4）+ `SessionHostConfigTest`（4）等，共 115 个 JVM 测试、0 失败 |
 | 桥协议能真跑（四个场景） | `BridgeEndToEndTest`（4）：JVM 宿主执行器 + `tools/mock-comfyui`，真 HTTP / 真 WebSocket。正常完成、`history_error` 不重试、`silent` 触发看门狗后仍能对账、服务端丢任务后 `Unknown` 且 `hits.prompt == 1` |
-| 持久化载荷可执行 | 端到端测试里 `persist` 命令写出的快照含 `state=Completed` 与产物文件名 |
+| 持久化载荷可执行 | 端到端测试里 `persist` 命令写出的快照含 `state=Completed` 与产物文件名；草稿转正后 `persist.remove` 会把 `draft-*` 那条删掉（`BridgeEndToEndTest`、`SessionHostTest` 各有断言） |
 | 重启恢复语义正确 | `RestoreTest`（7）+ `PersistedTaskTest`（7）+ `SessionHostRestoreTest`（4）：`Submitting` → `Unknown`、未完成任务先对账、永不自动重投 |
 | 签名 HAP 可产出 | `harmony/build.ps1` → `BUILD SUCCESSFUL`，产物 `entry-default-signed.hap` |
 
@@ -138,7 +142,7 @@ T cp_version
 截图（本地生成，不入库）：`artifacts/ohos-four-scenarios.jpeg`（四个任务并列：
 `Completed` / `Failed` / `Unknown` / `Unknown`）。
 
-#### 真机联调发现并修掉的两个 bug
+#### 真机联调发现并修掉的三个 bug
 
 1. **`ComfyBridge.start()` 从来没发 `{"t":"start"}`**。`cp_session_create` 只把状态机装好，
    真正让 `SessionRuntime.connect()` 跑起来的是这条消息；缺了它页面永远停在
@@ -148,6 +152,12 @@ T cp_version
    ArkUI 认为 key 没变就不重建子项，于是共享层已经 `Completed:100`，界面还写着
    `Queued · 0%`。hilog 里 `ForEachNode skip mark dirty. Ids.size[...]` 是同一个现象。
    改成 `${task.id}:${state}:${percent}:${outputs}` 的组合 key 后立刻正常。
+3. **草稿记录从来没被删过**（接上 RDB 才暴露）。`TaskStore.remove` / `persist.remove`
+   这条链路三端都写好了，唯独共享层没有调用方：`SessionReducer` 在 `/prompt` 被接受后
+   把 `draft-N` 从状态里换掉，却只发了 `Persist(queued)`。于是每次提交都会在库里留下
+   一条草稿，重启后按恢复规则变成 `Unknown · 应用重启，提交结果未知`——历史越用越多。
+   修法是新增 `SessionEffect.PersistRemoved`，由 `SessionRuntime` 调 `store.remove`；
+   真机上同一轮提交后恢复计数从 2 回到 1。
 
 第一条也说明为什么“JVM 全绿”不能代替真机：宿主边界（谁负责发哪条消息）不在共享层里。
 
@@ -158,14 +168,49 @@ T cp_version
 重新执行 `hdc rport tcp:18188 tcp:8188` 即可。hilog 里对应
 `Lws client connection error conn fail: ECONNREFUSED`。
 
+### 真机级 · 重启恢复（RDB，本次）
+
+宿主侧的 RDB 在 `harmony/entry/src/main/ets/bridge/TaskStorage.ets`：
+表只有 `id / payload / updated_at` 三列，`payload` 是 Kotlin `toPersistJson()` 写出来的原文，
+ArkTS 不解析字段。写操作按 `id` 合并、串行落库（进度 500ms 一条，逐条排队会越积越多）；
+打不开库就降级为内存存储并在页面上写明“存储不可用”，不阻塞连接。
+
+页面启动时先读库、再用这些快照建会话并推进一帧（`ComfyBridge.prepare`），
+**不发送 `start`**，所以历史在未连接时就能显示；用户点“连接”时重建会话，
+配置里仍带着同一批快照，恢复与对账重来一次。断开/重连同样从内存缓存重新喂回去，
+不会每按一次重连就清空任务列表。
+
+这一轮的步骤与观察（每次都是 `aa force-stop` 后 `aa start`）：
+
+| 步骤 | 结果 | 证据 |
+|---|---|---|
+| 全新安装，启动 | `本地存储就绪，没有历史任务` | UI 存储状态行 |
+| `normal` 提交并完成 | `Completed · 100% · 产物 1` | UI；mock `hits={prompt:1, history:1}` |
+| 杀进程 → 拉起（未连接） | `已恢复 1 个历史任务`，列表里直接是 `Completed · 100% · 产物 1` | UI 截图 `artifacts/ohos-rdb-restore.jpeg` |
+| `silent` 提交（`Running · 1%`）→ 杀进程 → 拉起 | `已恢复 2 个历史任务`，`Running · 1%` 原样保留 | UI |
+| 再点连接 | 对账后仍是 `Running`，`Completed` 不受影响 | hilog `phase=Recovering` → `Connected tasks=Completed:100,Running:1`；mock `hits={prompt:1, queue:1, history:1}`（无新增 `/prompt`） |
+| `lost` 提交（`Queued`）→ 杀进程 → 拉起 | `已恢复 3 个历史任务`，`Queued · 0%` | UI |
+| 再点连接 | 服务端已丢 → `Unknown`；仍在跑的保持 `Running` | hilog `cmd persist task=Unknown`；mock `hits={prompt:2, queue:2, history:3}`，`prompt` 未增长 |
+| 断开 → 重连 | 三条任务（`Completed` / `Running` / `Unknown`）都还在 | UI |
+
+恢复出来的状态在未连接时是“上次记录”，不是“正在监控”：页面顶部的阶段仍显示
+`未连接 · 第 0 代`，只有连上并完成对账才会走 `Recovering → Connected`。
+`Submitting` → `Unknown` 这一条在真机上没机会捕获（提交到接单只有毫秒级），
+由 `SessionHostRestoreTest` 覆盖。
+
+顺带修掉的共享层 bug 见上面第 3 条：草稿转正后必须发 `persist.remove`，
+否则每次提交都会在库里留一条会被恢复成 `Unknown` 的幽灵任务。
+
 ## 未验证
 
-- ArkTS 侧 RDB 读写（共享侧的快照 schema 与恢复规则已有单测，数据库本身还没实现；
-  真机重启后任务列表目前会清空）
 - 前台 ↔ 背景切换时的冻结检测在真机上的表现（逻辑有 4 个单测）
 - `generation` 在 WiFi↔蜂窝切换时递增（该机没有 SIM，`gsm.sim.state = ABSENT`）
 - `silent` 场景里“静默预算翻倍到 240s”的现场观察（状态帧不暴露预算）
 - 后台长任务 / 实况窗（`backgroundTaskManager`、通知权限）
+
+已知限制（不是 bug，但会误导用户，先说清楚）：**历史没有按服务器隔离**。库里所有行
+不分 `baseUrl`，把地址改成另一台机器再连接，旧任务会被对账成 `Unknown`。
+当前产品假设“一个用户一台 ComfyUI”，多服务器要先决定作用域再动表结构。
 
 这些在 `harmony/README.md` 的“尚未完成”里也列了，不能当成已完成。
 
@@ -285,14 +330,13 @@ bundle 名从 `AppScope/app.json5` 读取，不写死。
 
 ## 下一步
 
-四个场景已经在真机上过了，接下来按这个顺序：
+四个场景与 RDB 重启恢复都已经在真机上过了，接下来按这个顺序：
 
-1. ArkTS 侧 RDB 持久化：把 `persist` / `persist.remove` 命令真正写库，启动时用
-   `restoredTasksFromJson` 送回去（共享层 schema 已经就绪，只差宿主这一半）；
-2. 切前后台验证冻结检测：页面把逻辑时间与看门狗预算显示出来，切出去几分钟再回来，
+1. 切前后台验证冻结检测：页面把逻辑时间与看门狗预算显示出来，切出去几分钟再回来，
    确认不误报超时、且能补对账；
-3. 前台长任务 / 实况窗：需要 `backgroundTaskManager` 与通知权限，文案保持
+2. 前台长任务 / 实况窗：需要 `backgroundTaskManager` 与通知权限，文案保持
    “后台可能暂停监控，回来自动同步”，不要说“实时监控”；
-4. 拿到有 SIM 的设备后补 WiFi↔蜂窝的 `generation` 递增验证（当前只有单测）。
+3. 拿到有 SIM 的设备后补 WiFi↔蜂窝的 `generation` 递增验证（当前只有单测）；
+4. 决定历史是否按 `baseUrl` 隔离，再动库表（现在全库共用一份任务列表）。
 
 复现四个场景时注意：`hdc rport` 每次 hdc 服务重启都会丢，先 `hdc fport ls` 确认。

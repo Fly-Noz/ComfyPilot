@@ -33,6 +33,13 @@ class SessionHostTest {
         HostDriver.acceptSubmit(driver, submitId)
         assertEquals("Queued", driver.taskState("p1"))
 
+        // 草稿转正后，持久化里那条草稿必须删掉：否则重启会把它当成
+        // "Unknown：应用重启，提交结果未知"，每提交一次就多一条幽灵任务。
+        val removedDrafts = driver.allCommands()
+            .filter { (it["t"] as? JsonPrimitive)?.content == "persist.remove" }
+            .mapNotNull { (it["id"] as? JsonPrimitive)?.content }
+        assertEquals(listOf("draft-1"), removedDrafts)
+
         driver.deliver("""{"t":"ws.text","id":$wsId,"text":"{\"type\":\"progress\",\"data\":{\"value\":5,\"max\":10,\"prompt_id\":\"p1\",\"node\":\"3\"}}"}""")
         val running = assertNotNull(driver.task("p1"))
         assertEquals("50", (running["percent"] as JsonPrimitive).content)

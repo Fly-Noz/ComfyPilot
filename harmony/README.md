@@ -8,10 +8,10 @@
 | 层级 | 状态 |
 |---|---|
 | 构建级 | 通过：共享层自检、会话桥、HAP 都能编出来，115 个 JVM 测试全绿 |
-| 真机级 | 通过：自检、ArkTS 宿主循环、HTTP/WebSocket、四个连接场景（`normal` / `history_error` / `silent` / `lost`） |
+| 真机级 | 通过：自检、ArkTS 宿主循环、HTTP/WebSocket、四个连接场景（`normal` / `history_error` / `silent` / `lost`）、RDB 落库与重启恢复 |
 
-四个场景的真机证据（hilog + mock 计数器）见 `../docs/verification/stage2-harmony-build.md`。
-仍未真机验证的是：RDB 持久化、切前后台的冻结检测、WiFi↔蜂窝切换的 `generation` 递增。
+四个场景与重启恢复的真机证据（hilog + mock 计数器）见 `../docs/verification/stage2-harmony-build.md`。
+仍未真机验证的是：切前后台的冻结检测、WiFi↔蜂窝切换的 `generation` 递增。
 
 ## 构建与安装
 
@@ -97,6 +97,7 @@ hdc shell power-shell wakeup                                 # 等 120s 看门�
 ```
 entry/src/main/
   ets/bridge/ComfyBridge.ets   # 宿主循环：pump + 执行 http/ws/persist/notice
+  ets/bridge/TaskStorage.ets   # RDB：任务快照落库（id + 原文 payload）
   ets/pages/Index.ets          # 联调页：地址、连接、提交、任务列表、日志
   cpp/napi_init.cpp            # NAPI 模块，转发到 Kotlin C ABI
   cpp/CMakeLists.txt           # 链接 libcomfypilot_core.so
@@ -155,8 +156,8 @@ Kotlin 不在自己的线程里跑：宿主按自己的节奏 `pump(nowMs)`，Ko
 ### 持久化与重启
 
 快照的 schema 由 Kotlin 单方面拥有（`host/PersistedTask.kt`）：`persist` 命令里带的就是它，
-宿主只负责原样存、原样取，不要自己解析状态。启动时把上次的行拼成
-`cp_session_create` 的 `tasks` 数组塞回去即可。
+宿主只负责原样存、原样取，不要自己解析状态。`persist.remove`（草稿转正后删掉 `draft-N`）
+照做即可，别只写不删——重启后那条草稿会变成幽灵 `Unknown`。
 
 恢复规则（`task/Restore.kt`）只有一句话：**恢复历史，不恢复控制权**。
 
@@ -166,19 +167,26 @@ Kotlin 不在自己的线程里跑：宿主按自己的节奏 `pump(nowMs)`，Ko
 - 已结束的任务原样保留，作为历史；
 - 草稿编号会接着恢复出来的 `draft-N` 往后排，不会撞车。
 
-ArkTS 侧的 RDB 还没写（见下面的“尚未完成”），但恢复语义本身已经在 JVM 上锁住了：
-`RestoreTest`、`PersistedTaskTest`、`SessionHostRestoreTest`。
+ArkTS 侧由 `bridge/TaskStorage.ets` 落地，表只有 `id / payload / updated_at`
+（`payload` 就是 `toPersistJson()` 的原文）：
+
+- `persist` / `persist.remove` 按 `id` 合并后串行落库，进度刷得再快也不会堆队列；
+- 打不开库就降级为内存存储，页面上写明“存储不可用”，连接照旧；
+- 启动时读库 → `ComfyBridge.prepare()` 建会话并推一帧（**不发 `start`**），
+  所以未连接也能看到恢复出来的历史；点“连接”时重建会话，快照再喂一次；
+- 断开/重连走的是内存缓存，不会清空任务列表。
+
+恢复语义本身仍然只由 JVM 测试锁定：`RestoreTest`、`PersistedTaskTest`、
+`SessionHostRestoreTest`；ArkTS 这半边只有真机能说话，证据见验证文档。
 
 ## 尚未完成
 
-- ArkTS 侧 RDB：共享侧的快照 schema 与恢复规则已完成并有单测，但数据库读写还没实现
-  （现在只有内存存储 + `persist` 命令日志，重启即丢）
 - 切前后台的冻结检测在真机上的表现（逻辑有 `SessionHostFreezeTest` 的 4 个断言）
 - WiFi↔蜂窝切换时 `generation` 递增（测试机没有 SIM，只能单测）
 - 前台长任务 / 实况窗（需要 `backgroundTaskManager` 与通知权限）
 - 后台保活的电量策略与用户可见开关
-- 重装/杀进程后的任务恢复（等 RDB 接上）
+- 历史按 `baseUrl` 隔离：现在全库一份，换服务器地址会把旧任务对账成 `Unknown`
 
 真机已经跑过的东西见 `docs/verification/stage2-harmony-build.md`：
 `cp_version() == 2` 的 HAP 上，四个场景（`normal` / `history_error` / `silent` / `lost`）
-逐条有 hilog 与 mock 计数器证据。
+逐条有 hilog 与 mock 计数器证据；另有一轮杀进程重启，验证 RDB 恢复与对账。

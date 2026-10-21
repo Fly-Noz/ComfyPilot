@@ -1,7 +1,9 @@
 import { nativeSessionCreate, nativeSessionDestroy, nativeSessionPump, nativeSessionSend } from 'libentry.so';
 import { connection, http, webSocket } from '@kit.NetworkKit';
+import { common } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { StoredTask, TaskStorage } from './TaskStorage';
 
 /**
  * 鸿蒙侧的宿主循环。
@@ -34,6 +36,22 @@ export interface BridgeState {
   tasks: BridgeTask[];
 }
 
+/**
+ * `persist` 命令里的任务快照。宿主只用 `id` 当主键、`state` 打日志；
+ * 其余字段不解释，原样存进 RDB（schema 归 Kotlin）。
+ */
+interface PersistPayload {
+  id: string;
+  state?: string;
+}
+
+/** 本地历史任务的恢复结果，用于页面显示"到底有没有落盘"。 */
+export interface TaskRestoreResult {
+  storage: boolean;
+  restored: number;
+  error: string;
+}
+
 interface BridgeNotice {
   kind: string;
   generation?: number;
@@ -44,7 +62,8 @@ interface BridgeNotice {
 
 interface BridgeCommand {
   t: string;
-  id?: number;
+  /** `http` / `ws.*` 用数字 id；`persist.remove` 用字符串任务 id。 */
+  id?: number | string;
   method?: string;
   url?: string;
   timeoutMs?: number;
@@ -56,7 +75,7 @@ interface BridgeCommand {
   reason?: string;
   transport?: string;
   validated?: boolean;
-  task?: BridgeTask;
+  task?: PersistPayload;
   notice?: BridgeNotice;
   // 回投结果用：与 Kotlin 侧 HostMessage 的字段一一对应。
   status?: number;
@@ -73,14 +92,21 @@ interface BridgeFrame {
   error?: string;
 }
 
-interface BridgeConfig {
-  baseUrl: string;
-  tickIntervalMs: number;
-  progressSilenceMs: number;
-}
-
 const MIN_PUMP_MS = 16;
 const MAX_PUMP_MS = 500;
+
+/**
+ * 只判断"这段字节是不是一个 JSON 对象"，不看内容。
+ * 用来挡住被截断的坏行：一条坏记录会让整份 `tasks` 配置解析失败，连接都建不起来。
+ */
+function isJsonObject(raw: string): boolean {
+  try {
+    const parsed: object | null = JSON.parse(raw) as object | null;
+    return parsed !== null && typeof parsed === 'object';
+  } catch (err) {
+    return false;
+  }
+}
 
 /**
  * 联调诊断：打开后每帧状态、每条命令、每次 WS/HTTP 往返都打一行 hilog（tag `CP>`）。
@@ -108,15 +134,64 @@ export class ComfyBridge {
   private base64: util.Base64Helper = new util.Base64Helper();
   /** 这个 SDK 上网络事件挂在 createNetConnection() 返回的对象上，不在 connection 命名空间上。 */
   private netConnection: connection.NetConnection | null = null;
+  /** 任务快照缓存：就是"库里的内容"的内存副本，重连时重新喂给共享层。 */
+  private taskCache: Map<string, string> = new Map();
+  private storage: TaskStorage = new TaskStorage();
+  /** persist 日志只记状态变化；进度每 500ms 一条会把日志刷没。 */
+  private loggedStates: Map<string, string> = new Map();
+
+  /**
+   * 打开本地存储并读回历史任务。
+   *
+   * 只在进程启动时读一次，之后由 `persist` / `persist.remove` 命令维护缓存。
+   * 打不开库不算致命：降级为内存存储，连接和任务跟踪照旧，只是重启会丢。
+   */
+  async init(context: common.Context): Promise<TaskRestoreResult> {
+    const opened: boolean = await this.storage.open(context);
+    if (!opened) {
+      return { storage: false, restored: 0, error: this.storage.error };
+    }
+    const rows: StoredTask[] = await this.storage.load();
+    let skipped: number = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const row: StoredTask = rows[i];
+      if (row.id.length === 0 || row.payload.length === 0 || !isJsonObject(row.payload)) {
+        // 坏行不能带进 cp_session_create：整个配置解析失败会连连接都建不起来。
+        // 宁可少一条历史（和 Kotlin 侧"不认识就丢弃"的策略一致），顺手删掉。
+        skipped++;
+        this.storage.remove(row.id);
+        continue;
+      }
+      this.taskCache.set(row.id, row.payload);
+    }
+    if (skipped > 0) {
+      this.onLog(`跳过 ${skipped} 条读不出来的历史记录`);
+    }
+    return { storage: true, restored: this.taskCache.size, error: '' };
+  }
+
+  /**
+   * 不连接，只按任务缓存建一个会话并推进一帧，让恢复出来的历史先显示。
+   * 用户点"连接"时会重建会话（配置里仍带着这些快照），所以这里不订阅网络、不起循环。
+   */
+  prepare(baseUrl: string): void {
+    this.stop();
+    const created: number = nativeSessionCreate(this.configJson(baseUrl));
+    if (created !== 1) {
+      this.onLog('共享层拒绝创建会话（配置无效）');
+      return;
+    }
+    this.revision = -1;
+    try {
+      this.applyFrame(JSON.parse(nativeSessionPump(Date.now())) as BridgeFrame);
+    } catch (err) {
+      this.onLog(`pump 失败：${(err as BusinessError).message}`);
+    }
+  }
 
   start(baseUrl: string): void {
     this.stop();
-    const config: BridgeConfig = {
-      baseUrl: baseUrl,
-      tickIntervalMs: 500,
-      progressSilenceMs: 120000,
-    };
-    const created: number = nativeSessionCreate(JSON.stringify(config));
+    const created: number = nativeSessionCreate(this.configJson(baseUrl));
     if (created !== 1) {
       this.onLog('共享层拒绝创建会话（配置无效）');
       return;
@@ -127,6 +202,23 @@ export class ComfyBridge {
     // 建会话只是把状态机装好；真正发起连接的是这条 start，少了它状态会一直停在 Idle。
     this.send({ t: 'start' });
     this.tick();
+  }
+
+  /**
+   * 配置里带上历史任务。快照是 Kotlin 写出来的原文，这里只做字符串拼接，
+   * 不解析、不筛选——哪条能恢复、恢复成什么状态由 `restoreTasks` 决定。
+   */
+  private configJson(baseUrl: string): string {
+    const head: string = `{"baseUrl":${JSON.stringify(baseUrl)},` +
+      '"tickIntervalMs":500,"progressSilenceMs":120000';
+    if (this.taskCache.size === 0) {
+      return `${head}}`;
+    }
+    const payloads: string[] = [];
+    this.taskCache.forEach((payload: string) => {
+      payloads.push(payload);
+    });
+    return `${head},"tasks":[${payloads.join(',')}]}`;
   }
 
   stop(): void {
@@ -168,24 +260,7 @@ export class ComfyBridge {
     }
     let delay = MAX_PUMP_MS;
     try {
-      const raw: string = nativeSessionPump(Date.now());
-      const frame: BridgeFrame = JSON.parse(raw) as BridgeFrame;
-      if (frame.error !== undefined) {
-        this.onLog(`共享层错误：${frame.error}`);
-      }
-      if (frame.nextDelayMs !== undefined) {
-        delay = frame.nextDelayMs;
-      }
-      if (frame.state !== null && frame.state !== undefined && frame.revision !== this.revision) {
-        this.revision = frame.revision;
-        // 联调诊断：只在状态帧变化时打一行，便于用 hilog 对照 mock 的 hits。
-        trace(`frame rev=${frame.revision} phase=${frame.state.phase} tasks=` +
-          frame.state.tasks.map((t: BridgeTask) => `${t.state}:${t.percent}`).join(','));
-        this.onState(frame.state);
-      }
-      if (frame.commands !== undefined) {
-        frame.commands.forEach((command: BridgeCommand) => this.execute(command));
-      }
+      delay = this.applyFrame(JSON.parse(nativeSessionPump(Date.now())) as BridgeFrame);
     } catch (err) {
       const error = err as BusinessError;
       this.onLog(`pump 失败：${error.message}`);
@@ -194,6 +269,28 @@ export class ComfyBridge {
     const wait = this.repump ? MIN_PUMP_MS : delay;
     this.repump = false;
     this.schedule(wait);
+  }
+
+  /** 应用一帧：更新状态、执行命令，返回建议的下次间隔。 */
+  private applyFrame(frame: BridgeFrame): number {
+    let delay = MAX_PUMP_MS;
+    if (frame.error !== undefined) {
+      this.onLog(`共享层错误：${frame.error}`);
+    }
+    if (frame.nextDelayMs !== undefined) {
+      delay = frame.nextDelayMs;
+    }
+    if (frame.state !== null && frame.state !== undefined && frame.revision !== this.revision) {
+      this.revision = frame.revision;
+      // 联调诊断：只在状态帧变化时打一行，便于用 hilog 对照 mock 的 hits。
+      trace(`frame rev=${frame.revision} phase=${frame.state.phase} tasks=` +
+        frame.state.tasks.map((t: BridgeTask) => `${t.state}:${t.percent}`).join(','));
+      this.onState(frame.state);
+    }
+    if (frame.commands !== undefined) {
+      frame.commands.forEach((command: BridgeCommand) => this.execute(command));
+    }
+    return delay;
   }
 
   private schedule(delayMs: number): void {
@@ -220,11 +317,10 @@ export class ComfyBridge {
         this.closeSocket(command);
         break;
       case 'persist':
-        // 阶段二把任务落库交给 RDB，这里先只记录，不假装已经持久化。
-        this.onLog(`任务变更：${command.task?.id ?? '?'} ${command.task?.state ?? ''}`);
+        this.persistTask(command.task);
         break;
       case 'persist.remove':
-        this.onLog(`任务移除：${command.id ?? '?'}`);
+        this.dropTask(command.id);
         break;
       case 'notice':
         this.handleNotice(command.notice);
@@ -233,6 +329,37 @@ export class ComfyBridge {
         this.onLog(`未知命令：${command.t}`);
         break;
     }
+  }
+
+  /**
+   * 一条任务快照：内存缓存 + RDB。payload 原样存，宿主不看内容。
+   *
+   * 缓存和库一起更新，是为了"断开/重连"时能把同一个任务重新交给共享层，
+   * 而不是每按一次重连就清空任务列表。
+   */
+  private persistTask(task?: PersistPayload): void {
+    if (task === undefined || task.id.length === 0) {
+      return;
+    }
+    const payload: string = JSON.stringify(task);
+    this.taskCache.set(task.id, payload);
+    this.storage.save(task.id, payload);
+
+    const state: string = task.state ?? '';
+    if (this.loggedStates.get(task.id) !== state) {
+      this.loggedStates.set(task.id, state);
+      this.onLog(`任务变更：${task.id} ${state}`);
+    }
+  }
+
+  private dropTask(id?: string | number): void {
+    if (typeof id !== 'string' || id.length === 0) {
+      return;
+    }
+    this.taskCache.delete(id);
+    this.loggedStates.delete(id);
+    this.storage.remove(id);
+    this.onLog(`任务移除：${id}`);
   }
 
   private handleNotice(notice?: BridgeNotice): void {
@@ -268,7 +395,7 @@ export class ComfyBridge {
   }
 
   private runHttp(command: BridgeCommand): void {
-    if (command.url === undefined || command.id === undefined) {
+    if (command.url === undefined || typeof command.id !== 'number') {
       return;
     }
     const id: number = command.id;
@@ -309,7 +436,7 @@ export class ComfyBridge {
   }
 
   private openSocket(command: BridgeCommand): void {
-    if (command.url === undefined || command.id === undefined) {
+    if (command.url === undefined || typeof command.id !== 'number') {
       return;
     }
     const id: number = command.id;
@@ -347,14 +474,15 @@ export class ComfyBridge {
   }
 
   private closeSocket(command: BridgeCommand): void {
-    if (command.id === undefined) {
+    if (typeof command.id !== 'number') {
       return;
     }
-    const socket = this.sockets.get(command.id);
+    const id: number = command.id;
+    const socket = this.sockets.get(id);
     if (socket === undefined) {
       return;
     }
-    this.sockets.delete(command.id);
+    this.sockets.delete(id);
     socket.close({ code: command.code ?? 1000, reason: command.reason ?? '' }).catch(() => {});
   }
 

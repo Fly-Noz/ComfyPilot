@@ -1,5 +1,6 @@
 import { nativeVersion } from 'libentry.so';
-import { BridgeState, BridgeTask, ComfyBridge } from '../bridge/ComfyBridge';
+import { common } from '@kit.AbilityKit';
+import { BridgeState, BridgeTask, ComfyBridge, TaskRestoreResult } from '../bridge/ComfyBridge';
 
 // 只用于联调：mock 服务和 ComfyUI 都会接受这个最小图（真实 ComfyUI 会因缺少采样器参数拒绝）。
 const DEMO_WORKFLOW: string = '{"3":{"class_type":"KSampler","inputs":{}}}';
@@ -15,6 +16,8 @@ struct Index {
   @State tasks: BridgeTask[] = [];
   @State notice: string = '';
   @State logs: string[] = [];
+  @State storageReady: boolean = false;
+  @State storageLabel: string = '存储初始化中…';
   private bridge: ComfyBridge = new ComfyBridge();
   private abi: number = 0;
 
@@ -31,6 +34,31 @@ struct Index {
       this.log(text);
     };
     this.bridge.onLog = (line: string) => this.log(line);
+    this.bootstrap();
+  }
+
+  /** 先把本地历史读回来，读不到也要让用户能连——只是重启后会丢。 */
+  private bootstrap(): void {
+    const host = this.getUIContext().getHostContext();
+    if (host === undefined) {
+      this.storageReady = true;
+      this.storageLabel = '拿不到 Ability 上下文，任务只在内存里';
+      return;
+    }
+    const context = host as common.Context;
+    this.bridge.init(context).then((result: TaskRestoreResult) => {
+      this.storageReady = true;
+      if (!result.storage) {
+        this.storageLabel = `本地存储不可用（${result.error}），任务只在内存里`;
+      } else {
+        this.storageLabel = result.restored > 0 ? `已恢复 ${result.restored} 个历史任务` : '本地存储就绪，没有历史任务';
+      }
+      // 历史先显示出来，连不连接是下一步的事。
+      this.bridge.prepare(this.baseUrl);
+    }).catch((err: Error) => {
+      this.storageReady = true;
+      this.storageLabel = `本地存储初始化失败：${err.message}`;
+    });
   }
 
   aboutToDisappear(): void {
@@ -47,6 +75,10 @@ struct Index {
     const url = this.baseUrl.trim();
     if (url.length === 0) {
       this.notice = '地址不能为空';
+      return;
+    }
+    if (!this.storageReady) {
+      this.notice = '本地存储还在初始化，请稍等';
       return;
     }
     this.running = true;
@@ -79,6 +111,11 @@ struct Index {
         .fontColor('#666666')
         .width('100%')
 
+      Text(this.storageLabel)
+        .fontSize(12)
+        .fontColor('#666666')
+        .width('100%')
+
       TextInput({ text: this.baseUrl, placeholder: 'http://127.0.0.1:18188' })
         .onChange((value: string) => {
           this.baseUrl = value;
@@ -89,6 +126,7 @@ struct Index {
       Row({ space: 8 }) {
         Button(this.running ? '重连' : '连接')
           .onClick(() => this.connect())
+          .enabled(this.storageReady)
           .layoutWeight(1)
         Button('断开')
           .onClick(() => this.disconnect())
