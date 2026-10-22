@@ -94,6 +94,34 @@ napi_value NativeSessionSend(napi_env env, napi_callback_info info) {
     return result;
 }
 
+/** 按需工作流视图：缓冲区不够时按返回的完整长度扩容重取。 */
+napi_value NativeSessionWorkflow(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    const std::string request = (argc > 0 && argv[0] != nullptr) ? ReadString(env, argv[0]) : std::string("{}");
+
+    std::vector<char> buffer(kJsonBufferSize, 0);
+    int32_t needed = cp_session_workflow(
+        const_cast<char *>(request.c_str()),
+        buffer.data(),
+        static_cast<int32_t>(buffer.size()));
+    if (needed <= 0) {
+        return MakeString(env, R"({"ok":false,"state":"error","message":"工作流视图没有返回内容"})");
+    }
+    if (static_cast<size_t>(needed) >= buffer.size()) {
+        buffer.assign(static_cast<size_t>(needed) + 1, 0);
+        needed = cp_session_workflow(
+            const_cast<char *>(request.c_str()),
+            buffer.data(),
+            static_cast<int32_t>(buffer.size()));
+        if (needed <= 0 || static_cast<size_t>(needed) >= buffer.size()) {
+            return MakeString(env, R"({"ok":false,"state":"error","message":"工作流视图超出缓冲区"})");
+        }
+    }
+    return MakeString(env, std::string(buffer.data(), static_cast<size_t>(needed)));
+}
+
 napi_value NativeSessionDestroy(napi_env env, napi_callback_info /*info*/) {
     cp_session_destroy();
     napi_value result = nullptr;
@@ -111,6 +139,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         {"nativeSessionCreate", nullptr, NativeSessionCreate, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeSessionPump", nullptr, NativeSessionPump, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeSessionSend", nullptr, NativeSessionSend, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"nativeSessionWorkflow", nullptr, NativeSessionWorkflow, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeSessionDestroy", nullptr, NativeSessionDestroy, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);

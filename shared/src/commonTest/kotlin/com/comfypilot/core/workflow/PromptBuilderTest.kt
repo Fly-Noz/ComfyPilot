@@ -59,6 +59,19 @@ class PromptBuilderTest {
     }
 
     @Test
+    fun `run token makes saved filename unique`() {
+        val ready = ready(
+            PromptBuilder.build(
+                document(DEMO_UI),
+                DEFINITIONS,
+                runToken = "abc123",
+            ),
+        )
+
+        assertEquals("ComfyPilot_abc123", ready.text("9", "filename_prefix"))
+    }
+
+    @Test
     fun `overrides replace widget values without touching links`() {
         val overrides = mapOf(
             3 to mapOf(

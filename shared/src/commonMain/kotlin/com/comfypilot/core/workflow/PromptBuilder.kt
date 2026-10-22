@@ -65,6 +65,11 @@ object PromptBuilder {
         enabledOutputIds: Set<Int>? = null,
         /** 选中的节点图内的节点：临时当作正常执行，用于在 App 里启用被旁路的分支。 */
         forcedNormalNodeIds: Set<Int> = emptySet(),
+        /**
+         * 每次提交的唯一短 token。保存类节点的 filename_prefix 会追加它，
+         * 避免工作流前缀不唯一时后一次产物覆盖前一次。
+         */
+        runToken: String? = null,
     ): PromptBuild {
         when (document.format) {
             WorkflowFormat.API -> {
@@ -130,6 +135,7 @@ object PromptBuilder {
                 overrides[node.id].orEmpty(),
                 nodeProblems,
                 warnings,
+                runToken,
             )
             converted[node.id] = ConvertedNode(node, json, nodeProblems)
         }
@@ -195,6 +201,7 @@ object PromptBuilder {
         overrides: Map<String, JsonElement>,
         problems: MutableList<BuildProblem>,
         warnings: MutableList<String>,
+        runToken: String?,
     ): JsonObject {
         val inputs = LinkedHashMap<String, JsonElement>()
 
@@ -283,6 +290,18 @@ object PromptBuilder {
                 node.type,
                 "必填输入 ${declared.name} 没有连接",
             )
+        }
+
+        // 工作流作者常用 `%date:yyyyMMddhhmmss%` 这类 ComfyUI 不认识的日期格式。
+        // 服务端会把它当普通字符，Windows 又会把冒号换掉，导致计数器永远从 1 开始
+        // 并覆盖上一次的产物。这里给每次提交追加一个唯一后缀，保证产物不会互相覆盖。
+        val token = runToken.orEmpty()
+            .filter { it.isLetterOrDigit() || it == '-' || it == '_' }
+            .take(24)
+        val prefix = inputs["filename_prefix"]
+        if (token.isNotEmpty() && prefix is JsonPrimitive && prefix.isString) {
+            val base = prefix.content.ifBlank { "ComfyPilot" }.trimEnd('_')
+            inputs["filename_prefix"] = JsonPrimitive("${base}_$token")
         }
 
         return buildJsonObject {

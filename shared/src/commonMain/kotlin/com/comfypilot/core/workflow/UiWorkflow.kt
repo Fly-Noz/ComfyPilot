@@ -177,29 +177,31 @@ object UiWorkflowParser {
         )
     }
 
-    private fun parseLink(element: JsonElement): UiLink? = when (element) {
-        is JsonArray -> {
-            if (element.size < 5) return null
-            UiLink(
-                id = element[0].asIntOrNull() ?: return null,
-                originId = element[1].asIntOrNull() ?: return null,
-                originSlot = element[2].asIntOrNull() ?: return null,
-                targetId = element[3].asIntOrNull() ?: return null,
-                targetSlot = element[4].asIntOrNull() ?: return null,
-                type = (element.getOrNull(5) as? JsonPrimitive)?.contentOrNull ?: "",
+    private fun parseLink(element: JsonElement): UiLink? {
+        return when (element) {
+            is JsonArray -> {
+                if (element.size < 5) return null
+                UiLink(
+                    id = element[0].asIntOrNull() ?: return null,
+                    originId = element[1].asIntOrNull() ?: return null,
+                    originSlot = element[2].asIntOrNull() ?: return null,
+                    targetId = element[3].asIntOrNull() ?: return null,
+                    targetSlot = element[4].asIntOrNull() ?: return null,
+                    type = (element.getOrNull(5) as? JsonPrimitive)?.contentOrNull ?: "",
+                )
+            }
+
+            is JsonObject -> UiLink(
+                id = element["id"].asIntOrNull() ?: return null,
+                originId = element["origin_id"].asIntOrNull() ?: return null,
+                originSlot = element["origin_slot"].asIntOrNull() ?: return null,
+                targetId = element["target_id"].asIntOrNull() ?: return null,
+                targetSlot = element["target_slot"].asIntOrNull() ?: return null,
+                type = element.stringOrNull("type") ?: "",
             )
+
+            else -> null
         }
-
-        is JsonObject -> UiLink(
-            id = element["id"].asIntOrNull() ?: return null,
-            originId = element["origin_id"].asIntOrNull() ?: return null,
-            originSlot = element["origin_slot"].asIntOrNull() ?: return null,
-            targetId = element["target_id"].asIntOrNull() ?: return null,
-            targetSlot = element["target_slot"].asIntOrNull() ?: return null,
-            type = element.stringOrNull("type") ?: "",
-        )
-
-        else -> null
     }
 }
 

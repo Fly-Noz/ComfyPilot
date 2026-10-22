@@ -5,6 +5,7 @@ package com.comfypilot.ohos
 import com.comfypilot.core.host.SessionHost
 import com.comfypilot.core.host.restoredTasksFromJson
 import com.comfypilot.core.host.sessionConfigFromJson
+import com.comfypilot.core.host.sessionWorkflowJson
 import kotlinx.cinterop.ByteVar
 import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -90,6 +91,37 @@ fun cpSessionSend(json: CPointer<ByteVar>?): Int {
         0
     }
 }
+
+/**
+ * 按需获取工作流视图或构建后的 prompt。
+ *
+ * 参数与返回值都是 JSON；返回值约定与 [cpSessionPump] 相同：先写调用方缓冲区，
+ * 返回完整字节数，>= capacity 时调用方扩容并重试（本函数无副作用，可安全重试）。
+ */
+@OptIn(ExperimentalForeignApi::class)
+@CName("cp_session_workflow")
+fun cpSessionWorkflow(requestJson: CPointer<ByteVar>?, buffer: CPointer<ByteVar>?, capacity: Int): Int {
+    val host = session
+        ?: return writeUtf8(
+            """{"ok":false,"state":"error","message":"会话尚未创建","graphs":[],"nodes":[],"commonFields":[],"problems":[],"warnings":[],"pendingNodeClasses":[],"missingNodeClasses":[],"prompt":null}""",
+            buffer,
+            capacity,
+        )
+    val raw = requestJson?.toKString() ?: "{}"
+    val result = try {
+        sessionWorkflowJson(host.state, raw)
+    } catch (error: Throwable) {
+        """{"ok":false,"state":"error","message":"${escapeJson(error.message ?: "工作流请求失败")}","graphs":[],"nodes":[],"commonFields":[],"problems":[],"warnings":[],"pendingNodeClasses":[],"missingNodeClasses":[],"prompt":null}"""
+    }
+    return writeUtf8(result, buffer, capacity)
+}
+
+private fun escapeJson(value: String): String = value
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+    .replace("\n", "\\n")
+    .replace("\r", "\\r")
+    .replace("\t", "\\t")
 
 @CName("cp_session_destroy")
 fun cpSessionDestroy() {

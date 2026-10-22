@@ -77,7 +77,9 @@ import com.comfypilot.core.workflow.WorkflowField
 import com.comfypilot.core.workflow.WorkflowFields
 import com.comfypilot.core.workflow.WorkflowGraphs
 import com.comfypilot.core.workflow.WorkflowNodeView
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
@@ -230,6 +232,34 @@ private fun DetailBody(
 
     val pendingClasses = document.nodeClasses.count { it !in state.nodeInfo }
 
+    // 与鸿蒙侧一致：输入变化后短暂延迟再重算，避免每敲一个字就重建整张 prompt。
+    // 这里只用于按钮可用性和按钮上方的阻断原因；真正提交时 submit() 会再算一次，
+    // 防止用户在 120ms 窗口内抢点导致提交旧值。
+    var liveBuild by remember(document.path) { mutableStateOf<PromptBuild?>(null) }
+    LaunchedEffect(document, state.nodeInfo, overrides, enabledOutputIds, forcedNormalNodeIds) {
+        delay(120)
+        liveBuild = withContext(Dispatchers.Default) {
+            PromptBuilder.build(
+                document = document,
+                definitions = state.nodeInfo,
+                overrides = overrides,
+                enabledOutputIds = if (graphs.isEmpty()) null else enabledOutputIds,
+                forcedNormalNodeIds = forcedNormalNodeIds,
+            )
+        }
+    }
+    val readyBuild = liveBuild
+    val canSubmit = readyBuild is PromptBuild.Ready && pendingClasses == 0
+    val blockReason = when {
+        pendingClasses > 0 -> "不可提交：正在加载节点定义（还有 $pendingClasses 个类）"
+        readyBuild == null -> "正在校验工作流…"
+        readyBuild is PromptBuild.Blocked -> {
+            val first = readyBuild.problems.firstOrNull()
+            if (first == null) "不可提交：工作流还没有就绪" else "不可提交：${first.format()}"
+        }
+        else -> null
+    }
+
     fun applyOverride(nodeId: Int, inputName: String, value: JsonElement) {
         val forNode = overrides[nodeId].orEmpty() + (inputName to value)
         overrides = overrides + (nodeId to forNode)
@@ -335,6 +365,9 @@ private fun DetailBody(
                 overrides = overrides,
                 enabledOutputIds = if (graphs.isEmpty()) null else enabledOutputIds,
                 forcedNormalNodeIds = forcedNormalNodeIds,
+                // 和鸿蒙侧一致：每次提交给保存节点追加唯一后缀，避免工作流前缀不唯一时
+                // （例如 ComfyUI 不支持的 %date:...%）后一次产物覆盖前一次。
+                runToken = UUID.randomUUID().toString().replace("-", "").take(10),
             )
         ) {
             is PromptBuild.Ready -> {
@@ -489,18 +522,28 @@ private fun DetailBody(
         }
 
         Surface(tonalElevation = 3.dp) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                OutlinedButton(onClick = { sheetVisible = true }) { Text("全部节点") }
-                Spacer(modifier = Modifier.weight(1f))
-                Text(
-                    "${fields.nodes.count { it.reachable }} 个会提交",
-                    style = MaterialTheme.typography.labelSmall,
-                )
-                Button(onClick = ::submit) { Text("提交任务") }
+            Column(modifier = Modifier.fillMaxWidth()) {
+                blockReason?.let { reason ->
+                    Text(
+                        reason,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    OutlinedButton(onClick = { sheetVisible = true }) { Text("全部节点") }
+                    Spacer(modifier = Modifier.weight(1f))
+                    Text(
+                        "${fields.nodes.count { it.reachable }} 个会提交",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                    Button(onClick = ::submit, enabled = canSubmit) { Text("提交任务") }
+                }
             }
         }
     }

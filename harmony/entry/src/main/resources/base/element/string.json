@@ -11,6 +11,10 @@
     {
       "name": "EntryAbility_label",
       "value": "ComfyPilot"
+    },
+    {
+      "name": "download_permission_reason",
+      "value": "保存工作流产物的图片、视频和文件到下载目录"
     }
   ]
 }

@@ -1,7 +1,10 @@
 package com.comfypilot.core.host
 
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
 import kotlin.test.Test
@@ -58,6 +61,14 @@ class SessionHostTest {
         val done = assertNotNull(driver.task("p1"))
         assertEquals("Completed", (done["state"] as JsonPrimitive).content)
         assertEquals("1", (done["outputs"] as JsonPrimitive).content)
+        val ref = (done["outputRefs"] as JsonArray).single().jsonObject
+        assertEquals("a.png", ref["displayName"]!!.jsonPrimitive.content)
+        assertEquals("image/png", ref["mime"]!!.jsonPrimitive.content)
+        assertTrue(ref["image"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals(
+            "/view?filename=a.png&subfolder=&type=output",
+            ref["path"]!!.jsonPrimitive.content,
+        )
     }
 
     @Test

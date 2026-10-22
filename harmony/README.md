@@ -1,17 +1,32 @@
-# harmony/ —— HarmonyOS 应用（阶段二）
+# harmony/ —— HarmonyOS 应用（阶段二 / S6）
 
 这是鸿蒙侧的 DevEco 工程：一个 ArkTS 页面 + 一个 C++ NAPI 模块，调用
 `ohos/` 编出来的 Kotlin 共享层 `.so`。
 
-当前状态分两层，别混着说：
+当前状态分层，别混着说：
 
 | 层级 | 状态 |
 |---|---|
-| 构建级 | 通过：共享层自检、会话桥、HAP 都能编出来，115 个 JVM 测试全绿 |
-| 真机级 | 通过：自检、ArkTS 宿主循环、HTTP/WebSocket、四个连接场景（`normal` / `history_error` / `silent` / `lost`）、RDB 落库与重启恢复 |
+| 构建级 | 通过：共享层自检、会话桥、S6 工作流/产物、HAP 都能编出来；JVM 测试 **192 通过 / 0 跳过 / 0 失败** |
+| 真机级（阶段二） | 通过：自检、ArkTS 宿主循环、HTTP/WebSocket、四个连接场景（`normal` / `history_error` / `silent` / `lost`）、RDB 落库与重启恢复 |
+| 真机级（S6） | **待验证**：工作流目录、字段/节点图、置顶、图片预览与下载已接入，等待连接鸿蒙真机 |
 
 四个场景与重启恢复的真机证据（hilog + mock 计数器）见 `../docs/verification/stage2-harmony-build.md`。
 仍未真机验证的是：切前后台的冻结检测、WiFi↔蜂窝切换的 `generation` 递增。
+
+### S6：工作流、置顶与产物
+
+S6 把 Android 已有的工作流详情、节点置顶和产物能力对齐到鸿蒙：
+
+- 工作流目录来自服务器 `user_data/workflows`，点开后按需调用 `cp_session_workflow` 获取字段、节点图、问题和 prompt；不把这些大对象塞进 500ms 状态帧。
+- 页面支持节点图启停、字段编辑、提交，以及按工作流路径隔离的节点置顶；
+  置顶键与 Android 相同（`workflow:<path>`），未启用图里的置顶节点只保留状态、不提前排序。
+- 任务卡片显示完整产物引用；图片用 ArkUI `Image` 预览，视频/音频/其他类型提供下载。
+- 下载由系统下载服务落到 app cache，再复制到 `Environment.getUserDownloadDir()`；
+  同名文件按 `name (1).ext` 避让。需要运行时申请
+  `ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY`。
+- 真实 ComfyUI 提交、图片加载和下载目录权限尚未在鸿蒙真机上验证，验证步骤见
+  `../docs/verification/stageS6-harmony-workflows.md`。
 
 ## 构建与安装
 
@@ -96,10 +111,13 @@ hdc shell power-shell wakeup                                 # 等 120s 看门�
 
 ```
 entry/src/main/
-  ets/bridge/ComfyBridge.ets   # 宿主循环：pump + 执行 http/ws/persist/notice
-  ets/bridge/TaskStorage.ets   # RDB：任务快照落库（id + 原文 payload）
-  ets/pages/Index.ets          # 联调页：地址、连接、提交、任务列表、日志
-  cpp/napi_init.cpp            # NAPI 模块，转发到 Kotlin C ABI
+  ets/bridge/ComfyBridge.ets      # 宿主循环：pump + 执行 http/ws/persist/notice
+  ets/bridge/TaskStorage.ets      # RDB：任务快照落库（id + 原文 payload）
+  ets/bridge/PinnedNodeStore.ets  # Preferences：按工作流路径保存置顶节点
+  ets/artifact/ArtifactDownloader.ets # 系统下载 + 下载目录 + 同名避让
+  ets/model/WorkflowTypes.ets     # cp_session_workflow 的 ArkTS 类型
+  ets/pages/Index.ets             # 工作流目录/详情/置顶/任务/产物/日志
+  cpp/napi_init.cpp               # NAPI 模块，转发到 Kotlin C ABI
   cpp/CMakeLists.txt           # 链接 libcomfypilot_core.so
   cpp/types/libentry/          # ArkTS 侧类型声明
   cpp/include/                 # 生成的头文件（不提交）
@@ -118,11 +136,12 @@ C ABI（`ohosArm64Main/.../SessionAbi.kt`）：
 
 | C ABI | 说明 |
 |---|---|
-| `cp_version()` | ABI 版本，2 起有会话接口 |
+| `cp_version()` | ABI 版本，3 起新增工作流按需视图 |
 | `cp_self_test_json(buffer, capacity)` | 纯逻辑自检，UTF-8 JSON 写入调用方缓冲区 |
 | `cp_session_create(configJson)` | 建会话（配置：`baseUrl` 等；`tasks` 数组可带上次落盘的任务），1 成功 |
 | `cp_session_pump(nowMs, buffer, capacity)` | **推进到 nowMs**，返回一帧 JSON |
 | `cp_session_send(json)` | 回投宿主消息（IO 结果、网络变化、提交请求） |
+| `cp_session_workflow(json, buffer, capacity)` | 按需返回工作流字段/节点图（`op=view`）或构建后的 prompt（`op=prompt`） |
 | `cp_session_destroy()` | 关会话 |
 
 字符串由调用方提供缓冲区，Kotlin 只写入并返回长度，**跨语言边界没有内存所有权转移**。
@@ -186,7 +205,10 @@ ArkTS 侧由 `bridge/TaskStorage.ets` 落地，表只有 `id / payload / updated
 - 前台长任务 / 实况窗（需要 `backgroundTaskManager` 与通知权限）
 - 后台保活的电量策略与用户可见开关
 - 历史按 `baseUrl` 隔离：现在全库一份，换服务器地址会把旧任务对账成 `Unknown`
+- 鸿蒙真机上的工作流打开、字段编辑、置顶持久化、图片预览和下载目录写入
+- 视频/音频内置播放：本轮只保证下载；图片使用 ArkUI `Image`
+- `LoadImage` 的本机相册上传：字段可以显示，本机选择图片尚未接线
 
 真机已经跑过的东西见 `docs/verification/stage2-harmony-build.md`：
-`cp_version() == 2` 的 HAP 上，四个场景（`normal` / `history_error` / `silent` / `lost`）
+阶段二 `cp_version() == 2` 的 HAP 上，四个场景（`normal` / `history_error` / `silent` / `lost`）
 逐条有 hilog 与 mock 计数器证据；另有一轮杀进程重启，验证 RDB 恢复与对账。

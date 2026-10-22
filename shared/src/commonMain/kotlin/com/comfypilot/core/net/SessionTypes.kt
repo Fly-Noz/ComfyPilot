@@ -112,6 +112,9 @@ sealed interface UserNotice {
     data class ReconcileGaveUp(val promptIds: List<String>) : UserNotice
 
     data class SubmitRejected(val message: String) : UserNotice
+
+    /** 服务器已接受提交并返回 prompt_id；只有收到这条通知才能显示“已提交”。 */
+    data class SubmitAccepted(val promptId: String) : UserNotice
 }
 
 data class ReduceResult(

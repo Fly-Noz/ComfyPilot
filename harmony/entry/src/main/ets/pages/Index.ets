@@ -1,9 +1,94 @@
 import { nativeVersion } from 'libentry.so';
 import { common } from '@kit.AbilityKit';
-import { BridgeState, BridgeTask, ComfyBridge, TaskRestoreResult } from '../bridge/ComfyBridge';
+import {
+  BridgeCatalog,
+  BridgeOutput,
+  BridgeState,
+  BridgeTask,
+  BridgeWorkflow,
+  CatalogEntry,
+  ComfyBridge,
+  TaskRestoreResult,
+} from '../bridge/ComfyBridge';
+import { PinnedNodeStore } from '../bridge/PinnedNodeStore';
+import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/ArtifactDownloader';
+import {
+  BuildProblemView,
+  PromptResponse,
+  WorkflowFieldView,
+  WorkflowGraphView,
+  WorkflowNodeView,
+  WorkflowViewResponse,
+} from '../model/WorkflowTypes';
 
-// 只用于联调：mock 服务和 ComfyUI 都会接受这个最小图（真实 ComfyUI 会因缺少采样器参数拒绝）。
-const DEMO_WORKFLOW: string = '{"3":{"class_type":"KSampler","inputs":{}}}';
+function emptyTask(): BridgeTask {
+  return {
+    id: '',
+    promptId: null,
+    name: null,
+    workflowPath: null,
+    state: '',
+    percent: 0,
+    outputs: 0,
+    outputRefs: [],
+    error: null,
+    updatedAtMs: 0,
+  };
+}
+
+function emptyOutput(): BridgeOutput {
+  return {
+    nodeId: '',
+    kind: '',
+    filename: '',
+    subfolder: '',
+    type: '',
+    displayName: '',
+    mime: '',
+    image: false,
+    video: false,
+    audio: false,
+    path: '',
+  };
+}
+
+function emptyCatalog(): BridgeCatalog {
+  return { state: 'idle', entries: [] };
+}
+
+function emptyWorkflow(): BridgeWorkflow {
+  return {
+    loadingPath: null,
+    path: null,
+    name: null,
+    format: '',
+    error: null,
+    nodeClasses: 0,
+    nodeInfo: 0,
+  };
+}
+
+function emptyView(): WorkflowViewResponse {
+  return {
+    ok: false,
+    state: 'empty',
+    message: '',
+    path: '',
+    name: '',
+    format: '',
+    defaultGraphIds: [],
+    selectedGraphIds: [],
+    graphs: [],
+    nodes: [],
+    commonFields: [],
+    problems: [],
+    warnings: [],
+    pendingNodeClasses: [],
+    missingNodeClasses: [],
+    canSubmit: false,
+    prompt: null,
+  };
+}
 
 @Entry
 @Component
@@ -18,27 +103,67 @@ struct Index {
   @State logs: string[] = [];
   @State storageReady: boolean = false;
   @State storageLabel: string = '存储初始化中…';
+
+  @State tab: number = 0;
+  @State catalog: BridgeCatalog = emptyCatalog();
+  @State workflow: BridgeWorkflow = emptyWorkflow();
+  @State selectedPath: string = '';
+  @State view: WorkflowViewResponse = emptyView();
+  @State viewLoading: boolean = false;
+  @State viewError: string = '';
+  @State graphIds: string[] = [];
+  @State graphsInitialized: boolean = false;
+  @State pinnedIds: number[] = [];
+  @State editTick: number = 0;
+  @State submitting: boolean = false;
+  @State submitNotice: string = '';
+  @State confirmOpen: boolean = false;
+  @State confirmWarnings: string[] = [];
+  @State confirmPrompt: string = '';
+
+  @State artifactOpen: boolean = false;
+  @State artifactTask: BridgeTask = emptyTask();
+  @State previewOpen: boolean = false;
+  @State previewOutput: BridgeOutput = emptyOutput();
+  @State previewError: boolean = false;
+  @State downloadingKey: string = '';
+  @State downloadNotice: string = '';
+
   private bridge: ComfyBridge = new ComfyBridge();
   private abi: number = 0;
+  private pinnedStore: PinnedNodeStore = new PinnedNodeStore();
+  private downloader: ArtifactDownloader = new ArtifactDownloader();
+  private uiContext: common.UIAbilityContext | null = null;
+  private edits: Map<string, string | number | boolean | null> = new Map();
+  private editRefreshTimer: number = -1;
+  private submitNonce: number = 0;
+  private viewSeq: number = 0;
+  private summaryKey: string = '';
+  private catalogRequested: boolean = false;
+  private reopenRequested: boolean = false;
+  private scroller: Scroller = new Scroller();
 
   aboutToAppear(): void {
     this.abi = nativeVersion();
-    this.bridge.onState = (state: BridgeState) => {
-      this.label = `${state.label} · 第 ${state.generation} 代 · ${state.network}`;
-      this.generation = state.generation;
-      this.network = state.validated ? `${state.network}（已验证）` : state.network;
-      this.tasks = state.tasks;
-    };
+    this.bridge.onState = (state: BridgeState) => this.applyState(state);
     this.bridge.onNotice = (text: string) => {
       this.notice = text;
+      if (text.startsWith('提交被拒绝') || text.startsWith('已提交')) {
+        this.submitNotice = text;
+      }
       this.log(text);
     };
     this.bridge.onLog = (line: string) => this.log(line);
     this.bootstrap();
   }
 
-  /** 先把本地历史读回来，读不到也要让用户能连——只是重启后会丢。 */
-  private bootstrap(): void {
+  aboutToDisappear(): void {
+    this.cancelEditRefresh();
+    this.bridge.stop();
+    this.running = false;
+  }
+
+  private async bootstrap(): Promise<void> {
     const host = this.getUIContext().getHostContext();
     if (host === undefined) {
       this.storageReady = true;
@@ -46,56 +171,1103 @@ struct Index {
       return;
     }
     const context = host as common.Context;
-    this.bridge.init(context).then((result: TaskRestoreResult) => {
-      this.storageReady = true;
-      if (!result.storage) {
-        this.storageLabel = `本地存储不可用（${result.error}），任务只在内存里`;
-      } else {
-        this.storageLabel = result.restored > 0 ? `已恢复 ${result.restored} 个历史任务` : '本地存储就绪，没有历史任务';
-      }
-      // 历史先显示出来，连不连接是下一步的事。
-      this.bridge.prepare(this.baseUrl);
-    }).catch((err: Error) => {
-      this.storageReady = true;
-      this.storageLabel = `本地存储初始化失败：${err.message}`;
-    });
-  }
-
-  aboutToDisappear(): void {
-    this.bridge.stop();
-    this.running = false;
+    this.uiContext = host as common.UIAbilityContext;
+    const result: TaskRestoreResult = await this.bridge.init(context);
+    const pinnedReady: boolean = await this.pinnedStore.open(context);
+    this.storageReady = true;
+    if (!result.storage) {
+      this.storageLabel = `本地存储不可用（${result.error}），任务只在内存里`;
+    } else {
+      this.storageLabel = result.restored > 0 ? `已恢复 ${result.restored} 个历史任务` : '本地存储就绪，没有历史任务';
+    }
+    if (!pinnedReady) {
+      this.log(`置顶存储不可用：${this.pinnedStore.error}`);
+    }
+    this.bridge.prepare(this.baseUrl);
   }
 
   private log(line: string): void {
     const stamp = new Date().toTimeString().substring(0, 8);
-    this.logs = [`${stamp} ${line}`, ...this.logs].slice(0, 40);
+    this.logs = [`${stamp} ${line}`, ...this.logs].slice(0, 60);
+  }
+
+  private applyState(state: BridgeState): void {
+    this.label = `${state.label} · 第 ${state.generation} 代 · ${state.network}`;
+    this.generation = state.generation;
+    this.network = state.validated ? `${state.network}（已验证）` : state.network;
+    this.tasks = state.tasks;
+    this.catalog = state.catalog;
+    this.workflow = state.workflow;
+    if (this.artifactOpen && this.artifactTask.id.length > 0) {
+      const current = state.tasks.find((task: BridgeTask) => task.id === this.artifactTask.id);
+      if (current !== undefined) {
+        this.artifactTask = current;
+      }
+    }
+
+    if (this.running && state.phase === 'Connected') {
+      if (!this.catalogRequested) {
+        this.catalogRequested = true;
+        this.bridge.refreshWorkflows();
+      }
+      if (this.selectedPath.length > 0 &&
+        state.workflow.path === null &&
+        state.workflow.loadingPath === null &&
+        !this.reopenRequested) {
+        this.reopenRequested = true;
+        this.bridge.openWorkflow(this.selectedPath);
+      }
+    }
+
+    if (this.selectedPath.length > 0 && state.workflow.path === this.selectedPath) {
+      const key = `${state.workflow.path}|${state.workflow.format}|${state.workflow.nodeInfo}|${state.workflow.nodeClasses}`;
+      if (key !== this.summaryKey) {
+        this.summaryKey = key;
+        this.refreshView();
+      }
+    }
+  }
+
+  private normalizedBaseUrl(): string {
+    let url = this.baseUrl.trim();
+    while (url.endsWith('/')) {
+      url = url.substring(0, url.length - 1);
+    }
+    return url;
   }
 
   private connect(): void {
-    const url = this.baseUrl.trim();
+    const url = this.normalizedBaseUrl();
     if (url.length === 0) {
       this.notice = '地址不能为空';
       return;
     }
+    this.baseUrl = url;
     if (!this.storageReady) {
       this.notice = '本地存储还在初始化，请稍等';
       return;
     }
-    this.running = true;
+    this.catalogRequested = false;
+    this.reopenRequested = false;
+    this.summaryKey = '';
     this.log(`开始连接 ${url}`);
-    this.bridge.start(url);
+    this.running = true;
+    const started = this.bridge.start(url);
+    if (!started) {
+      this.running = false;
+      this.label = '未连接';
+      this.notice = '无法创建会话，请查看日志';
+    }
   }
 
   private disconnect(): void {
+    this.cancelEditRefresh();
     this.bridge.stop();
     this.running = false;
     this.label = '未连接';
     this.tasks = [];
+    this.catalog = emptyCatalog();
+    this.selectedPath = '';
+    this.view = emptyView();
+    this.catalogRequested = false;
+    this.reopenRequested = false;
     this.log('已断开');
   }
 
-  build() {
-    Column({ space: 10 }) {
+  private openWorkflow(path: string, name: string): void {
+    if (!this.running) {
+      this.notice = '请先连接 ComfyUI';
+      return;
+    }
+    this.cancelEditRefresh();
+    this.selectedPath = path;
+    this.summaryKey = '';
+    this.graphsInitialized = false;
+    this.graphIds = [];
+    this.edits.clear();
+    this.editTick++;
+    this.view = emptyView();
+    this.viewError = '';
+    this.submitNotice = '';
+    // 上一次提交的拒绝通知还留在顶部，打开新工作流时不应该继续误导。
+    this.notice = '';
+    this.pinnedIds = this.pinnedStore.load(path);
+    this.log(`打开工作流：${name || path}`);
+    this.bridge.openWorkflow(path);
+    setTimeout(() => {
+      this.scroller.scrollEdge(Edge.Top);
+    }, 0);
+  }
+
+  private closeWorkflow(): void {
+    this.cancelEditRefresh();
+    this.selectedPath = '';
+    this.summaryKey = '';
+    this.graphsInitialized = false;
+    this.graphIds = [];
+    this.edits.clear();
+    this.editTick++;
+    this.view = emptyView();
+    this.viewError = '';
+    this.submitNotice = '';
+  }
+
+  private refreshView(scrollTop: boolean = false): void {
+    if (this.selectedPath.length === 0) {
+      return;
+    }
+    const seq = ++this.viewSeq;
+    this.viewLoading = true;
+    try {
+      const response = JSON.parse(this.bridge.workflow(this.requestJson('view'))) as WorkflowViewResponse;
+      if (seq !== this.viewSeq) {
+        return;
+      }
+      this.viewLoading = false;
+      if (!response.ok) {
+        this.viewError = response.message !== undefined && response.message.length > 0
+          ? response.message : '工作流还没有加载好';
+        return;
+      }
+      this.viewError = '';
+      // 节点定义还没到时，共享层会返回空图列表；这时不能把“空选择”记成用户显式
+      // 关闭了所有图，否则定义加载完后会把所有节点都判成不可达。
+      if (!this.graphsInitialized && response.graphs.length > 0) {
+        this.graphIds = response.selectedGraphIds;
+        this.graphsInitialized = true;
+      }
+      this.view = response;
+      this.pruneEdits();
+      if (scrollTop) {
+        // 等一帧让新的节点顺序完成布局，否则滚动仍会停在旧位置。
+        setTimeout(() => {
+          this.scroller.scrollEdge(Edge.Top);
+        }, 0);
+      }
+    } catch (err) {
+      if (seq !== this.viewSeq) {
+        return;
+      }
+      this.viewLoading = false;
+      this.viewError = `读取工作流视图失败：${(err as Error).message}`;
+    }
+  }
+
+  private requestJson(op: string, runToken: string = ''): string {
+    const graphs = this.graphsInitialized
+      ? `[${this.graphIds.map((id: string) => JSON.stringify(id)).join(',')}]`
+      : 'null';
+    const pinned = `[${this.pinnedIds.join(',')}]`;
+    const run = runToken.length > 0 ? `,"run":${JSON.stringify(runToken)}` : '';
+    return `{"op":${JSON.stringify(op)},"graphs":${graphs},"pinned":${pinned}${run},"overrides":${this.overridesJson()}}`;
+  }
+
+  private overridesJson(): string {
+    const fields = new Map<string, WorkflowFieldView>();
+    this.view.nodes.forEach((node: WorkflowNodeView) => {
+      node.fields.forEach((field: WorkflowFieldView) => {
+        fields.set(this.editKey(field.nodeId, field.inputName), field);
+      });
+    });
+    const nodes: Map<string, string[]> = new Map();
+    this.edits.forEach((raw: string | number | boolean | null, key: string) => {
+      const split = key.split('\u0000');
+      if (split.length !== 2) {
+        return;
+      }
+      const nodeId = split[0];
+      const inputName = split[1];
+      const field = fields.get(key);
+      const value = field !== undefined ? this.overrideValue(field, raw) : raw;
+      const parts = nodes.get(nodeId);
+      const json = `${JSON.stringify(inputName)}:${JSON.stringify(value)}`;
+      if (parts === undefined) {
+        nodes.set(nodeId, [json]);
+      } else {
+        parts.push(json);
+      }
+    });
+    const result: string[] = [];
+    nodes.forEach((parts: string[], nodeId: string) => {
+      result.push(`${JSON.stringify(nodeId)}:{${parts.join(',')}}`);
+    });
+    return `{${result.join(',')}}`;
+  }
+
+  /** 输入框里保存原文，提交前再按字段类型还原成 JSON 数字/布尔/null。 */
+  private overrideValue(
+    field: WorkflowFieldView,
+    raw: string | number | boolean | null,
+  ): string | number | boolean | null {
+    if (field.type !== 'INT' && field.type !== 'FLOAT') {
+      if (field.type === 'BOOLEAN' && typeof raw !== 'boolean') {
+        return raw === 'true';
+      }
+      return raw;
+    }
+    if (typeof raw === 'boolean') {
+      return raw;
+    }
+    const text = raw === null ? '' : `${raw}`.trim();
+    if (text.length === 0) {
+      return null;
+    }
+    const numberValue = Number(text);
+    return Number.isNaN(numberValue) ? text : numberValue;
+  }
+
+  private editKey(nodeId: number, inputName: string): string {
+    return `${nodeId}\u0000${inputName}`;
+  }
+
+  private fieldText(field: WorkflowFieldView): string {
+    const version = this.editTick;
+    if (version < 0) {
+      return '';
+    }
+    const edited = this.edits.get(this.editKey(field.nodeId, field.inputName));
+    if (edited !== undefined) {
+      return edited === null ? '' : `${edited}`;
+    }
+    return field.valueText;
+  }
+
+  private fieldBool(field: WorkflowFieldView): boolean {
+    const version = this.editTick;
+    if (version < 0) {
+      return false;
+    }
+    const edited = this.edits.get(this.editKey(field.nodeId, field.inputName));
+    if (typeof edited === 'boolean') {
+      return edited;
+    }
+    return field.value === true;
+  }
+
+  private setFieldText(field: WorkflowFieldView, text: string): void {
+    // TextInput 首次渲染也会触发 onChange；只有值真的变了才算用户编辑，
+    // 否则每个字段都会被记成 override，切到会把它变成连线的节点图时就会挡住提交。
+    const key = this.editKey(field.nodeId, field.inputName);
+    const current = this.fieldText(field);
+    if (text === current) {
+      return;
+    }
+    // 保存原文而不是每个按键都 Number()，否则输入 "0." 会被回写成 "0"，
+    // 小数点根本打不出来。提交前由 overrideValue() 按字段类型转换。
+    this.edits.set(key, text);
+    this.editTick++;
+    this.scheduleEditRefresh();
+  }
+
+  private setFieldBool(field: WorkflowFieldView, value: boolean): void {
+    const key = this.editKey(field.nodeId, field.inputName);
+    if (value === this.fieldBool(field)) {
+      return;
+    }
+    this.edits.set(key, value);
+    this.editTick++;
+    this.scheduleEditRefresh();
+  }
+
+  /**
+   * 节点图切换或节点定义补齐后，字段的可编辑性会变：
+   * - 字段现在由连线驱动，之前的值不能再当 override；
+   * - 字段已经不存在（节点定义缺失等），override 没有意义。
+   * 不清理的话，一次无意的首次渲染编辑会永久挡住提交。
+   */
+  private pruneEdits(): void {
+    const fields = new Map<string, WorkflowFieldView>();
+    this.view.nodes.forEach((node: WorkflowNodeView) => {
+      node.fields.forEach((field: WorkflowFieldView) => {
+        fields.set(this.editKey(field.nodeId, field.inputName), field);
+      });
+    });
+    const stale: string[] = [];
+    this.edits.forEach((value: string | number | boolean | null, key: string) => {
+      const field = fields.get(key);
+      if (field === undefined || field.linked || !field.widget) {
+        stale.push(key);
+      }
+    });
+    if (stale.length === 0) {
+      return;
+    }
+    stale.forEach((key: string) => this.edits.delete(key));
+    this.editTick++;
+  }
+
+  /** 编辑后稍等一会儿再重算 canSubmit/problems，避免每个按键都重建整张字段视图。 */
+  private scheduleEditRefresh(): void {
+    if (this.editRefreshTimer !== -1) {
+      clearTimeout(this.editRefreshTimer);
+    }
+    this.editRefreshTimer = setTimeout(() => {
+      this.editRefreshTimer = -1;
+      this.refreshView();
+    }, 250);
+  }
+
+  private cancelEditRefresh(): void {
+    if (this.editRefreshTimer !== -1) {
+      clearTimeout(this.editRefreshTimer);
+      this.editRefreshTimer = -1;
+    }
+  }
+
+  private togglePin(node: WorkflowNodeView): void {
+    const index = this.pinnedIds.indexOf(node.id);
+    if (index >= 0) {
+      this.pinnedIds = this.pinnedIds.filter((id: number) => id !== node.id);
+    } else {
+      this.pinnedIds = [...this.pinnedIds, node.id];
+    }
+    this.pinnedStore.save(this.selectedPath, this.pinnedIds);
+    this.refreshView(true);
+  }
+
+  private toggleGraph(graph: WorkflowGraphView): void {
+    const index = this.graphIds.indexOf(graph.id);
+    if (index >= 0) {
+      this.graphIds = this.graphIds.filter((id: string) => id !== graph.id);
+    } else {
+      this.graphIds = [...this.graphIds, graph.id];
+    }
+    this.graphsInitialized = true;
+    this.refreshView(true);
+  }
+
+  private submitWorkflow(): void {
+    if (!this.running) {
+      this.submitNotice = '请先连接 ComfyUI';
+      return;
+    }
+    this.submitting = true;
+    this.submitNotice = '';
+    this.notice = '';
+    try {
+      // 每次提交一个唯一短 token，共享层会把它追加到 SaveImage 的 filename_prefix，
+      // 避免工作流前缀（如 %date:...%）不被 ComfyUI 识别时反复覆盖同一份产物。
+      const runToken = `${Date.now().toString(36)}${(this.submitNonce++).toString(36)}`;
+      const response = JSON.parse(this.bridge.workflow(this.requestJson('prompt', runToken))) as PromptResponse;
+      if (!response.ok || response.prompt === null) {
+        const problems = response.problems !== undefined ? response.problems : [];
+        const lines = problems.map((problem: BuildProblemView) => problem.display);
+        this.submitNotice = lines.length > 0 ? lines.join('\n') : (response.message ?? '不能提交');
+        return;
+      }
+      // 这里只说明“请求发出去了”。服务器接受后会回 submit_accepted，
+      // 校验失败会回 submit_rejected；不能在这一步就显示“已提交”。
+      const warnings = response.warnings !== undefined ? response.warnings : [];
+      if (warnings.length > 0) {
+        // Same as Android: warnings do not block, but ask before submitting.
+        this.confirmPrompt = JSON.stringify(response.prompt);
+        this.confirmWarnings = warnings;
+        this.confirmOpen = true;
+        this.submitNotice = '';
+        return;
+      }
+      this.submitNotice = warnings.length > 0
+        ? `正在提交，等待服务器接受…（${warnings.join('；')}）`
+        : '正在提交，等待服务器接受…';
+      this.bridge.submit(JSON.stringify(response.prompt), this.view.name, this.view.path);
+      this.tab = 1;
+    } catch (err) {
+      this.submitNotice = `提交失败：${(err as Error).message}`;
+    } finally {
+      this.submitting = false;
+    }
+  }
+
+  private confirmSubmit(): void {
+    const prompt = this.confirmPrompt;
+    this.confirmOpen = false;
+    this.confirmWarnings = [];
+    this.confirmPrompt = '';
+    if (prompt.length === 0) {
+      return;
+    }
+    this.submitNotice = '正在提交，等待服务器接受…';
+    this.bridge.submit(prompt, this.view.name, this.view.path);
+    this.tab = 1;
+  }
+
+  private cancelSubmitConfirm(): void {
+    this.confirmOpen = false;
+    this.confirmWarnings = [];
+    this.confirmPrompt = '';
+    this.submitNotice = '';
+  }
+
+  private noticeColor(): string {
+    if (this.notice.startsWith('提交被拒绝')) {
+      return '#B00020';
+    }
+    if (this.notice.startsWith('已提交')) {
+      return '#1B8A3A';
+    }
+    return '#B26A00';
+  }
+
+  /** 按钮禁用时，把“为什么不能提交”放在按钮正上方，避免只看到灰按钮没有提示。 */
+  private blockReason(): string {
+    if (this.view.pendingNodeClasses.length > 0) {
+      return `不可提交：正在加载节点定义（${this.view.pendingNodeClasses.join('、')}）`;
+    }
+    if (this.view.problems.length > 0) {
+      const first = this.view.problems[0];
+      if (first !== undefined) {
+        return `不可提交：${first.display}`;
+      }
+    }
+    if (this.view.missingNodeClasses.length > 0) {
+      return `不可提交：服务端缺少节点 ${this.view.missingNodeClasses.join('、')}`;
+    }
+    return '不可提交：工作流还没有就绪';
+  }
+
+  private openArtifacts(task: BridgeTask): void {
+    this.artifactTask = task;
+    this.artifactOpen = true;
+    this.previewOpen = false;
+    this.previewError = false;
+    this.downloadNotice = '';
+  }
+
+  private closeArtifacts(): void {
+    this.artifactOpen = false;
+    this.previewOpen = false;
+    // 下载可能还在后台跑；保留 downloadingKey，重新打开时不会重复点同一份。
+    this.downloadNotice = '';
+  }
+
+  private artifactUrl(output: BridgeOutput): string {
+    const base = this.normalizedBaseUrl();
+    if (base.length === 0 || output.path.length === 0) {
+      return '';
+    }
+    return base + output.path;
+  }
+
+  private artifactKey(output: BridgeOutput): string {
+    return `${output.type}\u0000${output.subfolder}\u0000${output.filename}`;
+  }
+
+  private download(output: BridgeOutput): void {
+    const context = this.uiContext;
+    if (context === null) {
+      this.downloadNotice = '没有 Ability 上下文，不能写入下载目录';
+      return;
+    }
+    this.downloadingKey = this.artifactKey(output);
+    this.downloadNotice = '';
+    this.downloader.download(context, this.normalizedBaseUrl(), output).then((result: ArtifactDownloadResult) => {
+      this.downloadingKey = '';
+      this.downloadNotice = result.ok ? result.message : `下载失败：${result.message}`;
+      this.log(result.message);
+    }).catch((err: Error) => {
+      this.downloadingKey = '';
+      this.downloadNotice = `下载失败：${err.message}`;
+    });
+  }
+
+  private catalogError(): string {
+    return this.catalog.error !== undefined ? this.catalog.error : '';
+  }
+
+  private taskLabel(task: BridgeTask): string {
+    return task.name !== null && task.name.length > 0 ? task.name : (task.promptId ?? task.id);
+  }
+
+  private fieldOptions(field: WorkflowFieldView): string {
+    return field.options.join(' / ');
+  }
+
+  @Builder
+  NodeCard(node: WorkflowNodeView) {
+    Column({ space: 6 }) {
+      Row({ space: 8 }) {
+        Column({ space: 2 }) {
+          Text(`#${node.id} ${node.displayName}`)
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+          Text(node.title !== null && node.title.length > 0 ? node.title : node.type)
+            .fontSize(11)
+            .fontColor('#777777')
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        Button(node.pinned ? '取消置顶' : '置顶')
+          .fontSize(12)
+          .height(30)
+          .onClick(() => this.togglePin(node))
+      }
+      .width('100%')
+
+      if (node.missing) {
+        Text('服务端没有这个节点的定义，请先在 ComfyUI 安装对应自定义节点。')
+          .fontSize(11)
+          .fontColor('#B26A00')
+      } else if (!node.reachable) {
+        Text('该节点未连接到已启用的输出，本次不会执行；置顶状态会保留。')
+          .fontSize(11)
+          .fontColor('#777777')
+      }
+
+      ForEach(node.fields, (field: WorkflowFieldView) => {
+        this.FieldRow(field)
+      }, (field: WorkflowFieldView) =>
+        `${node.id}:${field.inputName}:${field.linked}:${field.widget}:${field.needsInput}:${field.type}`)
+    }
+    .alignItems(HorizontalAlign.Start)
+    .padding(10)
+    .backgroundColor('#FFFFFF')
+    .borderRadius(8)
+    .width('100%')
+  }
+
+  @Builder
+  FieldRow(field: WorkflowFieldView) {
+    Column({ space: 3 }) {
+      Row({ space: 6 }) {
+        Text(field.label.length > 0 ? field.label : field.inputName)
+          .fontSize(13)
+        if (field.needsInput) {
+          Text('待填写')
+            .fontSize(10)
+            .fontColor('#B26A00')
+        }
+        if (field.linked) {
+          Text('由连线提供')
+            .fontSize(10)
+            .fontColor('#777777')
+        }
+      }
+      .width('100%')
+
+      if (field.linked) {
+        Text('上游连线会提供这个值，不能在表单里覆盖。')
+          .fontSize(11)
+          .fontColor('#999999')
+      } else if (!field.widget) {
+        Text(field.required ? '需要连接上游节点' : '由上游连线提供')
+          .fontSize(11)
+          .fontColor(field.required ? '#B26A00' : '#999999')
+      } else if (field.type === 'BOOLEAN') {
+        Toggle({ type: ToggleType.Switch, isOn: this.fieldBool(field) })
+          .onChange((value: boolean) => this.setFieldBool(field, value))
+      } else {
+        TextInput({ text: this.fieldText(field), placeholder: field.type })
+          .fontSize(13)
+          .height(38)
+          .width('100%')
+          .onChange((value: string) => this.setFieldText(field, value))
+      }
+
+      if (!field.linked && field.widget && field.options.length > 0) {
+        Text(`可选：${this.fieldOptions(field)}`)
+          .fontSize(10)
+          .fontColor('#888888')
+      }
+    }
+    .alignItems(HorizontalAlign.Start)
+    .width('100%')
+  }
+
+  @Builder
+  WorkflowCatalog() {
+    Row({ space: 8 }) {
+      Text('工作流')
+        .fontSize(17)
+        .fontWeight(FontWeight.Bold)
+        .layoutWeight(1)
+      Button('刷新')
+        .fontSize(12)
+        .height(30)
+        .enabled(this.running)
+        .onClick(() => {
+          this.catalogRequested = true;
+          this.bridge.refreshWorkflows();
+        })
+    }
+    .width('100%')
+
+    if (this.catalog.state === 'loading') {
+      Row({ space: 8 }) {
+        LoadingProgress().width(18).height(18)
+        Text('正在读取工作流目录…').fontSize(12).fontColor('#666666')
+      }
+    } else if (this.catalog.state === 'failed') {
+      Text(`读取失败：${this.catalogError()}`)
+        .fontSize(12)
+        .fontColor('#B00020')
+    } else if (this.catalog.state === 'ready' && (this.catalog.entries ?? []).length === 0) {
+      Text('服务器 workflows 目录是空的。')
+        .fontSize(12)
+        .fontColor('#666666')
+    } else if (this.catalog.state === 'idle') {
+      Text('连接后点“刷新”读取服务器上的工作流。')
+        .fontSize(12)
+        .fontColor('#666666')
+    }
+
+    Scroll() {
+      Column({ space: 6 }) {
+        ForEach(this.catalog.entries ?? [], (entry: CatalogEntry) => {
+          Row({ space: 8 }) {
+            Column({ space: 2 }) {
+              Text(entry.name)
+                .fontSize(14)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text(entry.path)
+                .fontSize(10)
+                .fontColor('#888888')
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+            Button('打开')
+              .fontSize(12)
+              .height(30)
+              .enabled(this.running)
+              .onClick(() => this.openWorkflow(entry.path, entry.name))
+          }
+          .width('100%')
+          .padding(10)
+          .backgroundColor('#FFFFFF')
+          .borderRadius(8)
+        }, (entry: CatalogEntry) => entry.path)
+      }
+      .width('100%')
+    }
+    .layoutWeight(1)
+    .width('100%')
+  }
+
+  @Builder
+  WorkflowDetail() {
+    Row({ space: 8 }) {
+      Button('返回')
+        .fontSize(12)
+        .height(30)
+        .onClick(() => this.closeWorkflow())
+      Column({ space: 2 }) {
+        Text(this.view.name.length > 0 ? this.view.name : (this.workflow.name ?? this.selectedPath))
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(`${this.view.format} · ${this.view.nodes.length} 个节点 · ${this.pinnedIds.length} 个置顶`)
+          .fontSize(10)
+          .fontColor('#777777')
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      Button('刷新')
+        .fontSize(12)
+        .height(30)
+        .enabled(this.running)
+        .onClick(() => {
+          this.summaryKey = '';
+          this.refreshView();
+        })
+    }
+    .width('100%')
+
+    if (this.workflow.loadingPath !== null) {
+      Row({ space: 8 }) {
+        LoadingProgress().width(18).height(18)
+        Text(`正在读取 ${this.workflow.loadingPath}`).fontSize(12).fontColor('#666666')
+      }
+    }
+    if (this.workflow.error !== null && this.workflow.error.length > 0) {
+      Text(`读取失败：${this.workflow.error}`).fontSize(12).fontColor('#B00020')
+    }
+    if (this.viewError.length > 0) {
+      Text(this.viewError).fontSize(12).fontColor('#B00020')
+    }
+    if (this.viewLoading) {
+      Row({ space: 8 }) {
+        LoadingProgress().width(18).height(18)
+        Text('正在生成字段视图…').fontSize(12).fontColor('#666666')
+      }
+    }
+
+    if (this.view.graphs.length > 0) {
+      Text('节点图')
+        .fontSize(13)
+        .fontWeight(FontWeight.Medium)
+      ForEach(this.view.graphs, (graph: WorkflowGraphView) => {
+        Button(`${graph.selected ? '●' : '○'} ${graph.title}（${graph.nodeIds.length} 节点）`)
+          .fontSize(12)
+          .height(34)
+          .width('100%')
+          .backgroundColor(graph.selected ? '#D7E8FF' : '#EEEEEE')
+          .fontColor('#222222')
+          .onClick(() => this.toggleGraph(graph))
+      }, (graph: WorkflowGraphView) => `${graph.id}:${graph.selected}`)
+    }
+
+    if (this.view.pendingNodeClasses.length > 0) {
+      Text(`正在加载节点定义：${this.view.pendingNodeClasses.join('、')}`)
+        .fontSize(11)
+        .fontColor('#B26A00')
+    }
+    if (this.view.missingNodeClasses.length > 0) {
+      Text(`服务端缺少节点：${this.view.missingNodeClasses.join('、')}`)
+        .fontSize(11)
+        .fontColor('#B00020')
+    }
+    if (this.view.problems.length > 0) {
+      Column({ space: 2 }) {
+        ForEach(this.view.problems, (problem: BuildProblemView) => {
+          Text(problem.display).fontSize(11).fontColor('#B00020')
+        }, (problem: BuildProblemView) => `${problem.nodeId}:${problem.message}`)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+    }
+    if (this.view.warnings.length > 0) {
+      Column({ space: 2 }) {
+        Text('提交提示').fontSize(11).fontColor('#B26A00')
+        ForEach(this.view.warnings, (warning: string, index: number) => {
+          Text(`· ${warning}`).fontSize(11).fontColor('#B26A00')
+        }, (warning: string, index: number) => `${index}:${warning}`)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+    }
+
+    if (!this.view.canSubmit) {
+      Text(this.blockReason())
+        .fontSize(11)
+        .fontColor('#B00020')
+        .width('100%')
+    }
+
+    Button(this.view.canSubmit ? (this.submitting ? '提交中…' : '提交工作流') : '当前工作流不可提交')
+      .width('100%')
+      .enabled(this.running && !this.submitting && this.view.canSubmit)
+      .onClick(() => this.submitWorkflow())
+
+    if (this.submitNotice.length > 0) {
+      Text(this.submitNotice)
+        .fontSize(11)
+        .fontColor(this.submitNotice.startsWith('已提交') ? '#1B8A3A' : '#B00020')
+    }
+
+    if (this.view.ok && this.view.nodes.length === 0) {
+      Text('这是 API 格式工作流，没有网页字段可编辑；可以直接提交。')
+        .fontSize(12)
+        .fontColor('#666666')
+    }
+
+    ForEach(this.view.nodes, (node: WorkflowNodeView) => {
+      this.NodeCard(node)
+    }, (node: WorkflowNodeView) => `${node.id}:${node.pinned}:${node.reachable}:${node.needsInput}`)
+  }
+
+  @Builder
+  WorkflowsTab() {
+    if (this.selectedPath.length === 0) {
+      this.WorkflowCatalog()
+    } else {
+      Scroll(this.scroller) {
+        Column({ space: 8 }) {
+          this.WorkflowDetail()
+        }
+        .width('100%')
+      }
+      .layoutWeight(1)
+      .width('100%')
+    }
+  }
+
+  @Builder
+  TaskCard(task: BridgeTask) {
+    Column({ space: 4 }) {
+      Row({ space: 8 }) {
+        Text(task.state === 'Failed' ? 'Failed · 未执行' : `${task.state} · ${task.percent}%`)
+          .fontSize(13)
+          .fontWeight(FontWeight.Medium)
+          .layoutWeight(1)
+        Button(`产物 ${task.outputRefs.length}`)
+          .fontSize(12)
+          .height(30)
+          .enabled(task.outputRefs.length > 0)
+          .onClick(() => this.openArtifacts(task))
+      }
+      .width('100%')
+      Text(this.taskLabel(task))
+        .fontSize(11)
+        .fontColor('#666666')
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      if (task.workflowPath !== null && task.workflowPath.length > 0) {
+        Text(task.workflowPath)
+          .fontSize(10)
+          .fontColor('#999999')
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      Progress({ value: task.percent, total: 100, type: ProgressType.Linear })
+        .width('100%')
+      if (task.error !== null && task.error.length > 0) {
+        Text(task.error)
+          .fontSize(11)
+          .fontColor('#B00020')
+      }
+    }
+    .alignItems(HorizontalAlign.Start)
+    .padding(10)
+    .backgroundColor('#FFFFFF')
+    .borderRadius(8)
+    .width('100%')
+  }
+
+  @Builder
+  TasksTab() {
+    if (this.tasks.length === 0) {
+      Text('还没有任务。').fontSize(12).fontColor('#666666')
+    } else {
+      Scroll() {
+        Column({ space: 6 }) {
+          ForEach(this.tasks, (task: BridgeTask) => {
+            this.TaskCard(task)
+          }, (task: BridgeTask) => `${task.id}:${task.state}:${task.percent}:${task.outputRefs.length}`)
+        }
+        .width('100%')
+      }
+      .layoutWeight(1)
+      .width('100%')
+    }
+  }
+
+  @Builder
+  LogsTab() {
+    Scroll() {
+      Column({ space: 2 }) {
+        ForEach(this.logs, (line: string) => {
+          Text(line)
+            .fontSize(11)
+            .fontFamily('monospace')
+            .width('100%')
+        }, (line: string, index: number) => `${index}-${line}`)
+      }
+      .alignItems(HorizontalAlign.Start)
+    }
+    .layoutWeight(1)
+    .width('100%')
+    .backgroundColor('#EEEEEE')
+    .borderRadius(8)
+    .padding(8)
+  }
+
+  @Builder
+  ArtifactCard(output: BridgeOutput) {
+    Column({ space: 6 }) {
+      Text(output.displayName.length > 0 ? output.displayName : output.filename)
+        .fontSize(14)
+        .fontWeight(FontWeight.Medium)
+        .maxLines(2)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      Text(`${output.kind} · ${output.type} · ${output.mime}`)
+        .fontSize(10)
+        .fontColor('#777777')
+
+      if (output.image && this.artifactUrl(output).length > 0) {
+        Image(this.artifactUrl(output))
+          .width('100%')
+          .height(180)
+          .objectFit(ImageFit.Cover)
+          .borderRadius(6)
+          .onClick(() => {
+            this.previewOutput = output;
+            this.previewOpen = true;
+            this.previewError = false;
+          })
+      } else if (output.video) {
+        Text('视频产物：鸿蒙侧本轮提供下载；下载后可用系统播放器打开。')
+          .fontSize(11)
+          .fontColor('#666666')
+      } else if (output.audio) {
+        Text('音频产物：下载后可用系统播放器打开。')
+          .fontSize(11)
+          .fontColor('#666666')
+      } else {
+        Text('该类型暂不内置预览，可下载后用系统应用打开。')
+          .fontSize(11)
+          .fontColor('#666666')
+      }
+
+      Row({ space: 8 }) {
+        if (output.image) {
+          Button('预览')
+            .fontSize(12)
+            .height(30)
+            .enabled(this.artifactUrl(output).length > 0)
+            .onClick(() => {
+              this.previewOutput = output;
+              this.previewOpen = true;
+              this.previewError = false;
+            })
+        }
+        Button(this.downloadingKey === this.artifactKey(output) ? '下载中…' : '下载')
+          .fontSize(12)
+          .height(30)
+          .enabled(this.downloadingKey.length === 0)
+          .onClick(() => this.download(output))
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.End)
+    }
+    .alignItems(HorizontalAlign.Start)
+    .padding(10)
+    .backgroundColor('#FFFFFF')
+    .borderRadius(8)
+    .width('100%')
+  }
+
+  @Builder
+  ArtifactPreview() {
+    Row({ space: 8 }) {
+      Button('返回列表')
+        .fontSize(12)
+        .height(30)
+        .onClick(() => {
+          this.previewOpen = false;
+          this.previewError = false;
+        })
+      Text(this.previewOutput.displayName)
+        .fontSize(13)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
+      Button(this.downloadingKey === this.artifactKey(this.previewOutput) ? '下载中…' : '下载')
+        .fontSize(12)
+        .height(30)
+        .enabled(this.downloadingKey.length === 0)
+        .onClick(() => this.download(this.previewOutput))
+    }
+    .width('100%')
+
+    Stack() {
+      if (!this.previewOutput.image) {
+        Text('该类型暂不支持内置预览，请下载后打开。')
+          .fontSize(12)
+          .fontColor('#DDDDDD')
+      } else if (this.previewError) {
+        Text('图片预览失败，可能是网络中断或服务端返回了错误。')
+          .fontSize(12)
+          .fontColor('#DDDDDD')
+          .padding(24)
+      } else {
+        Image(this.artifactUrl(this.previewOutput))
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Contain)
+          .onError(() => {
+            this.previewError = true;
+          })
+      }
+    }
+    .width('100%')
+    .layoutWeight(1)
+    .backgroundColor('#111111')
+    .borderRadius(8)
+  }
+
+  @Builder
+  ArtifactPanel() {
+    Column({ space: 8 }) {
+      Row({ space: 8 }) {
+        Button('返回任务')
+          .fontSize(12)
+          .height(30)
+          .onClick(() => this.closeArtifacts())
+        Column({ space: 2 }) {
+          Text('任务产物')
+            .fontSize(17)
+            .fontWeight(FontWeight.Bold)
+          Text(this.taskLabel(this.artifactTask))
+            .fontSize(11)
+            .fontColor('#777777')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+      }
+      .width('100%')
+
+      if (this.downloadNotice.length > 0) {
+        Text(this.downloadNotice)
+          .fontSize(11)
+          .fontColor(this.downloadNotice.startsWith('已保存') ? '#1B8A3A' : '#B00020')
+      }
+
+      if (this.previewOpen) {
+        this.ArtifactPreview()
+      } else if (this.artifactTask.outputRefs.length === 0) {
+        Text('该任务没有产物。').fontSize(12).fontColor('#666666')
+      } else {
+        Scroll() {
+          Column({ space: 8 }) {
+            ForEach(this.artifactTask.outputRefs, (output: BridgeOutput) => {
+              this.ArtifactCard(output)
+            }, (output: BridgeOutput) => this.artifactKey(output))
+          }
+          .width('100%')
+        }
+        .layoutWeight(1)
+        .width('100%')
+      }
+    }
+    .padding(12)
+    .width('100%')
+    .height('100%')
+    .backgroundColor('#F4F4F4')
+  }
+
+  @Builder
+  SubmitConfirmDialog() {
+    Column() {
+      Column({ space: 10 }) {
+        Text('提交前确认')
+          .fontSize(17)
+          .fontWeight(FontWeight.Bold)
+        Text('以下提示不会阻止提交：')
+          .fontSize(12)
+          .fontColor('#666666')
+        ForEach(this.confirmWarnings, (warning: string, index: number) => {
+          Text(`· ${warning}`)
+            .fontSize(12)
+            .fontColor('#B26A00')
+        }, (warning: string, index: number) => `${index}:${warning}`)
+        Row({ space: 8 }) {
+          Button('取消')
+            .onClick(() => this.cancelSubmitConfirm())
+          Button('仍然提交')
+            .onClick(() => this.confirmSubmit())
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.End)
+      }
+      .padding(16)
+      .width('88%')
+      .backgroundColor(Color.White)
+      .borderRadius(12)
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor('#66000000')
+  }
+
+  @Builder
+  MainPanel() {
+    Column({ space: 8 }) {
       Row({ space: 8 }) {
         Text('ComfyPilot')
           .fontSize(22)
@@ -103,102 +1275,97 @@ struct Index {
         Text(`ABI ${this.abi}`)
           .fontSize(12)
           .fontColor('#888888')
+        Blank()
+        Text(this.label)
+          .fontSize(11)
+          .fontColor(this.running ? '#1B8A3A' : '#666666')
       }
       .width('100%')
 
-      Text('HarmonyOS 阶段二 · 共享层联调')
-        .fontSize(12)
-        .fontColor('#666666')
-        .width('100%')
-
       Text(this.storageLabel)
-        .fontSize(12)
-        .fontColor('#666666')
-        .width('100%')
-
-      TextInput({ text: this.baseUrl, placeholder: 'http://127.0.0.1:18188' })
-        .onChange((value: string) => {
-          this.baseUrl = value;
-        })
-        .enabled(!this.running)
+        .fontSize(11)
+        .fontColor('#777777')
         .width('100%')
 
       Row({ space: 8 }) {
+        TextInput({ text: this.baseUrl, placeholder: 'http://127.0.0.1:18188' })
+          .onChange((value: string) => {
+            this.baseUrl = value;
+          })
+          .enabled(!this.running)
+          .layoutWeight(1)
         Button(this.running ? '重连' : '连接')
           .onClick(() => this.connect())
           .enabled(this.storageReady)
-          .layoutWeight(1)
         Button('断开')
           .onClick(() => this.disconnect())
           .enabled(this.running)
-          .layoutWeight(1)
-        Button('提交示例')
-          .onClick(() => {
-            this.bridge.submit(DEMO_WORKFLOW);
-            this.log('已提交示例工作流');
-          })
-          .enabled(this.running)
-          .layoutWeight(1)
       }
       .width('100%')
-
-      Text(this.label)
-        .fontSize(15)
-        .fontColor(this.running ? '#1B8A3A' : '#666666')
-        .width('100%')
 
       if (this.notice.length > 0) {
         Text(this.notice)
-          .fontSize(12)
-          .fontColor('#B26A00')
+          .fontSize(11)
+          .fontColor(this.noticeColor())
           .width('100%')
       }
 
-      List({ space: 6 }) {
-        ForEach(this.tasks, (task: BridgeTask) => {
-          ListItem() {
-            Column({ space: 2 }) {
-              Text(`${task.state} · ${task.percent}% · 产物 ${task.outputs}`)
-                .fontSize(13)
-              Text(task.promptId ?? task.id)
-                .fontSize(11)
-                .fontColor('#888888')
-            }
-            .alignItems(HorizontalAlign.Start)
-            .width('100%')
-          }
-        }, (task: BridgeTask) => `${task.id}:${task.state}:${task.percent}:${task.outputs}`)
+      Row({ space: 6 }) {
+        Button('工作流')
+          .layoutWeight(1)
+          .backgroundColor(this.tab === 0 ? '#D7E8FF' : '#EEEEEE')
+          .fontColor('#222222')
+          .onClick(() => {
+            this.tab = 0;
+          })
+        Button(`任务 ${this.tasks.length}`)
+          .layoutWeight(1)
+          .backgroundColor(this.tab === 1 ? '#D7E8FF' : '#EEEEEE')
+          .fontColor('#222222')
+          .onClick(() => {
+            this.tab = 1;
+          })
+        Button('日志')
+          .layoutWeight(1)
+          .backgroundColor(this.tab === 2 ? '#D7E8FF' : '#EEEEEE')
+          .fontColor('#222222')
+          .onClick(() => {
+            this.tab = 2;
+          })
       }
       .width('100%')
-      .layoutWeight(1)
-      .backgroundColor('#F7F7F7')
-      .borderRadius(8)
-      .padding(8)
 
-      Scroll() {
-        Column({ space: 2 }) {
-          ForEach(this.logs, (line: string) => {
-            Text(line)
-              .fontSize(11)
-              .fontFamily('monospace')
-              .width('100%')
-          }, (line: string, index: number) => `${index}-${line}`)
-        }
-        .alignItems(HorizontalAlign.Start)
+      if (this.tab === 0) {
+        this.WorkflowsTab()
+      } else if (this.tab === 1) {
+        this.TasksTab()
+      } else {
+        this.LogsTab()
       }
-      .width('100%')
-      .height(150)
-      .backgroundColor('#F0F0F0')
-      .borderRadius(8)
-      .padding(8)
 
-      Text('联调页面：只覆盖前台连接与任务跟踪，没有后台长任务，切后台可能被系统暂停。')
-        .fontSize(11)
+      Text('后台可能暂停监控，回来自动同步；设置页与长任务后台保活仍未完成。')
+        .fontSize(10)
         .fontColor('#888888')
         .width('100%')
     }
-    .padding(16)
+    .padding(12)
     .width('100%')
     .height('100%')
+  }
+
+  build() {
+    Stack() {
+      if (this.artifactOpen) {
+        this.ArtifactPanel()
+      } else {
+        this.MainPanel()
+      }
+      if (this.confirmOpen) {
+        this.SubmitConfirmDialog()
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor('#F4F4F4')
   }
 }

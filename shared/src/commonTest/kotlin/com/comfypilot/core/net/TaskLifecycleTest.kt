@@ -25,6 +25,20 @@ class TaskLifecycleTest {
     }
 
     @Test
+    fun acceptedPromptEmitsSubmitAccepted() {
+        val harness = Harness()
+        harness.startWithNetwork(wifi)
+        val draft = harness.submitDraft()
+
+        harness.acceptSubmit(draft, "p1")
+
+        assertTrue(
+            harness.notices.any { it is UserNotice.SubmitAccepted && it.promptId == "p1" },
+            "只有服务器返回 prompt_id 后才能通知“已提交”：${harness.notices}",
+        )
+    }
+
+    @Test
     fun submitKeepsWorkflowIdentityThroughPromptAcceptance() {
         val harness = Harness()
         harness.startWithNetwork(wifi)

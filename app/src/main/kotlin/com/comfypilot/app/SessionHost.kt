@@ -144,4 +144,5 @@ fun UserNotice.describe(): String = when (this) {
     is UserNotice.ProgressTimeout -> "长时间无进度，正在重连对齐：${promptIds.joinToString()}"
     is UserNotice.ReconcileGaveUp -> "对账失败：${promptIds.joinToString()}"
     is UserNotice.SubmitRejected -> "提交被拒绝：$message"
+    is UserNotice.SubmitAccepted -> "已提交：$promptId"
 }

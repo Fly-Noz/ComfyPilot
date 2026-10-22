@@ -555,7 +555,11 @@ class SessionReducer(
             state.copy(tasks = state.tasks - tag.draftId + (promptId to queued)),
             // 草稿换成了正式任务：先把草稿那条持久化删掉，否则重启后它会以
             // "Unknown：应用重启，提交结果未知"回来，每提交一次就多一条。
-            listOf(SessionEffect.Persist(queued), SessionEffect.PersistRemoved(tag.draftId)),
+            listOf(
+                SessionEffect.Persist(queued),
+                SessionEffect.PersistRemoved(tag.draftId),
+                SessionEffect.Notify(UserNotice.SubmitAccepted(promptId)),
+            ),
         )
     }
 

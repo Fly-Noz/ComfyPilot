@@ -1,4 +1,4 @@
-import { nativeSessionCreate, nativeSessionDestroy, nativeSessionPump, nativeSessionSend } from 'libentry.so';
+import { nativeSessionCreate, nativeSessionDestroy, nativeSessionPump, nativeSessionSend, nativeSessionWorkflow } from 'libentry.so';
 import { connection, http, webSocket } from '@kit.NetworkKit';
 import { common } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
@@ -12,15 +12,54 @@ import { StoredTask, TaskStorage } from './TaskStorage';
  * 所有网络请求、WebSocket、网络状态都从这里进 Kotlin，Kotlin 从不直接碰 @ohos.net。
  */
 
+export interface BridgeOutput {
+  nodeId: string;
+  kind: string;
+  filename: string;
+  subfolder: string;
+  type: string;
+  displayName: string;
+  mime: string;
+  image: boolean;
+  video: boolean;
+  audio: boolean;
+  path: string;
+}
+
 export interface BridgeTask {
   id: string;
   promptId: string | null;
   name: string | null;
+  workflowPath: string | null;
   state: string;
   percent: number;
   outputs: number;
+  outputRefs: BridgeOutput[];
   error: string | null;
   updatedAtMs: number;
+}
+
+export interface CatalogEntry {
+  path: string;
+  name: string;
+  size: number;
+  modifiedMs: number;
+}
+
+export interface BridgeCatalog {
+  state: string;
+  error?: string;
+  entries?: CatalogEntry[];
+}
+
+export interface BridgeWorkflow {
+  loadingPath: string | null;
+  path: string | null;
+  name: string | null;
+  format: string;
+  error: string | null;
+  nodeClasses: number;
+  nodeInfo: number;
 }
 
 export interface BridgeState {
@@ -34,6 +73,8 @@ export interface BridgeState {
   queueRunning: number;
   queuePending: number;
   tasks: BridgeTask[];
+  catalog: BridgeCatalog;
+  workflow: BridgeWorkflow;
 }
 
 /**
@@ -71,6 +112,9 @@ interface BridgeCommand {
   headers?: Record<string, string>;
   body?: string;
   workflow?: string;
+  workflowName?: string;
+  workflowPath?: string;
+  path?: string;
   code?: number;
   reason?: string;
   transport?: string;
@@ -189,12 +233,12 @@ export class ComfyBridge {
     }
   }
 
-  start(baseUrl: string): void {
+  start(baseUrl: string): boolean {
     this.stop();
     const created: number = nativeSessionCreate(this.configJson(baseUrl));
     if (created !== 1) {
       this.onLog('共享层拒绝创建会话（配置无效）');
-      return;
+      return false;
     }
     this.running = true;
     this.revision = -1;
@@ -202,6 +246,7 @@ export class ComfyBridge {
     // 建会话只是把状态机装好；真正发起连接的是这条 start，少了它状态会一直停在 Idle。
     this.send({ t: 'start' });
     this.tick();
+    return true;
   }
 
   /**
@@ -236,8 +281,32 @@ export class ComfyBridge {
     this.revision = -1;
   }
 
-  submit(workflow: string): void {
-    this.send({ t: 'submit', workflow: workflow });
+  submit(workflow: string, workflowName?: string, workflowPath?: string): void {
+    const command: BridgeCommand = { t: 'submit', workflow: workflow };
+    if (workflowName !== undefined && workflowName.length > 0) {
+      command.workflowName = workflowName;
+    }
+    if (workflowPath !== undefined && workflowPath.length > 0) {
+      command.workflowPath = workflowPath;
+    }
+    this.send(command);
+  }
+
+  /** 拉工作流目录；只在已连接时由用户触发或连接成功后自动触发。 */
+  refreshWorkflows(): void {
+    this.send({ t: 'workflows' });
+  }
+
+  openWorkflow(path: string): void {
+    this.send({ t: 'workflow.open', path: path });
+  }
+
+  /**
+   * 按需工作流视图/构建 prompt。共享层负责字段、节点图和 overrides 校验；
+   * 宿主只把 ArkTS 的 JSON 请求原样送过去。
+   */
+  workflow(requestJson: string): string {
+    return nativeSessionWorkflow(requestJson);
   }
 
   reconnect(): void {
@@ -388,6 +457,9 @@ export class ComfyBridge {
       case 'submit_rejected':
         this.onNotice(`提交被拒绝：${notice.message ?? ''}`);
         break;
+      case 'submit_accepted':
+        this.onNotice(`已提交：${notice.promptId ?? ''}`);
+        break;
       default:
         this.onLog(`通知：${notice.kind}`);
         break;
@@ -448,6 +520,11 @@ export class ComfyBridge {
     });
     socket.on('message', (err: BusinessError, data: string | ArrayBuffer) => {
       if (typeof data === 'string') {
+        // Crystools 每秒刷几十条监控帧，连接后还会一次性补发一大段。共享层不用这些
+        // 数据，全量透传会把 JS 线程和 hilog 冲垮，长任务的 execution 事件也容易被淹。
+        if (data.indexOf('"crystools.') >= 0) {
+          return;
+        }
         const head: string = data.length > 120 ? data.substring(0, 120) : data;
         trace(`ws text len=${data.length} ${head}`);
         this.send({ t: 'ws.text', id: id, text: data });

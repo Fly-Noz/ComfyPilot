@@ -1,5 +1,8 @@
 package com.comfypilot.core.host
 
+import com.comfypilot.core.api.ApiPaths
+import com.comfypilot.core.api.ArtifactNames
+import com.comfypilot.core.api.ViewRequest
 import com.comfypilot.core.api.stringOrNull
 import com.comfypilot.core.net.NetworkInfo
 import com.comfypilot.core.net.NetworkTransport
@@ -101,6 +104,34 @@ fun PromptTask.toBridgeJson(): JsonObject = buildJsonObject {
     put("outputs", outputs.size)
     put("error", jsonString(error ?: (state as? TaskState.Failed)?.message))
     put("updatedAtMs", updatedAtMs)
+    // 只在这里补完整产物引用；`outputs` 保留数量，旧宿主不会被新字段影响。
+    putJsonArray("outputRefs") {
+        outputs.forEach { output ->
+            add(
+                buildJsonObject {
+                    put("nodeId", output.nodeId)
+                    put("kind", output.kind)
+                    put("filename", output.filename)
+                    put("subfolder", output.subfolder)
+                    put("type", output.type)
+                    // 文件规则归属于共享层，鸿蒙侧不再自己判断图片/视频和 MIME。
+                    put("displayName", ArtifactNames.sanitize(output.filename))
+                    put("mime", ArtifactNames.mimeType(output.filename))
+                    put("image", ArtifactNames.isImage(output.filename))
+                    put("video", ArtifactNames.isVideo(output.filename))
+                    put("audio", ArtifactNames.isAudio(output.filename))
+                    // 相对路径：宿主拼上当前 baseUrl，避免把连接地址写进持久化快照。
+                    put(
+                        "path",
+                        ApiPaths.viewUrl(
+                            "",
+                            ViewRequest(output.filename, output.subfolder, output.type),
+                        ),
+                    )
+                },
+            )
+        }
+    }
 }
 
 fun UserNotice.toBridgeJson(): JsonObject = buildJsonObject {
@@ -140,6 +171,11 @@ fun UserNotice.toBridgeJson(): JsonObject = buildJsonObject {
         is UserNotice.SubmitRejected -> {
             put("kind", "submit_rejected")
             put("message", notice.message)
+        }
+
+        is UserNotice.SubmitAccepted -> {
+            put("kind", "submit_accepted")
+            put("promptId", notice.promptId)
         }
     }
 }
