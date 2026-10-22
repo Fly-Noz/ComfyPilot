@@ -62,6 +62,12 @@ status=success completed=true
 487/images = QW21-%date:yyyyMMddhhmmss%_mvjfghdw0_00001_.png
 ```
 
+## 顺带对齐：可选字段改为下拉
+
+- 所有 `options.length > 0` 的字段改用 ArkUI `Select`；
+- 去掉“输入框 + 可选：...”的提示方式；
+- 已真机验证 Qwen 的“宽高比”下拉：从 `9:16` 选到 `1:1`，字段值和 override 同步更新。
+
 ## 生命周期修复
 
 打开系统相册会让页面短暂 `aboutToDisappear`。原实现会在这个时机停止 bridge，

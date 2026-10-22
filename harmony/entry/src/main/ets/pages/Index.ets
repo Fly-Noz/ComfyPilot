@@ -448,6 +448,13 @@ struct Index {
     return field.nodeType === 'LoadImage' && field.inputName === 'image';
   }
 
+  private selectOptions(field: WorkflowFieldView): SelectOption[] {
+    return field.options.map((option: string) => {
+      const item: SelectOption = { value: option };
+      return item;
+    });
+  }
+
   private async pickAndUpload(field: WorkflowFieldView): Promise<void> {
     if (this.uploadingField.length > 0) {
       return;
@@ -765,10 +772,6 @@ struct Index {
     return task.name !== null && task.name.length > 0 ? task.name : (task.promptId ?? task.id);
   }
 
-  private fieldOptions(field: WorkflowFieldView): string {
-    return field.options.join(' / ');
-  }
-
   @Builder
   NodeCard(node: WorkflowNodeView) {
     Column({ space: 6 }) {
@@ -841,6 +844,8 @@ struct Index {
           .fontColor(field.required ? '#B26A00' : '#999999')
       } else if (this.isImageField(field)) {
         this.ImageField(field)
+      } else if (field.options.length > 0) {
+        this.OptionField(field)
       } else if (field.type === 'BOOLEAN') {
         Toggle({ type: ToggleType.Switch, isOn: this.fieldBool(field) })
           .onChange((value: boolean) => this.setFieldBool(field, value))
@@ -850,12 +855,6 @@ struct Index {
           .height(38)
           .width('100%')
           .onChange((value: string) => this.setFieldText(field, value))
-      }
-
-      if (!field.linked && field.widget && !this.isImageField(field) && field.options.length > 0) {
-        Text(`可选：${this.fieldOptions(field)}`)
-          .fontSize(10)
-          .fontColor('#888888')
       }
     }
     .alignItems(HorizontalAlign.Start)
@@ -891,6 +890,16 @@ struct Index {
     }
     .alignItems(HorizontalAlign.Start)
     .width('100%')
+  }
+
+  @Builder
+  OptionField(field: WorkflowFieldView) {
+    Select(this.selectOptions(field))
+      .selected(field.options.indexOf(this.fieldText(field)))
+      .value(this.fieldText(field).length > 0 ? this.fieldText(field) : '选择')
+      .width('100%')
+      .height(38)
+      .onSelect((index: number, value: string) => this.setFieldText(field, value))
   }
 
   @Builder
