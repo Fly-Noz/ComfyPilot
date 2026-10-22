@@ -778,6 +778,7 @@ private fun PreviewPane(
         EmptyPreview()
         return
     }
+    var showArtifacts by remember(latest.id) { mutableStateOf(false) }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -795,6 +796,7 @@ private fun PreviewPane(
                     baseUrl,
                     ViewRequest(output.filename, output.subfolder, output.type),
                 ),
+                modifier = Modifier.fillMaxWidth().height(240.dp),
             )
 
             latest.outputs.isNotEmpty() -> Text(
@@ -811,8 +813,19 @@ private fun PreviewPane(
             else -> Text("当前没有正在执行的任务。", style = MaterialTheme.typography.bodySmall)
         }
         if (latest.outputs.isNotEmpty()) {
-            TextButton(onClick = onTasks) { Text("在任务页查看全部") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = { showArtifacts = true }) { Text("查看产物") }
+                TextButton(onClick = onTasks) { Text("在任务页查看全部") }
+            }
         }
+    }
+
+    if (showArtifacts) {
+        ArtifactDialog(
+            task = latest,
+            baseUrl = state.lease?.baseUrl,
+            onDismiss = { showArtifacts = false },
+        )
     }
 }
 

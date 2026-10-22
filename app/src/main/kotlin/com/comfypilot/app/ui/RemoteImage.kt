@@ -30,7 +30,11 @@ import kotlinx.coroutines.withContext
 
 /** 从 `/view` 拉一张产物图。断线或 404 时只显示文字，不阻塞页面。 */
 @Composable
-fun RemoteOutputImage(url: String, modifier: Modifier = Modifier) {
+fun RemoteOutputImage(
+    url: String,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Fit,
+) {
     var bitmap by remember(url) { mutableStateOf<Bitmap?>(null) }
     var failed by remember(url) { mutableStateOf(false) }
 
@@ -49,7 +53,7 @@ fun RemoteOutputImage(url: String, modifier: Modifier = Modifier) {
     }
 
     Box(
-        modifier = modifier.fillMaxWidth().height(200.dp),
+        modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
         when {
@@ -57,7 +61,7 @@ fun RemoteOutputImage(url: String, modifier: Modifier = Modifier) {
                 bitmap = bitmap!!.asImageBitmap(),
                 contentDescription = "产物预览",
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit,
+                contentScale = contentScale,
             )
 
             failed -> Text("预览加载失败", style = MaterialTheme.typography.bodySmall)
@@ -96,7 +100,4 @@ fun LivePreviewImage(bytes: ByteArray, modifier: Modifier = Modifier) {
     }
 }
 
-fun isImageFile(filename: String): Boolean {
-    val lower = filename.lowercase()
-    return listOf(".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp").any { lower.endsWith(it) }
-}
+fun isImageFile(filename: String): Boolean = com.comfypilot.core.api.ArtifactNames.isImage(filename)
