@@ -222,6 +222,12 @@ private fun DetailBody(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
+    // 图启停会改变可达节点和置顶顺序；沿用旧滚动位置会让列表停在已被挤到
+    // 末尾的节点上，看起来像置顶仍然生效。切图后回到输入区顶部。
+    LaunchedEffect(selectedGraphIds) {
+        if (orderedNodes.isNotEmpty()) listState.scrollToItem(0)
+    }
+
     val pendingClasses = document.nodeClasses.count { it !in state.nodeInfo }
 
     fun applyOverride(nodeId: Int, inputName: String, value: JsonElement) {
@@ -239,9 +245,12 @@ private fun DetailBody(
         val next = if (wasPinned) pinnedNodeIds - nodeId else pinnedNodeIds + nodeId
         pinnedNodeIds = next
         pinnedNodeStore.save(document.path, next)
-        // 新置顶的节点会移到输入区顶部；同时展开并滚到顶部，避免用户还要自己找。
-        if (!wasPinned && fields.nodes.firstOrNull { it.id == nodeId }?.reachable == true) {
-            expandedOverride = (expandedOverride ?: autoExpanded) + nodeId
+        // 置顶/取消置顶都会改变可达节点的位置。新置顶时展开该节点，
+        // 两种操作都把列表带回顶部，避免视口跟着节点落到新位置。
+        if (fields.nodes.firstOrNull { it.id == nodeId }?.reachable == true) {
+            if (!wasPinned) {
+                expandedOverride = (expandedOverride ?: autoExpanded) + nodeId
+            }
             scope.launch { listState.animateScrollToItem(0) }
         }
     }
