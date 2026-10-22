@@ -2,7 +2,10 @@ package com.comfypilot.app.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.widget.MediaController
+import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -30,7 +33,10 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -43,9 +49,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.comfypilot.app.artifact.ArtifactDownloadResult
 import com.comfypilot.app.artifact.ArtifactDownloader
 import com.comfypilot.core.api.ApiPaths
@@ -53,6 +63,7 @@ import com.comfypilot.core.api.ArtifactNames
 import com.comfypilot.core.api.TaskOutput
 import com.comfypilot.core.api.ViewRequest
 import com.comfypilot.core.task.PromptTask
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private sealed interface DownloadUiState {
@@ -229,6 +240,7 @@ private fun ArtifactRow(
 ) {
     val url = viewUrl(baseUrl, output)
     val isImage = ArtifactNames.isImage(output.filename)
+    val isVideo = ArtifactNames.isVideo(output.filename)
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -250,6 +262,22 @@ private fun ArtifactRow(
                     url = url,
                     modifier = Modifier.fillMaxWidth().height(200.dp).clickable(onClick = onPreview),
                 )
+            } else if (url != null && isVideo) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp)
+                        .clickable(onClick = onPreview),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("▶", style = MaterialTheme.typography.headlineMedium)
+                            Text("视频 · 点击预览", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
             } else if (url == null) {
                 Text("未连接 ComfyUI，无法预览或下载。", style = MaterialTheme.typography.bodySmall)
             } else {
@@ -263,7 +291,7 @@ private fun ArtifactRow(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (url != null && isImage) {
+                if (url != null && (isImage || isVideo)) {
                     TextButton(onClick = onPreview) { Text("预览") }
                 }
                 if (url != null) {
@@ -357,6 +385,10 @@ private fun ArtifactPreview(
                         contentScale = ContentScale.Fit,
                     )
 
+                    ArtifactNames.isVideo(output.filename) -> key(url) {
+                        ArtifactVideo(url = url, modifier = Modifier.fillMaxSize())
+                    }
+
                     else -> Text(
                         "该类型暂不支持内置预览，可下载后用系统应用打开。",
                         style = MaterialTheme.typography.bodySmall,
@@ -369,6 +401,92 @@ private fun ArtifactPreview(
                     it,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArtifactVideo(url: String, modifier: Modifier = Modifier) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var failed by remember(url) { mutableStateOf(false) }
+    var prepared by remember(url) { mutableStateOf(false) }
+    var videoView by remember(url) { mutableStateOf<VideoView?>(null) }
+    var mediaController by remember(url) { mutableStateOf<MediaController?>(null) }
+
+    fun fail() {
+        if (failed) return
+        failed = true
+        runCatching { videoView?.stopPlayback() }
+        runCatching { mediaController?.hide() }
+    }
+
+    // VideoView 对 HTTP 404 等错误不一定回调 onError；加一个兜底，避免一直转圈。
+    LaunchedEffect(url, failed, prepared) {
+        if (!failed && !prepared) {
+            delay(20_000)
+            if (!failed && !prepared) fail()
+        }
+    }
+
+    DisposableEffect(url, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                // 只暂停，不在回到前台时自动继续；用户按播放键再继续。
+                runCatching { videoView?.takeIf { it.isPlaying }?.pause() }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            videoView?.let { view ->
+                view.setMediaController(null)
+                view.stopPlayback()
+            }
+            runCatching { mediaController?.hide() }
+        }
+    }
+
+    Box(modifier, contentAlignment = Alignment.Center) {
+        if (failed) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(24.dp),
+            ) {
+                Text("视频预览失败", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    "可能是设备不支持该编码或网络中断，可下载后用系统应用打开。",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        } else {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { viewContext ->
+                    VideoView(viewContext).apply {
+                        val controller = MediaController(viewContext)
+                        controller.setAnchorView(this)
+                        mediaController = controller
+                        setMediaController(controller)
+                        setOnPreparedListener { player ->
+                            prepared = true
+                            player.isLooping = false
+                            start()
+                        }
+                        setOnErrorListener { _, _, _ ->
+                            fail()
+                            true
+                        }
+                        setVideoURI(Uri.parse(url))
+                    }.also { videoView = it }
+                },
+            )
+            if (!prepared) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(32.dp),
+                    color = Color.White,
                 )
             }
         }
