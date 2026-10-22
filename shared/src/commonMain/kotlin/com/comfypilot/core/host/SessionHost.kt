@@ -214,7 +214,11 @@ class SessionHost(
             }
 
             is HostMessage.Submit -> {
-                runtime.submit(message.workflowJson)
+                runtime.submit(
+                    workflowJson = message.workflowJson,
+                    workflowName = message.workflowName,
+                    workflowPath = message.workflowPath,
+                )
                 true
             }
 

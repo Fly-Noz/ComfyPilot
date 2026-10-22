@@ -22,7 +22,8 @@ class DebugViewModel(application: Application) : AndroidViewModel(application) {
 
     fun submit() = SessionHost.submit(SAMPLE_WORKFLOW)
 
-    fun submit(workflowJson: String) = SessionHost.submit(workflowJson)
+    fun submit(workflowJson: String, workflowName: String? = null, workflowPath: String? = null) =
+        SessionHost.submit(workflowJson, workflowName, workflowPath)
 
     fun refreshWorkflows() = SessionHost.refreshWorkflows()
 

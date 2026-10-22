@@ -32,6 +32,7 @@ class PersistedTaskTest {
         outputs = listOf(TaskOutput("9", "images", "a.png", "sub", "output")),
         lastProgressAtMs = 15,
         error = "CUDA OOM",
+        workflowPath = "workflows/qwen.json",
     )
 
     @Test
@@ -40,7 +41,23 @@ class PersistedTaskTest {
 
         assertEquals(sample, back)
         assertEquals("水彩", back?.displayName)
+        assertEquals("workflows/qwen.json", back?.workflowPath)
         assertEquals("a.png", back?.outputs?.single()?.filename)
+    }
+
+    @Test
+    fun `old snapshots without a workflow path still load`() {
+        val old = JsonObject(
+            mapOf(
+                "id" to JsonPrimitive("old"),
+                "state" to JsonPrimitive("Completed"),
+                "createdAtMs" to JsonPrimitive(1),
+            ),
+        )
+
+        val back = assertNotNull(parsePersistedTask(old))
+
+        assertNull(back.workflowPath)
     }
 
     @Test

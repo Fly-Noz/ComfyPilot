@@ -38,7 +38,12 @@ sealed interface SessionInput {
         val nowMs: Long,
     ) : SessionInput
 
-    data class SubmitRequested(val workflowJson: String, val nowMs: Long) : SessionInput
+    data class SubmitRequested(
+        val workflowJson: String,
+        val nowMs: Long,
+        val workflowName: String? = null,
+        val workflowPath: String? = null,
+    ) : SessionInput
 
     data class CancelRequested(val promptId: String, val nowMs: Long) : SessionInput
 

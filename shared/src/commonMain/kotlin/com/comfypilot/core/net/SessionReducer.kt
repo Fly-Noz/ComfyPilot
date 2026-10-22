@@ -575,7 +575,8 @@ class SessionReducer(
         val draft = PromptTask(
             id = draftId,
             promptId = null,
-            displayName = null,
+            displayName = input.workflowName?.trim()?.takeIf { it.isNotEmpty() },
+            workflowPath = input.workflowPath?.takeIf { it.isNotBlank() },
             state = TaskState.Submitting,
             createdAtMs = input.nowMs,
             updatedAtMs = input.nowMs,

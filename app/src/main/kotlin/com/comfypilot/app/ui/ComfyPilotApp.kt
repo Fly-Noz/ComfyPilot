@@ -31,7 +31,7 @@ fun ComfyPilotApp(
     onConnect: (String) -> Unit,
     onDisconnect: () -> Unit,
     onReconnect: () -> Unit,
-    onSubmit: (String) -> Unit,
+    onSubmit: (String, String?, String?) -> Unit,
     onSubmitSample: () -> Unit,
     onCancel: (String) -> Unit,
     onRefreshWorkflows: () -> Unit,
@@ -88,7 +88,7 @@ fun ComfyPilotApp(
                 state = state,
                 onBack = { screen = Screen.Catalog },
                 onTasks = { screen = Screen.Tasks },
-                onSubmit = { workflowJson -> onSubmit(workflowJson) },
+                onSubmit = { workflowJson, name, path -> onSubmit(workflowJson, name, path) },
                 onCancel = onCancel,
             )
 

@@ -25,6 +25,27 @@ class TaskLifecycleTest {
     }
 
     @Test
+    fun submitKeepsWorkflowIdentityThroughPromptAcceptance() {
+        val harness = Harness()
+        harness.startWithNetwork(wifi)
+
+        harness.send(
+            SessionInput.SubmitRequested(
+                workflowJson = WORKFLOW,
+                nowMs = harness.now,
+                workflowName = "Qwen 图像编辑",
+                workflowPath = "workflows/qwen.json",
+            ),
+        )
+        val draft = harness.state.tasks.values.single().id
+        harness.acceptSubmit(draft, "p1")
+
+        val task = harness.state.tasks.getValue("p1")
+        assertEquals("Qwen 图像编辑", task.displayName)
+        assertEquals("workflows/qwen.json", task.workflowPath)
+    }
+
+    @Test
     fun rejectedPromptBecomesFailed() {
         val harness = Harness()
         harness.startWithNetwork(wifi)

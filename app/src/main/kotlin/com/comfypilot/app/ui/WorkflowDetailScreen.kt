@@ -89,7 +89,7 @@ fun WorkflowDetailScreen(
     state: SessionState,
     onBack: () -> Unit,
     onTasks: () -> Unit,
-    onSubmit: (String) -> Unit,
+    onSubmit: (String, String?, String?) -> Unit,
     onCancel: (String) -> Unit,
 ) {
     val document = state.workflow.document
@@ -157,7 +157,7 @@ private fun ErrorBody(message: String, onBack: () -> Unit) {
 private fun DetailBody(
     document: WorkflowDocument,
     state: SessionState,
-    onSubmit: (String) -> Unit,
+    onSubmit: (String, String?, String?) -> Unit,
     onCancel: (String) -> Unit,
     onTasks: () -> Unit,
 ) {
@@ -186,9 +186,12 @@ private fun DetailBody(
     var overrides by remember(document.path) {
         mutableStateOf<Map<Int, Map<String, JsonElement>>>(emptyMap())
     }
-    // 缺值/需要用户填写的节点排前面；其余保持原 order。
+    // 输入区默认只把“会提交且缺值/缺连线”的节点排前面；未启用/旁路的节点放最后，
+    // 避免打开多图工作流时，先看到一堆不会执行的分支。
     val orderedNodes = remember(fields) {
-        fields.nodes.sortedBy { if (it.needsInput) 0 else 1 }
+        fields.nodes.sortedWith(
+            compareBy<WorkflowNodeView>({ !it.reachable }, { !it.needsInput }),
+        )
     }
     var tab by remember(document.path) { mutableStateOf(0) }
     var expandedOverride by remember(document.path) { mutableStateOf<Set<Int>?>(null) }
@@ -197,8 +200,10 @@ private fun DetailBody(
     var pendingReady by remember { mutableStateOf<PromptBuild.Ready?>(null) }
     var dismissedFailureAt by remember(document.path) { mutableStateOf(Long.MIN_VALUE) }
 
+    // 只显示当前工作流的失败；旧任务没有 workflowPath，宁可不在详情页提示，
+    // 也不要把它当成"这个工作流"的错误。
     val latestFailure = state.tasks.values
-        .filter { it.state is TaskState.Failed }
+        .filter { it.state is TaskState.Failed && it.workflowPath == document.path }
         .maxByOrNull { it.updatedAtMs }
 
     val autoExpanded = remember(fields) {
@@ -308,7 +313,7 @@ private fun DetailBody(
         ) {
             is PromptBuild.Ready -> {
                 if (result.warnings.isEmpty()) {
-                    onSubmit(result.prompt.toString())
+                    onSubmit(result.prompt.toString(), document.name, document.path)
                     tab = 1
                 } else {
                     pendingReady = result
@@ -558,7 +563,7 @@ private fun DetailBody(
                     onClick = {
                         val json = ready.prompt.toString()
                         pendingReady = null
-                        onSubmit(json)
+                        onSubmit(json, document.name, document.path)
                         tab = 1
                     },
                 ) { Text("仍然提交") }

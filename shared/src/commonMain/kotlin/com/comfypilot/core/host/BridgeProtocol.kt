@@ -95,6 +95,7 @@ fun PromptTask.toBridgeJson(): JsonObject = buildJsonObject {
     put("id", id)
     put("promptId", jsonString(promptId))
     put("name", jsonString(displayName))
+    put("workflowPath", jsonString(workflowPath))
     put("state", stateName(state))
     put("percent", progress?.percent ?: 0)
     put("outputs", outputs.size)
@@ -182,7 +183,12 @@ sealed interface HostMessage {
 
     data object Reconnect : HostMessage
 
-    data class Submit(val workflowJson: String) : HostMessage
+    /** 提交工作流；`name/path` 可选，旧宿主不传时任务只显示 promptId。 */
+    data class Submit(
+        val workflowJson: String,
+        val workflowName: String? = null,
+        val workflowPath: String? = null,
+    ) : HostMessage
 
     data class Cancel(val promptId: String) : HostMessage
 
@@ -230,7 +236,11 @@ sealed interface HostMessage {
                 "start" -> Start
                 "stop" -> Stop
                 "reconnect" -> Reconnect
-                "submit" -> Submit(obj.stringOrNull("workflow") ?: return null)
+                "submit" -> Submit(
+                    workflowJson = obj.stringOrNull("workflow") ?: return null,
+                    workflowName = obj.stringOrNull("workflowName"),
+                    workflowPath = obj.stringOrNull("workflowPath"),
+                )
                 "cancel" -> Cancel(obj.stringOrNull("promptId") ?: return null)
                 "workflows" -> Workflows
                 "workflow.open" -> OpenWorkflow(obj.stringOrNull("path") ?: return null)

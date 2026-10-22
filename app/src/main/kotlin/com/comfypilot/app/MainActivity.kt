@@ -50,7 +50,9 @@ class MainActivity : ComponentActivity() {
                     stopService(Intent(this, ComfyForegroundService::class.java))
                 },
                 onReconnect = viewModel::reconnect,
-                onSubmit = { workflowJson -> viewModel.submit(workflowJson) },
+                onSubmit = { workflowJson, name, path ->
+                    viewModel.submit(workflowJson, name, path)
+                },
                 onSubmitSample = { viewModel.submit() },
                 onCancel = viewModel::cancel,
                 onRefreshWorkflows = viewModel::refreshWorkflows,

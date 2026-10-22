@@ -32,6 +32,7 @@ fun PromptTask.toPersistJson(): JsonObject = buildJsonObject {
     put("id", id)
     put("promptId", jsonString(promptId))
     put("name", jsonString(displayName))
+    put("workflowPath", jsonString(workflowPath))
     put("state", stateName(state))
     put("reason", jsonString(stateReason(state)))
     put("createdAtMs", createdAtMs)
@@ -69,6 +70,7 @@ fun parsePersistedTask(obj: JsonObject): PromptTask? {
         id = id,
         promptId = obj.stringOrNull("promptId")?.takeIf { it.isNotBlank() },
         displayName = obj.stringOrNull("name")?.takeIf { it.isNotBlank() },
+        workflowPath = obj.stringOrNull("workflowPath")?.takeIf { it.isNotBlank() },
         state = state,
         createdAtMs = createdAtMs,
         updatedAtMs = obj.longOrNull("updatedAtMs") ?: createdAtMs,

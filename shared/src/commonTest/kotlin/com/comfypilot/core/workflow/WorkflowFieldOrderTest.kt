@@ -30,6 +30,13 @@ class WorkflowFieldOrderTest {
         assertTrue(incomplete.needsInput)
     }
 
+    @Test
+    fun `a bypassed node is not flagged even when a field has no value`() {
+        val bypassed = node(field(value = null), reachable = false)
+        assertFalse(bypassed.needsInput)
+        assertTrue(node(field(value = null), reachable = true).needsInput)
+    }
+
     private fun field(
         widget: Boolean = true,
         required: Boolean = true,
@@ -50,14 +57,17 @@ class WorkflowFieldOrderTest {
         common = false,
     )
 
-    private fun node(vararg fields: WorkflowField): WorkflowNodeView = WorkflowNodeView(
+    private fun node(
+        vararg fields: WorkflowField,
+        reachable: Boolean = true,
+    ): WorkflowNodeView = WorkflowNodeView(
         id = 1,
         type = "X",
         displayName = "X",
         title = null,
         mode = 0,
         missing = false,
-        reachable = true,
+        reachable = reachable,
         fields = fields.toList(),
     )
 }

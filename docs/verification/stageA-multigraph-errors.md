@@ -35,6 +35,9 @@
 
 `WorkflowFieldOrderTest` 覆盖上述三种情况（缺值、连线、可选连线）。
 
+> 2026-10-22 修正：只有 `reachable` 节点才标“待填写”；未启用/旁路节点即使缺值
+> 也不会顶到输入区前面，详见 [`stageB-android-tasks.md`](stageB-android-tasks.md)。
+
 ## 3. ComfyUI 报错
 
 - 提交校验：`/prompt` 的 `error` + `node_errors` 现在会摊平成

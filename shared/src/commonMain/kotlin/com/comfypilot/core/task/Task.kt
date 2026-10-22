@@ -41,6 +41,8 @@ data class PromptTask(
     val silenceBudgetMs: Long? = null,
     val reconcileAttempts: Int = 0,
     val error: String? = null,
+    /** 提交时的工作流路径；用于把错误/历史按工作流归属，旧快照没有该字段时为 null。 */
+    val workflowPath: String? = null,
 ) {
     val isTerminal: Boolean
         get() = state is TaskState.Completed || state is TaskState.Failed ||

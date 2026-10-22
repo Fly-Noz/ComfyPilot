@@ -41,7 +41,13 @@ data class WorkflowNodeView(
     val reachable: Boolean,
     val fields: List<WorkflowField>,
 ) {
-    val needsInput: Boolean get() = fields.any { it.needsInput }
+    /**
+     * 只有会真正参与本次提交的节点才提示“待填写”。
+     *
+     * 未启用/被旁路的节点仍会列在“全部节点”里供查看，但它们不进入 prompt，
+     * 缺值不该被算成用户必须补的输入，更不能排到输入区最前面。
+     */
+    val needsInput: Boolean get() = reachable && fields.any { it.needsInput }
 }
 
 data class WorkflowFieldView(

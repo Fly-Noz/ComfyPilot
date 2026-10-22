@@ -5,13 +5,15 @@ import com.comfypilot.android.net.AndroidNetworkMonitor
 import com.comfypilot.android.service.SystemTimeSource
 import com.comfypilot.android.transport.OkHttpHttpTransport
 import com.comfypilot.android.transport.OkHttpWebSocketTransport
+import com.comfypilot.app.task.JsonFileTaskStore
 import com.comfypilot.core.net.NetworkInfo
 import com.comfypilot.core.net.SessionConfig
 import com.comfypilot.core.net.SessionState
 import com.comfypilot.core.net.UserNotice
 import com.comfypilot.core.session.SessionRuntime
-import com.comfypilot.core.task.InMemoryTaskStore
+import com.comfypilot.core.task.restoreTasks
 import com.comfypilot.core.transport.JitterSource
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -20,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlin.random.Random
 
 /**
@@ -31,6 +34,7 @@ object SessionHost {
     private var runtime: SessionRuntime? = null
     private var monitor: AndroidNetworkMonitor? = null
     private var collector: Job? = null
+    private var taskStore: JsonFileTaskStore? = null
 
     private val _state = MutableStateFlow(SessionState())
     val state: StateFlow<SessionState> = _state.asStateFlow()
@@ -47,6 +51,12 @@ object SessionHost {
         baseUrl = url
         _lastNotice.value = null
 
+        // 进程内复用同一个 store，避免每次重连都重新读文件；真正重启后新实例从 filesDir 恢复。
+        val store = taskStore ?: JsonFileTaskStore(
+            File(context.applicationContext.filesDir, "tasks.json"),
+        ).also { taskStore = it }
+        val restored = restoreTasks(runBlocking { store.load() })
+
         val created = SessionRuntime(
             config = SessionConfig(
                 baseUrl = url,
@@ -55,10 +65,12 @@ object SessionHost {
             ),
             http = OkHttpHttpTransport(),
             sockets = OkHttpWebSocketTransport(),
-            store = InMemoryTaskStore(),
+            store = store,
             clock = SystemTimeSource,
             jitter = RandomJitter(),
             scope = scope,
+            initialTasks = restored.tasks,
+            nextDraftId = restored.nextDraftId,
             onNotice = { notice -> _lastNotice.value = notice.describe() },
         )
         runtime = created
@@ -85,8 +97,8 @@ object SessionHost {
         runtime?.reconnect()
     }
 
-    fun submit(workflowJson: String) {
-        runtime?.submit(workflowJson)
+    fun submit(workflowJson: String, workflowName: String? = null, workflowPath: String? = null) {
+        runtime?.submit(workflowJson, workflowName, workflowPath)
     }
 
     fun refreshWorkflows() {

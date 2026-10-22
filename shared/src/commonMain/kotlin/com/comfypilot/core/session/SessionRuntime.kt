@@ -81,8 +81,18 @@ class SessionRuntime(
 
     fun reconnect() = enqueue(SessionInput.UserReconnect(clock.nowMillis()))
 
-    fun submit(workflowJson: String) =
-        enqueue(SessionInput.SubmitRequested(workflowJson, clock.nowMillis()))
+    fun submit(
+        workflowJson: String,
+        workflowName: String? = null,
+        workflowPath: String? = null,
+    ) = enqueue(
+        SessionInput.SubmitRequested(
+            workflowJson = workflowJson,
+            nowMs = clock.nowMillis(),
+            workflowName = workflowName,
+            workflowPath = workflowPath,
+        ),
+    )
 
     fun cancel(promptId: String) =
         enqueue(SessionInput.CancelRequested(promptId, clock.nowMillis()))
