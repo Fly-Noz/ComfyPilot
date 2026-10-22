@@ -40,7 +40,9 @@ class PromptBuilderTest {
         assertEquals(1, ready.int("3", "denoise"))
         assertTrue(!ready.prompt.toString().contains("randomize"))
 
-        // 连线按 [originNode, originSlot] 落到 API 图。
+        // 连线按 [originNode, originSlot] 落到 API 图；ComfyUI 要求源节点 ID 是字符串。
+        val modelLink = ready.inputs("3")["model"]!!.jsonArray
+        assertTrue(modelLink[0].jsonPrimitive.isString, "连线源节点 ID 必须是字符串")
         assertEquals(4 to 0, ready.link("3", "model"))
         assertEquals(6 to 0, ready.link("3", "positive"))
         assertEquals(7 to 0, ready.link("3", "negative"))
@@ -404,7 +406,7 @@ private fun PromptBuild.Ready.int(id: String, key: String): Int =
 
 private fun PromptBuild.Ready.link(id: String, key: String): Pair<Int, Int> {
     val array = inputs(id)[key]?.jsonArray ?: fail("缺少 $id.$key")
-    return array[0].jsonPrimitive.int to array[1].jsonPrimitive.int
+    return array[0].jsonPrimitive.content.toInt() to array[1].jsonPrimitive.int
 }
 
 // ---------------------------------------------------------------- 夹具构造

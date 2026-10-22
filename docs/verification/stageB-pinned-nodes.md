@@ -9,12 +9,12 @@
 | 构建级 | `:app:assembleDebug` 成功 |
 | JVM 测试级 | `:shared:jvmTest` **184 通过 / 0 跳过 / 0 失败**；`:app:testDebugUnitTest` **11 通过 / 0 失败** |
 | Android 真机级 | **已执行**：iQOO 7（V2049A，Android 14，序列号 `1575924193008T5`）；验证了置顶、展开、排序、切图、取消置顶、进程重启恢复 |
-| 真实 ComfyUI | **已连接**：经 `127.0.0.1:18188 → 100.x.x.x:8188` 读取 `/system_stats`、`/object_info` 与 21 个工作流；**未提交生成任务** |
+| 真实 ComfyUI | **已执行**：经 `127.0.0.1:18188 → 100.x.x.x:8188` 提交一次 Qwen 图像编辑任务，`/history` 返回 `success` 并展示产物；详见 `stageB-real-submit.md` |
 
 结论边界：
 
 - 本轮真机证据覆盖“连接、工作流目录、打开 Qwen 工作流、节点置顶排序、节点图启停、取消置顶、杀进程重启恢复”；
-- 尚未在真机提交一次真实 prompt，因此不声称产物返回、`/history` 与 WebSocket 闭环已验证；
+- 之后又完成一次真实 prompt 提交、进度、`/history` 成功与产物预览；WebSocket 提示的独立时序未单独断言；
 - 鸿蒙侧仍未实现置顶，留待 S6 对齐。
 
 ## 1. 行为
@@ -127,10 +127,9 @@ adb shell am start -W -n com.comfypilot.app/.MainActivity `
 
 ## 6. 未验证
 
-- 真机提交真实 prompt 后的 `/history`、WebSocket 提示、产物展示与失败分支；
 - 大工作流下置顶与输入校验同时发生时的滚动稳定性；
 - 鸿蒙侧置顶与本地持久化；
-- 真实 ComfyUI 的完整生成闭环。
+- 真实提交的完整结果与发现见 `stageB-real-submit.md`。
 
 ## 证据
 

@@ -234,7 +234,9 @@ object PromptBuilder {
             }
 
             inputs[uiInput.name] = buildJsonArray {
-                add(JsonPrimitive(resolved.nodeId))
+                // ComfyUI 的 API 图用字符串节点 ID 作为连线源；写成数字会在
+                // validate_inputs 里触发 KeyError，表现为下游节点校验失败。
+                add(JsonPrimitive(resolved.nodeId.toString()))
                 add(JsonPrimitive(resolved.slot))
             }
         }
