@@ -34,7 +34,7 @@ S6 收尾时已经先对齐了会影响提交正确性的规则：
 ## 建议顺序
 
 1. `01-shared-workflow-decisions.md`：先收敛共享决策层，避免后续每个修复都改两遍；
-2. `02-harmony-image-upload.md`：补鸿蒙的本机图片上传，这是功能缺口；
+2. `02-harmony-image-upload.md`：补鸿蒙的本机图片上传；**已完成并真机验证**；
 3. `03-harmony-live-preview.md`：评估并补鸿蒙实时预览；
 4. `04-harmony-media-playback.md`：决定视频/音频是内置播放还是保持下载；
 5. `05-navigation-parity.md`：最后再决定页面结构是否需要统一。

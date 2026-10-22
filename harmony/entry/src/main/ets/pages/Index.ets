@@ -12,6 +12,7 @@ import {
 } from '../bridge/ComfyBridge';
 import { PinnedNodeStore } from '../bridge/PinnedNodeStore';
 import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/ArtifactDownloader';
+import { ImageUploader, PickedImage } from '../workflow/ImageUploader';
 import {
   BuildProblemView,
   PromptResponse,
@@ -121,6 +122,12 @@ struct Index {
   @State confirmWarnings: string[] = [];
   @State confirmPrompt: string = '';
 
+  @State uploadingField: string = '';
+  @State uploadErrorKey: string = '';
+  @State uploadError: string = '';
+  @State uploadNoticeKey: string = '';
+  @State uploadNotice: string = '';
+
   @State artifactOpen: boolean = false;
   @State artifactTask: BridgeTask = emptyTask();
   @State previewOpen: boolean = false;
@@ -133,10 +140,13 @@ struct Index {
   private abi: number = 0;
   private pinnedStore: PinnedNodeStore = new PinnedNodeStore();
   private downloader: ArtifactDownloader = new ArtifactDownloader();
+  private imageUploader: ImageUploader = new ImageUploader();
   private uiContext: common.UIAbilityContext | null = null;
   private edits: Map<string, string | number | boolean | null> = new Map();
   private editRefreshTimer: number = -1;
   private submitNonce: number = 0;
+  private pickerActive: boolean = false;
+  private skipNextAppear: boolean = false;
   private viewSeq: number = 0;
   private summaryKey: string = '';
   private catalogRequested: boolean = false;
@@ -144,6 +154,14 @@ struct Index {
   private scroller: Scroller = new Scroller();
 
   aboutToAppear(): void {
+    // 相册选择器会把页面短暂切到后台；回来时不要重建会话，否则正在进行的上传
+    // 会被停止，工作流和节点图选择也会被重置。
+    if (this.skipNextAppear) {
+      this.skipNextAppear = false;
+      if (this.running) {
+        return;
+      }
+    }
     this.abi = nativeVersion();
     this.bridge.onState = (state: BridgeState) => this.applyState(state);
     this.bridge.onNotice = (text: string) => {
@@ -158,6 +176,9 @@ struct Index {
   }
 
   aboutToDisappear(): void {
+    if (this.pickerActive) {
+      return;
+    }
     this.cancelEditRefresh();
     this.bridge.stop();
     this.running = false;
@@ -271,6 +292,7 @@ struct Index {
     this.view = emptyView();
     this.catalogRequested = false;
     this.reopenRequested = false;
+    this.resetUploadState();
     this.log('已断开');
   }
 
@@ -291,6 +313,7 @@ struct Index {
     this.submitNotice = '';
     // 上一次提交的拒绝通知还留在顶部，打开新工作流时不应该继续误导。
     this.notice = '';
+    this.resetUploadState();
     this.pinnedIds = this.pinnedStore.load(path);
     this.log(`打开工作流：${name || path}`);
     this.bridge.openWorkflow(path);
@@ -301,6 +324,7 @@ struct Index {
 
   private closeWorkflow(): void {
     this.cancelEditRefresh();
+    this.resetUploadState();
     this.selectedPath = '';
     this.summaryKey = '';
     this.graphsInitialized = false;
@@ -418,6 +442,69 @@ struct Index {
 
   private editKey(nodeId: number, inputName: string): string {
     return `${nodeId}\u0000${inputName}`;
+  }
+
+  private isImageField(field: WorkflowFieldView): boolean {
+    return field.nodeType === 'LoadImage' && field.inputName === 'image';
+  }
+
+  private async pickAndUpload(field: WorkflowFieldView): Promise<void> {
+    if (this.uploadingField.length > 0) {
+      return;
+    }
+    const base = this.normalizedBaseUrl();
+    if (!this.running || base.length === 0) {
+      this.setUploadError(field, '未连接 ComfyUI');
+      return;
+    }
+
+    const key = this.editKey(field.nodeId, field.inputName);
+    this.uploadingField = key;
+    this.uploadErrorKey = '';
+    this.uploadError = '';
+    this.uploadNoticeKey = '';
+    this.uploadNotice = '';
+    this.pickerActive = true;
+    this.skipNextAppear = true;
+    try {
+      const picked: PickedImage | null = await this.imageUploader.pick();
+      if (picked === null) {
+        return;
+      }
+      const result = await this.imageUploader.upload(base, picked);
+      if (!result.ok) {
+        this.setUploadError(field, result.message);
+        return;
+      }
+      this.setFieldText(field, result.reference);
+      this.uploadNoticeKey = key;
+      this.uploadNotice = result.message;
+    } catch (err) {
+      this.setUploadError(field, this.errorText(err));
+    } finally {
+      this.pickerActive = false;
+      this.uploadingField = '';
+    }
+  }
+
+  private setUploadError(field: WorkflowFieldView, message: string): void {
+    this.uploadErrorKey = this.editKey(field.nodeId, field.inputName);
+    this.uploadError = message;
+    this.uploadNoticeKey = '';
+    this.uploadNotice = '';
+  }
+
+  private errorText(err: object): string {
+    const message = (err as Error).message;
+    return message !== undefined && message.length > 0 ? message : '操作失败';
+  }
+
+  private resetUploadState(): void {
+    this.uploadingField = '';
+    this.uploadErrorKey = '';
+    this.uploadError = '';
+    this.uploadNoticeKey = '';
+    this.uploadNotice = '';
   }
 
   private fieldText(field: WorkflowFieldView): string {
@@ -752,6 +839,8 @@ struct Index {
         Text(field.required ? '需要连接上游节点' : '由上游连线提供')
           .fontSize(11)
           .fontColor(field.required ? '#B26A00' : '#999999')
+      } else if (this.isImageField(field)) {
+        this.ImageField(field)
       } else if (field.type === 'BOOLEAN') {
         Toggle({ type: ToggleType.Switch, isOn: this.fieldBool(field) })
           .onChange((value: boolean) => this.setFieldBool(field, value))
@@ -763,10 +852,41 @@ struct Index {
           .onChange((value: string) => this.setFieldText(field, value))
       }
 
-      if (!field.linked && field.widget && field.options.length > 0) {
+      if (!field.linked && field.widget && !this.isImageField(field) && field.options.length > 0) {
         Text(`可选：${this.fieldOptions(field)}`)
           .fontSize(10)
           .fontColor('#888888')
+      }
+    }
+    .alignItems(HorizontalAlign.Start)
+    .width('100%')
+  }
+
+  @Builder
+  ImageField(field: WorkflowFieldView) {
+    Column({ space: 5 }) {
+      Text(this.fieldText(field).length > 0 ? `当前：${this.fieldText(field)}` : '尚未选择图片')
+        .fontSize(12)
+        .fontColor(this.fieldText(field).length > 0 ? '#333333' : '#999999')
+        .width('100%')
+      Button(
+        this.uploadingField === this.editKey(field.nodeId, field.inputName)
+          ? '上传中…'
+          : (this.fieldText(field).length > 0 ? '重新选择图片' : '从相册选择'),
+      )
+        .fontSize(12)
+        .height(32)
+        .enabled(this.running && this.uploadingField.length === 0)
+        .onClick(() => this.pickAndUpload(field))
+      if (this.uploadNoticeKey === this.editKey(field.nodeId, field.inputName)) {
+        Text(this.uploadNotice)
+          .fontSize(11)
+          .fontColor('#1B8A3A')
+      }
+      if (this.uploadErrorKey === this.editKey(field.nodeId, field.inputName)) {
+        Text(this.uploadError)
+          .fontSize(11)
+          .fontColor('#B00020')
       }
     }
     .alignItems(HorizontalAlign.Start)

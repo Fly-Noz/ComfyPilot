@@ -13,7 +13,7 @@
 | 真实 ComfyUI | 鸿蒙通过 Tailscale 直连 `http://100.x.x.x:8188`；Android 通过 `adb reverse` + 本机 TCP 代理访问同一主机 |
 
 结论边界：工作流提交、任务进度、图片预览和产物文件名唯一性已在真机验证；
-系统下载目录、视频/音频播放、本机相册上传和多图编辑仍属于后续范围。
+系统下载目录、视频/音频播放和多图编辑仍属于后续范围；本机相册上传已由 S7-02 完成。
 旧任务中已经被覆盖的产物无法恢复，只能保证新提交的产物不再互相覆盖。
 
 ## 1. 已实现
@@ -153,7 +153,8 @@ ArkTS 编译只剩已知告警：`getUserDownloadDir` / `request` 不是所有�
 ## 5. 明确未验证 / 后续
 
 - 系统下载目录和同名文件避让的真机结果；
-- 本机相册上传 `LoadImage`（鸿蒙未实现，见 S7 `02-harmony-image-upload`）；
+- 本机相册上传 `LoadImage`（S7-02 已实现并真机验证，见
+  `docs/verification/stageS7-harmony-image-upload.md`）；
 - 实时采样预览（鸿蒙未实现，见 S7 `03-harmony-live-preview`）；
 - 视频/音频内置播放（鸿蒙当前只下载，见 S7 `04-harmony-media-playback`）；
 - 多图编辑：`#505 LoadImage`（image-2）仍是旁路状态，提示词引用“图二”不会生效；
