@@ -183,15 +183,18 @@ private fun DetailBody(
             enabledOutputIds = if (graphs.isEmpty()) null else enabledOutputIds,
         )
     }
+    val context = LocalContext.current
+    val pinnedNodeStore = remember(context) { PinnedNodeStore(context.applicationContext) }
+    var pinnedNodeIds by remember(document.path) {
+        mutableStateOf(pinnedNodeStore.load(document.path))
+    }
     var overrides by remember(document.path) {
         mutableStateOf<Map<Int, Map<String, JsonElement>>>(emptyMap())
     }
-    // 输入区默认只把“会提交且缺值/缺连线”的节点排前面；未启用/旁路的节点放最后，
-    // 避免打开多图工作流时，先看到一堆不会执行的分支。
-    val orderedNodes = remember(fields) {
-        fields.nodes.sortedWith(
-            compareBy<WorkflowNodeView>({ !it.reachable }, { !it.needsInput }),
-        )
+    // 置顶且会提交的节点最前；节点图未启用时保留置顶，但不会优先显示。
+    // 其余节点仍按“可达优先、可达且缺值更优先”排序，未启用/旁路的节点放最后。
+    val orderedNodes = remember(fields, pinnedNodeIds) {
+        orderInputNodes(fields.nodes, pinnedNodeIds)
     }
     var tab by remember(document.path) { mutableStateOf(0) }
     var expandedOverride by remember(document.path) { mutableStateOf<Set<Int>?>(null) }
@@ -206,9 +209,12 @@ private fun DetailBody(
         .filter { it.state is TaskState.Failed && it.workflowPath == document.path }
         .maxByOrNull { it.updatedAtMs }
 
-    val autoExpanded = remember(fields) {
+    val autoExpanded = remember(fields, pinnedNodeIds) {
         fields.nodes
-            .filter { node -> node.reachable && node.fields.any { it.common && it.widget && !it.linked } }
+            .filter { node ->
+                node.reachable &&
+                    (node.id in pinnedNodeIds || node.fields.any { it.common && it.widget && !it.linked })
+            }
             .map { it.id }
             .toSet()
     }
@@ -228,8 +234,19 @@ private fun DetailBody(
         expandedOverride = if (nodeId in current) current - nodeId else current + nodeId
     }
 
+    fun togglePin(nodeId: Int) {
+        val wasPinned = nodeId in pinnedNodeIds
+        val next = if (wasPinned) pinnedNodeIds - nodeId else pinnedNodeIds + nodeId
+        pinnedNodeIds = next
+        pinnedNodeStore.save(document.path, next)
+        // 新置顶的节点会移到输入区顶部；同时展开并滚到顶部，避免用户还要自己找。
+        if (!wasPinned && fields.nodes.firstOrNull { it.id == nodeId }?.reachable == true) {
+            expandedOverride = (expandedOverride ?: autoExpanded) + nodeId
+            scope.launch { listState.animateScrollToItem(0) }
+        }
+    }
+
     // 上传只服务 LoadImage 的 image 控件：先传服务器，再用返回的文件名覆盖控件值。
-    val context = LocalContext.current
     val uploader = remember { OkHttpHttpTransport() }
     var uploadTarget by remember { mutableStateOf<WorkflowField?>(null) }
     var uploading by remember { mutableStateOf(false) }
@@ -447,7 +464,9 @@ private fun DetailBody(
                     overrides = overrides,
                     listState = listState,
                     disabledNodeIds = disabledNodeIds,
+                    pinnedNodeIds = pinnedNodeIds,
                     onToggle = ::toggleNode,
+                    onTogglePin = ::togglePin,
                     onOverride = ::applyOverride,
                     onPickImage = ::pickImage,
                 )
@@ -596,7 +615,9 @@ private fun InputPane(
     overrides: Map<Int, Map<String, JsonElement>>,
     listState: androidx.compose.foundation.lazy.LazyListState,
     disabledNodeIds: Set<Int>,
+    pinnedNodeIds: Set<Int>,
     onToggle: (Int) -> Unit,
+    onTogglePin: (Int) -> Unit,
     onOverride: (Int, String, JsonElement) -> Unit,
     onPickImage: (WorkflowField) -> Unit,
 ) {
@@ -618,7 +639,9 @@ private fun InputPane(
                 expanded = node.id in expanded,
                 overrides = overrides[node.id].orEmpty(),
                 graphDisabled = node.id in disabledNodeIds,
+                pinned = node.id in pinnedNodeIds,
                 onToggle = { onToggle(node.id) },
+                onTogglePin = { onTogglePin(node.id) },
                 onChange = onOverride,
                 onPickImage = onPickImage,
             )
@@ -632,7 +655,9 @@ private fun NodeInputCard(
     expanded: Boolean,
     overrides: Map<String, JsonElement>,
     graphDisabled: Boolean,
+    pinned: Boolean,
     onToggle: () -> Unit,
+    onTogglePin: () -> Unit,
     onChange: (Int, String, JsonElement) -> Unit,
     onPickImage: (WorkflowField) -> Unit,
 ) {
@@ -654,6 +679,15 @@ private fun NodeInputCard(
                         "${node.type} · ${node.fields.size} 个输入",
                         style = MaterialTheme.typography.labelSmall,
                         fontFamily = FontFamily.Monospace,
+                    )
+                }
+                TextButton(
+                    onClick = onTogglePin,
+                    contentPadding = PaddingValues(horizontal = 8.dp),
+                ) {
+                    Text(
+                        if (pinned) "取消置顶" else "置顶",
+                        style = MaterialTheme.typography.labelSmall,
                     )
                 }
                 if (node.needsInput) {
