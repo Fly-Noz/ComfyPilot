@@ -154,6 +154,7 @@ struct Index {
   @State previewVersion: number = 0;
   @State noteEditorId: number = -1;
   @StorageLink('appearanceMode') appearanceMode: string = 'system';
+  @StorageProp('systemDark') @Watch('onSystemDarkChange') systemDark: boolean = true;
   @State isDark: boolean = true;
   @State tasksOpen: boolean = false;
   @State settingsOpen: boolean = false;
@@ -2168,18 +2169,19 @@ struct Index {
     return Spectrum.palette(this.isDark);
   }
 
-  private systemDark(): boolean {
-    try {
-      const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-      return ctx.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
-    } catch (e) {
-      return true;
+  private systemIsDark(): boolean {
+    return this.systemDark;
+  }
+
+  onSystemDarkChange(): void {
+    if (this.appearanceMode === 'system') {
+      this.applyAppearance();
     }
   }
 
   private applyAppearance(): void {
     this.isDark = this.appearanceMode === 'dark' ||
-      (this.appearanceMode === 'system' && this.systemDark());
+      (this.appearanceMode === 'system' && this.systemIsDark());
   }
 
   private setAppearance(mode: string): void {
