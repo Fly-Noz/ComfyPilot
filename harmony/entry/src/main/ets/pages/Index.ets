@@ -160,6 +160,9 @@ struct Index {
   @State noteEditorId: number = -1;
   @StorageLink('appearanceMode') appearanceMode: string = 'system';
   @StorageProp('systemDark') @Watch('onSystemDarkChange') systemDark: boolean = true;
+  /** 系统栏高度（px），由 EntryAbility 发布；页面据此给内容留安全边距。 */
+  @StorageProp('statusBarPx') statusBarPx: number = 0;
+  @StorageProp('navBarPx') navBarPx: number = 0;
   @State isDark: boolean = true;
   @State tasksOpen: boolean = false;
   @State connectView: boolean = false;
@@ -635,6 +638,22 @@ struct Index {
       this.viewLoading = false;
       this.viewError = `读取工作流视图失败：${(err as Error).message}`;
     }
+  }
+
+  /**
+   * 节点定义还没到齐、且连节点图都还识别不出来。此时共享层只能给出空图列表，
+   * 所有节点都会被标成 missing，图名也只会退化成“其他节点”；先显示加载提示，
+   * 等定义（至少是输出节点的定义）到齐后再渲染真正的节点图和字段。
+   */
+  private definitionsPending(): boolean {
+    return this.view.ok &&
+      this.view.pendingNodeClasses.length > 0 &&
+      this.view.graphs.length === 0;
+  }
+
+  /** 这个节点类还在等 `/object_info`：missing 只代表“定义没到”，不是服务端缺类。 */
+  private classPending(nodeType: string): boolean {
+    return this.view.pendingNodeClasses.includes(nodeType);
   }
 
   private requestJson(op: string, runToken: string = ''): string {
@@ -1489,12 +1508,22 @@ struct Index {
       .alignItems(VerticalAlign.Center)
 
       if (node.missing) {
-        Text('服务端没有该节点的定义，不能调参；提交会被拒绝。')
-          .fontSize(11)
-          .lineHeight(16)
-          .fontColor(this.c().err)
-          .width('100%')
-          .padding({ left: 13, right: 13, top: 2, bottom: 2 })
+        if (this.classPending(node.type)) {
+          // 定义还在路上：不要说成“服务端没有”，否则首帧会误报整个工作流缺节点。
+          Text('正在加载该节点的定义…')
+            .fontSize(11)
+            .lineHeight(16)
+            .fontColor(this.c().textDim)
+            .width('100%')
+            .padding({ left: 13, right: 13, top: 2, bottom: 2 })
+        } else {
+          Text('服务端没有该节点的定义，不能调参；提交会被拒绝。')
+            .fontSize(11)
+            .lineHeight(16)
+            .fontColor(this.c().err)
+            .width('100%')
+            .padding({ left: 13, right: 13, top: 2, bottom: 2 })
+        }
       } else if (!node.reachable) {
         Text('未连接到输出节点，不会被提交。')
           .fontSize(11)
@@ -2055,6 +2084,15 @@ struct Index {
               }
             },
           })
+        } else if (this.definitionsPending()) {
+          // 定义还没到齐时图列表一定是空的，不能显示成“没有可切换的节点图”。
+          Text('正在识别节点图…')
+            .fontSize(11)
+            .fontColor(this.c().textDim)
+            .padding({ left: 13, right: 13, top: 7, bottom: 7 })
+            .borderRadius(999)
+            .backgroundColor(this.c().card)
+            .border({ width: 1, color: this.c().border })
         } else {
           Text('没有可切换的节点图')
             .fontSize(11)
@@ -2133,18 +2171,28 @@ struct Index {
       if (this.detailTab === 0) {
         Scroll(this.scroller) {
           Column({ space: 9 }) {
-            if (this.view.ok && this.view.nodes.length === 0) {
+            if (!this.definitionsPending() && this.view.ok && this.view.nodes.length === 0) {
               Text('这是 API 格式工作流，没有网页字段可编辑；可以直接提交。')
                 .fontSize(12.5)
                 .fontColor(this.c().textMuted)
                 .width('100%')
             }
-            ForEach(this.view.nodes, (node: WorkflowNodeView, index: number) => {
-              if (this.isSectionStart(index)) {
-                this.SectionHeader(node)
-              }
-              this.NodeCard(node)
-            }, (node: WorkflowNodeView) => `${node.id}:${node.pinned}:${node.reachable}:${node.needsInput}`)
+            if (this.definitionsPending()) {
+              // 定义没到齐时每行都会被标成“缺少定义”，图名也会退化成“其他节点”；
+              // 先显示加载提示，等共享层给出完整视图后再一次性渲染。
+              this.InlineNote('正在加载节点定义，字段和节点图稍后显示…')
+            } else {
+              // missing/fields/节点图归属都会在节点定义落地后变化；键里必须带上这些，
+              // 否则 ForEach 会复用旧组件，界面一直停在“服务端没有该节点的定义”。
+              ForEach(this.view.nodes, (node: WorkflowNodeView, index: number) => {
+                if (this.isSectionStart(index)) {
+                  this.SectionHeader(node)
+                }
+                this.NodeCard(node)
+              }, (node: WorkflowNodeView) =>
+                `${node.id}:${this.graphKeyOfNode(node)}:${node.missing}:${node.fields.length}:` +
+                  `${node.pinned}:${node.reachable}:${node.needsInput}`)
+            }
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)
@@ -2895,7 +2943,8 @@ struct Index {
                 .width('100%')
                 .height(1)
                 .backgroundColor(this.c().border)
-            }, (node: WorkflowNodeView) => `${node.id}:${this.nodeNotesVersion}`)
+            }, (node: WorkflowNodeView) =>
+              `${node.id}:${node.missing}:${node.reachable}:${node.fields.length}:${this.nodeNotesVersion}`)
           }
           .width('100%')
         }
@@ -2906,6 +2955,8 @@ struct Index {
       }
       .width('100%')
       .height('78%')
+      // 面板贴底，最后一行不能被导航条盖住。
+      .padding({ bottom: px2vp(this.navBarPx) })
       .backgroundColor(this.c().dialog)
       .borderRadius({ topLeft: 22, topRight: 22 })
       .border({ width: 1, color: this.c().border })
@@ -3276,7 +3327,12 @@ struct Index {
         .width('100%')
       }
     }
-    .padding(12)
+    .padding({
+      left: 12,
+      right: 12,
+      top: 12 + px2vp(this.statusBarPx),
+      bottom: 12 + px2vp(this.navBarPx),
+    })
     .width('100%')
     .height('100%')
     .backgroundColor(this.c().background)
@@ -3817,7 +3873,13 @@ struct Index {
       .width('100%')
       this.TasksTab()
     }
-    .padding(14)
+    // 任务面板是整屏覆盖层，不在 MainPanel 的内边距里，需要自己避开系统栏。
+    .padding({
+      left: 14,
+      right: 14,
+      top: 14 + px2vp(this.statusBarPx),
+      bottom: 14 + px2vp(this.navBarPx),
+    })
     .width('100%')
     .height('100%')
     .backgroundColor(this.c().background)
@@ -3900,7 +3962,12 @@ struct Index {
           this.CatalogPanel()
         }
       }
-      .padding(14)
+      .padding({
+        left: 14,
+        right: 14,
+        top: 14 + px2vp(this.statusBarPx),
+        bottom: 14 + px2vp(this.navBarPx),
+      })
       .width('100%')
       .height('100%')
 
@@ -3964,5 +4031,7 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor(this.c().background)
+    // 背景与光晕画到状态栏/导航条下面；文字内容由 MainPanel 的内边距避开系统栏。
+    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 }
