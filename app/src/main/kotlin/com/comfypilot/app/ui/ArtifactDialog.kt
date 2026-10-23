@@ -5,10 +5,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.drawable.ColorDrawable
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.util.LruCache
+import android.view.View
+import android.view.ViewParent
+import android.view.Window
+import android.view.WindowManager
 import android.widget.MediaController
 import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -53,8 +58,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,7 +69,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -179,8 +188,15 @@ fun ArtifactDialog(
         onDismissRequest = {
             if (selected != null) selected = null else onDismiss()
         },
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        // 全屏对话框：宽度不吃平台默认值，窗口也不让系统栏把内容挤进去，
+        // 这样整块窗口都由下面的光谱底色覆盖，不会露出窗口自己的底色。
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
     ) {
+        // 窗口底色来自平台主题，不是 Compose 画的；先把它也刷成光谱底色。
+        DialogWindowBackdrop()
         val panelShape = RoundedCornerShape(22.dp)
         Box(modifier = Modifier.fillMaxSize().background(c.background)) {
             // 产物面板：对话框底色 + 22dp 圆角 + 1dp 边框，浮在页面底色上。
@@ -216,6 +232,47 @@ fun ArtifactDialog(
             }
         }
     }
+}
+
+/**
+ * 对话框是独立窗口，窗口底色来自 Activity 的平台主题（本应用是浅色主题，底色发白），
+ * Compose 只在运行时用透明色覆盖它；部分兼容层（卓易通）不执行这次覆盖，
+ * 首帧就会露出一整块白底。这里把窗口自身也刷成当前光谱底色，并把系统栏设成透明，
+ * 保证 Compose 内容画出来之前、以及窗口 inset 区域都不是白的。
+ */
+@Composable
+private fun DialogWindowBackdrop() {
+    val c = Spectrum.colors
+    val view = LocalView.current
+    val background = remember(c.background) { ColorDrawable(c.background.toArgb()) }
+    DisposableEffect(view, background, c.isDark) {
+        val window = view.findDialogWindow()
+        if (window != null) {
+            window.setBackgroundDrawable(background)
+            // 兼容层不一定像 DialogLayout 那样把窗口撑满，这里显式铺满整屏。
+            window.setLayout(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+            )
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = !c.isDark
+                isAppearanceLightNavigationBars = !c.isDark
+            }
+        }
+        onDispose { }
+    }
+}
+
+/** 从对话框内容往上找承载窗口的 [DialogWindowProvider]；找不到就退化为不处理。 */
+private fun View.findDialogWindow(): Window? {
+    var parent: ViewParent? = this.parent
+    while (parent != null) {
+        if (parent is DialogWindowProvider) return parent.window
+        parent = parent.parent
+    }
+    return null
 }
 
 @Composable
@@ -566,11 +623,14 @@ private fun VideoPosterFrame(
 
 @Composable
 private fun PlayGlyph(modifier: Modifier = Modifier) {
+    // 播放键落在永远深色的哑光板上，用 heroText 而不是任何"白"字面量；
+    // 深浅两套主题里它都是浅色，对比度不会翻转。
+    val glyph = Spectrum.colors.heroText
     Canvas(modifier = modifier) {
         val radius = size.minDimension / 2f
         drawCircle(color = Color(0x59000000), radius = radius)
         drawCircle(
-            color = Color(0x4DFFFFFF),
+            color = glyph.copy(alpha = 0.3f),
             radius = (radius - 1.dp.toPx()).coerceAtLeast(0f),
             style = Stroke(width = 1.dp.toPx()),
         )
@@ -580,7 +640,7 @@ private fun PlayGlyph(modifier: Modifier = Modifier) {
             lineTo(size.width * 0.66f, size.height * 0.50f)
             close()
         }
-        drawPath(path = path, color = Color(0xE6FFFFFF))
+        drawPath(path = path, color = glyph.copy(alpha = 0.9f))
     }
 }
 
