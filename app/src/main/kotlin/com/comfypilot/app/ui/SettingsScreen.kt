@@ -8,6 +8,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -45,6 +46,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 fun SettingsScreen(
     mode: ThemeMode,
     onModeChange: (ThemeMode) -> Unit,
+    onAbout: () -> Unit,
     onBack: () -> Unit,
 ) {
     val c = Spectrum.colors
@@ -67,7 +69,7 @@ fun SettingsScreen(
                 letterSpacing = 1.2.sp,
             )
 
-            GlassCard(padding = androidx.compose.foundation.layout.PaddingValues(6.dp)) {
+            GlassCard(padding = PaddingValues(6.dp)) {
                 ThemeMode.entries.forEachIndexed { index, entry ->
                     ModeRow(
                         mode = entry,
@@ -102,6 +104,16 @@ fun SettingsScreen(
                 fontSize = 11.sp,
                 modifier = Modifier.padding(horizontal = 2.dp),
             )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            GlassCard(padding = PaddingValues(6.dp)) {
+                SpectrumLinkRow(
+                    label = "关于",
+                    value = "版本、作者与开源许可",
+                    onClick = onAbout,
+                )
+            }
         }
     }
 }

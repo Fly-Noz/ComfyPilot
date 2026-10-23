@@ -26,6 +26,7 @@ private sealed interface Screen {
     data object Tasks : Screen
     data object Diagnostics : Screen
     data object Settings : Screen
+    data object About : Screen
 }
 
 /**
@@ -83,6 +84,7 @@ fun ComfyPilotApp(
                         Screen.Tasks -> Screen.Catalog
                         Screen.Diagnostics -> if (state.lease != null) Screen.Catalog else Screen.Connect
                         Screen.Settings -> settingsReturn
+                        Screen.About -> Screen.Settings
                     }
                 }
             }
@@ -161,8 +163,11 @@ fun ComfyPilotApp(
                         mode = it
                         appearance.save(it)
                     },
+                    onAbout = { screen = Screen.About },
                     onBack = { screen = settingsReturn },
                 )
+
+                Screen.About -> AboutScreen(onBack = { screen = Screen.Settings })
             }
 
             // 覆盖层：详情仍留在组合中，任务页关闭后字段、图开关和页签都不会丢。
