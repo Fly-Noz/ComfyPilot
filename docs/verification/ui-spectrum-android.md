@@ -105,3 +105,8 @@
 - 节点图顺序：`parentGraphs()` 启用在前、未启用整组后移；组内顺序仍跟主机。
 - 连接自愈：全部在共享层，重新编 `libcomfypilot_core.so` 即生效，ArkTS 不用改。
 - 验证：`harmony/build.ps1`（Kotlin ohosArm64 共享库 + hvigor HAP）。
+## 长文本输入换行（2026-10-23）
+
+- `STRING` 类型字段改用多行输入：`singleLine = false`、`minLines = 3`、最多 12 行，超出后输入框内部滚动；提示词不再挤成一行。
+- 其余类型保持单行（数字、下拉、布尔不受影响）；多行字段用非等宽字体，中文和长句更好读。
+- 鸿蒙同一个分支改用 `TextArea`（高度 96vp，自动换行、内部滚动）。

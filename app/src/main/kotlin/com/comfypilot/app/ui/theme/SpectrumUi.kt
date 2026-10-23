@@ -434,6 +434,9 @@ fun SpectrumTextField(
     modifier: Modifier = Modifier,
     mono: Boolean = true,
     keyboardType: KeyboardType? = null,
+    /** 长文本（提示词等）关掉单行：按 `minLines` 起步，超过 12 行内部滚动。 */
+    singleLine: Boolean = true,
+    minLines: Int = 1,
 ) {
     val c = Spectrum.colors
     val shape = RoundedCornerShape(12.dp)
@@ -441,7 +444,9 @@ fun SpectrumTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier.fillMaxWidth(),
-        singleLine = true,
+        singleLine = singleLine,
+        minLines = minLines,
+        maxLines = if (singleLine) 1 else 12,
         keyboardOptions = if (keyboardType != null) {
             KeyboardOptions(keyboardType = keyboardType)
         } else {

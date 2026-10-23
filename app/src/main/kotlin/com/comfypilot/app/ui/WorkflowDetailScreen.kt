@@ -1955,11 +1955,18 @@ private fun FieldEditor(
                 onChange = onChange,
             )
 
-            else -> SpectrumTextField(
-                value = valueText(value),
-                onValueChange = { onChange(JsonPrimitive(it)) },
-                placeholder = "",
-            )
+            else -> {
+                // 提示词这类长文本必须换行显示：单行输入框看不到整段内容，也没法挑错。
+                val longText = field.type == "STRING"
+                SpectrumTextField(
+                    value = valueText(value),
+                    onValueChange = { onChange(JsonPrimitive(it)) },
+                    placeholder = "",
+                    mono = !longText,
+                    singleLine = !longText,
+                    minLines = if (longText) 3 else 1,
+                )
+            }
         }
 
         if (field.required && field.widget && !field.linked && value == null) {

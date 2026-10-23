@@ -1259,6 +1259,13 @@ struct Index {
       } else if (field.type === 'BOOLEAN') {
         Toggle({ type: ToggleType.Switch, isOn: this.fieldBool(field) })
           .onChange((value: boolean) => this.setFieldBool(field, value))
+      } else if (field.type === 'STRING') {
+        // 提示词这类长文本用 TextArea：自动换行，超出高度内部滚动。
+        TextArea({ text: this.fieldText(field), placeholder: field.type })
+          .fontSize(13)
+          .height(96)
+          .width('100%')
+          .onChange((value: string) => this.setFieldText(field, value))
       } else {
         TextInput({ text: this.fieldText(field), placeholder: field.type })
           .fontSize(13)
