@@ -209,6 +209,8 @@ struct Index {
   @State previewError: boolean = false;
   @State downloadingKey: string = '';
   @State downloadNotice: string = '';
+  /** 最近一次失败的产物 key：列表行据此显示 err 文案 + 单个「重试」。 */
+  @State downloadFailedKey: string = '';
 
   @State livePreview: image.PixelMap | null = null;
   @State livePreviewMeta: BridgePreview | null = null;
@@ -1609,6 +1611,7 @@ struct Index {
     this.previewOpen = false;
     this.previewError = false;
     this.downloadNotice = '';
+    this.downloadFailedKey = '';
   }
 
   private closeArtifacts(): void {
@@ -1616,6 +1619,7 @@ struct Index {
     this.previewOpen = false;
     // 下载可能还在后台跑；保留 downloadingKey，重新打开时不会重复点同一份。
     this.downloadNotice = '';
+    this.downloadFailedKey = '';
   }
 
   private artifactUrl(output: BridgeOutput): string {
@@ -1636,19 +1640,24 @@ struct Index {
       this.downloadNotice = '没有 Ability 上下文，不能保存产物';
       return;
     }
-    this.downloadingKey = this.artifactKey(output);
+    const key: string = this.artifactKey(output);
+    this.downloadingKey = key;
     this.downloadNotice = '';
+    this.downloadFailedKey = '';
     this.downloader.download(context, this.normalizedBaseUrl(), output).then((result: ArtifactDownloadResult) => {
       this.downloadingKey = '';
       if (result.ok || result.cancelled === true) {
         this.downloadNotice = result.message;
       } else {
         this.downloadNotice = `保存失败：${result.message}`;
+        // 行内用 err 文案 + 一个 ghost 重试，和 Android DownloadStatusLine 一致。
+        this.downloadFailedKey = key;
       }
       this.log(result.message);
     }).catch((err: Error) => {
       this.downloadingKey = '';
       this.downloadNotice = `保存失败：${err.message}`;
+      this.downloadFailedKey = key;
     });
   }
 
@@ -3703,9 +3712,15 @@ struct Index {
         .alignItems(VerticalAlign.Top)
       }
 
-      if (task.outputRefs.length > 0) {
-        Row() {
-          this.GhostAction('查看产物', true, () => this.openArtifacts(task))
+      // 运行中/提交中的卡片可以取消；还没拿到 promptId 的草稿任务只显示禁用态。
+      if (task.outputRefs.length > 0 || this.taskCancelVisible(task)) {
+        Row({ space: 8 }) {
+          if (this.taskCancelVisible(task)) {
+            this.GhostAction('取消', this.taskCancellable(task), () => this.cancelTask(task))
+          }
+          if (task.outputRefs.length > 0) {
+            this.GhostAction('查看产物', true, () => this.openArtifacts(task))
+          }
         }
         .width('100%')
       }
@@ -3979,184 +3994,489 @@ struct Index {
     .padding(8)
   }
 
-  @Builder
-  ArtifactCard(output: BridgeOutput) {
-    Column({ space: 6 }) {
-      Text(output.displayName.length > 0 ? output.displayName : output.filename)
-        .fontSize(14)
-        .fontWeight(FontWeight.Medium)
-        .maxLines(2)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-      Text(`${output.kind} · ${output.type} · ${output.mime}`)
-        .fontSize(10)
-        .fontColor(this.c().textDim)
+  /**
+   * 面板玻璃底：`dialog` token 叠在页面同一层光谱光晕上。
+   * 深色 0.88 / 浅色 0.84，同 Android `c.dialog.copy(alpha = ...)`；不是一块实心底板。
+   */
+  private glassPanelColor(): string {
+    const base: string = this.c().dialog;
+    const alpha: number = this.c().isDark ? 0.88 : 0.84;
+    if (base.startsWith('#') && base.length === 7) {
+      const value: number = Math.round(alpha * 255);
+      const hex: string = value < 16 ? `0${value.toString(16)}` : value.toString(16);
+      // ArkUI 的 8 位十六进制颜色是 #AARRGGBB，Alpha 放最前面。
+      return `#${hex.toUpperCase()}${base.substring(1)}`;
+    }
+    return base;
+  }
 
+  /** 产物类型文案，同 Android artifactMeta 的 kind 段。 */
+  private artifactKindLabel(output: BridgeOutput): string {
+    if (output.image) {
+      return '图片';
+    }
+    if (output.video) {
+      return '视频';
+    }
+    if (output.audio) {
+      return '音频';
+    }
+    return '文件';
+  }
+
+  /** 格式段：优先文件名扩展名，没有扩展名时退回共享层给的 kind。 */
+  private artifactFormatLabel(output: BridgeOutput): string {
+    const name: string = output.displayName.length > 0 ? output.displayName : output.filename;
+    const dot: number = name.lastIndexOf('.');
+    if (dot <= 0 || dot === name.length - 1) {
+      return output.kind.toUpperCase();
+    }
+    return name.substring(dot + 1).toUpperCase();
+  }
+
+  /** 列表副标题与预览 meta：`类型 · 格式`，同 Android artifactMeta。 */
+  private artifactMetaLine(output: BridgeOutput): string {
+    return `${this.artifactKindLabel(output)} · ${this.artifactFormatLabel(output)}`;
+  }
+
+  /** 失败行只显示错误本身；`保存失败：` 前缀由行内补，避免重复。 */
+  private downloadErrorLine(): string {
+    const prefix: string = '保存失败：';
+    return this.downloadNotice.startsWith(prefix)
+      ? this.downloadNotice.substring(prefix.length)
+      : this.downloadNotice;
+  }
+
+  private openPreview(output: BridgeOutput): void {
+    this.previewOutput = output;
+    this.previewOpen = true;
+    this.previewError = false;
+  }
+
+  /** 分享：项目已引入剪贴板能力，复制产物直链（系统分享面板未接入）。 */
+  private shareArtifact(output: BridgeOutput): void {
+    const url: string = this.artifactUrl(output);
+    if (url.length === 0) {
+      return;
+    }
+    try {
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, url);
+      pasteboard.getSystemPasteboard().setDataSync(data);
+      promptAction.showToast({ message: '已复制产物链接', duration: 1600 });
+    } catch (err) {
+      promptAction.showToast({ message: this.errorText(err), duration: 1600 });
+    }
+  }
+
+  /** 取消按钮只在执行中/提交中的卡片上出现，同 Android TaskCard 的 isActive 判断。 */
+  private taskCancelVisible(task: BridgeTask): boolean {
+    return task.state === 'Running' || task.state === 'Submitting';
+  }
+
+  /** 共享层按 promptId 找任务取消；草稿任务（还没拿到 promptId）只能禁用。 */
+  private taskCancellable(task: BridgeTask): boolean {
+    return this.taskCancelVisible(task) && task.promptId !== null && task.promptId.length > 0;
+  }
+
+  /** 取消：envelope 与 BridgeProtocol.kt 的 `{ "t": "cancel", "promptId": ... }` 一致。 */
+  private cancelTask(task: BridgeTask): void {
+    const promptId: string | null = task.promptId;
+    if (promptId === null || promptId.length === 0 || !this.taskCancelVisible(task)) {
+      return;
+    }
+    this.bridge.cancelTask(promptId);
+    this.log(`取消任务：${promptId}`);
+  }
+
+  /** 顶栏文字动作，对应 Android TopBarAction（关闭 / 分享）。 */
+  @Builder
+  PanelTextAction(label: string, emphasized: boolean, action: () => void) {
+    Text(label)
+      .fontSize(12)
+      .fontWeight(emphasized ? FontWeight.Medium : FontWeight.Normal)
+      .fontColor(emphasized ? this.c().accent : this.c().textMuted)
+      .padding({ left: 7, right: 7, top: 7, bottom: 7 })
+      .borderRadius(8)
+      .onClick(() => action())
+  }
+
+  /** 36 高的渐变动作按钮，同 Android GradientButton(height = 36.dp)（产物行的「下载」）。 */
+  @Builder
+  ArtifactActionButton(label: string, enabled: boolean, action: () => void) {
+    Button(label)
+      .fontSize(12)
+      .fontWeight(FontWeight.Medium)
+      .fontColor(this.c().accentInk)
+      .height(36)
+      .padding({ left: 16, right: 16 })
+      .borderRadius(12)
+      .backgroundColor(Color.Transparent)
+      .linearGradient({ angle: 120, colors: Spectrum.gradientColors(this.c()) })
+      .enabled(enabled)
+      .onClick(() => action())
+  }
+
+  /**
+   * 视频首帧占位：鸿蒙侧没有 MediaMetadataRetriever，`/view` 对视频只回视频本体，
+   * 没有可用的抽帧通道；这里按 Android 抽帧失败时的退路画哑光底 + 播放键 + 「视频」胶囊。
+   * 颜色都用调色板里深浅两套都够亮的 token（gradientStart / accentSoft），
+   * 因为这块底板永远是近黑色，不能用会随主题翻转的正文色。
+   */
+  @Builder
+  VideoArtifactPlaceholder(label: string) {
+    Stack({ alignContent: Alignment.TopStart }) {
+      Column({ space: 8 }) {
+        Column() {
+          Polygon()
+            .width(15)
+            .height(18)
+            .points([[0, 0], [15, 9], [0, 18]])
+            .fill(this.c().gradientStart)
+        }
+        .width(48)
+        .height(48)
+        .borderRadius(24)
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .backgroundColor(this.c().accentSoft)
+        .border({ width: 1, color: this.c().accentBorder })
+
+        Text(label)
+          .fontSize(11)
+          .fontColor(this.c().gradientStart)
+      }
+      .width('100%')
+      .height('100%')
+      .justifyContent(FlexAlign.Center)
+      .alignItems(HorizontalAlign.Center)
+
+      Row() {
+        Text('视频')
+          .fontSize(9)
+          .fontColor(this.c().gradientStart)
+          .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+          .borderRadius(999)
+          .backgroundColor(this.c().accentSoft)
+          .border({ width: 1, color: this.c().accentBorder })
+      }
+      .padding(8)
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  /** 列表行的媒体位：16 圆角、近黑哑光、1px 边框，图片 Cover，视频走首帧占位。 */
+  @Builder
+  ArtifactMedia(output: BridgeOutput, mediaHeight: number, contain: boolean) {
+    Stack({ alignContent: Alignment.Center }) {
       if (output.image && this.artifactUrl(output).length > 0) {
         Image(this.artifactUrl(output))
           .width('100%')
-          .height(180)
-          .objectFit(ImageFit.Cover)
-          .borderRadius(6)
-          .onClick(() => {
-            this.previewOutput = output;
-            this.previewOpen = true;
-            this.previewError = false;
-          })
-      } else if (output.video) {
-        Text('视频产物：点击“保存到相册”，系统确认后会写入相册。')
-          .fontSize(11)
-          .fontColor(this.c().textMuted)
-      } else if (output.audio) {
-        Text('音频产物：下载后可用系统播放器打开。')
-          .fontSize(11)
-          .fontColor(this.c().textMuted)
+          .height('100%')
+          .objectFit(contain ? ImageFit.Contain : ImageFit.Cover)
+      } else if (output.video && this.artifactUrl(output).length > 0) {
+        this.VideoArtifactPlaceholder('点击播放')
       } else {
-        Text('该类型暂不内置预览，可下载后用系统应用打开。')
-          .fontSize(11)
-          .fontColor(this.c().textMuted)
-      }
-
-      Row({ space: 8 }) {
-        if (output.image) {
-          Button('预览')
-            .fontSize(12)
-            .height(30)
-            .enabled(this.artifactUrl(output).length > 0)
-            .onClick(() => {
-              this.previewOutput = output;
-              this.previewOpen = true;
-              this.previewError = false;
-            })
-        }
-        Button(
-          this.downloadingKey === this.artifactKey(output)
-            ? this.artifactActionBusyLabel(output)
-            : this.artifactActionLabel(output),
-        )
+        Text('该类型暂不支持内置预览，可下载后用系统应用打开。')
           .fontSize(12)
-          .height(30)
-          .enabled(this.downloadingKey.length === 0)
-          .onClick(() => this.download(output))
+          .fontColor(this.c().textMuted)
+          .padding(16)
       }
-      .width('100%')
-      .justifyContent(FlexAlign.End)
     }
-    .alignItems(HorizontalAlign.Start)
-    .padding(10)
-    .backgroundColor(this.c().card)
-    .borderRadius(14)
     .width('100%')
+    .height(mediaHeight)
+    .borderRadius(16)
+    .clip(true)
+    .backgroundColor('#0E0F14')
+    .border({ width: 1, color: this.c().border })
+    .onClick(() => {
+      if (this.artifactUrl(output).length > 0 && (output.image || output.video)) {
+        this.openPreview(output);
+      }
+    })
   }
 
+  /** 产物行：同 Android ArtifactRow —— 文件名、`类型 · 格式`、190 高媒体位、36 高下载按钮。 */
   @Builder
-  ArtifactPreview() {
-    Row({ space: 8 }) {
-      Button('返回列表')
-        .fontSize(12)
-        .height(30)
-        .onClick(() => {
-          this.previewOpen = false;
-          this.previewError = false;
-        })
-      Text(this.previewOutput.displayName)
-      .fontColor(this.c().textMuted)
-        .fontSize(13)
+  ArtifactCard(output: BridgeOutput) {
+    Column({ space: 8 }) {
+      Text(output.displayName.length > 0 ? output.displayName : output.filename)
+        .fontSize(15)
+        .fontWeight(600)
+        .fontColor(this.c().text)
+        .maxLines(2)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .width('100%')
+
+      Text(this.artifactMetaLine(output))
+        .fontSize(10)
+        .fontFamily('monospace')
+        .letterSpacing(0.5)
+        .fontColor(this.c().textDim)
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .layoutWeight(1)
-      Button(
-        this.downloadingKey === this.artifactKey(this.previewOutput)
-          ? this.artifactActionBusyLabel(this.previewOutput)
-          : this.artifactActionLabel(this.previewOutput),
-      )
-        .fontSize(12)
-        .height(30)
-        .enabled(this.downloadingKey.length === 0)
-        .onClick(() => this.download(this.previewOutput))
+        .width('100%')
+
+      if (this.artifactUrl(output).length === 0) {
+        Text('未连接 ComfyUI，无法预览或下载。')
+          .fontSize(12)
+          .fontColor(this.c().textMuted)
+          .width('100%')
+      } else if (output.image || output.video) {
+        this.ArtifactMedia(output, 190, false)
+      } else if (output.audio) {
+        Text('音频产物：下载后可用系统播放器打开。')
+          .fontSize(12)
+          .fontColor(this.c().textMuted)
+          .width('100%')
+      } else {
+        Text('该类型暂不支持内置预览，可下载后用系统应用打开。')
+          .fontSize(12)
+          .fontColor(this.c().textMuted)
+          .width('100%')
+      }
+
+      // 失败时只留一个「重试」（ghost），不再同时出现第二个重试按钮。
+      if (this.downloadFailedKey === this.artifactKey(output)) {
+        Row({ space: 8 }) {
+          Text(`下载失败：${this.downloadErrorLine()}`)
+            .fontSize(12)
+            .lineHeight(17)
+            .fontColor(this.c().err)
+            .layoutWeight(1)
+          this.GhostAction('重试', this.downloadingKey.length === 0, () => this.download(output))
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+      } else {
+        Row() {
+          this.ArtifactActionButton(
+            this.downloadingKey === this.artifactKey(output) ? '下载中…' : this.artifactActionLabel(output),
+            this.downloadingKey.length === 0 && this.artifactUrl(output).length > 0,
+            () => this.download(output),
+          )
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.End)
+      }
+    }
+    .alignItems(HorizontalAlign.Start)
+    .width('100%')
+    .padding(12)
+    .backgroundColor(this.c().card)
+    .borderRadius(16)
+    .border({ width: 1, color: this.c().border })
+  }
+
+  /** 预览态：返回 + 文件名/ meta + 分享 + 关闭，媒体区 16 圆角裁剪。 */
+  @Builder
+  ArtifactPreview() {
+    Row({ space: 4 }) {
+      this.GhostAction('返回', true, () => {
+        this.previewOpen = false;
+        this.previewError = false;
+      })
+      Column({ space: 2 }) {
+        Text(this.previewOutput.displayName.length > 0
+          ? this.previewOutput.displayName : this.previewOutput.filename)
+          .fontSize(15)
+          .fontWeight(600)
+          .fontColor(this.c().text)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+        Text(this.artifactMetaLine(this.previewOutput))
+          .fontSize(10)
+          .fontFamily('monospace')
+          .fontColor(this.c().textDim)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+      .padding({ left: 4, right: 4 })
+
+      if (this.artifactUrl(this.previewOutput).length > 0) {
+        this.PanelTextAction('分享', false, () => this.shareArtifact(this.previewOutput))
+      }
+      this.PanelTextAction('关闭', true, () => this.closeArtifacts())
     }
     .width('100%')
+    .alignItems(VerticalAlign.Center)
 
-    Stack() {
-      if (!this.previewOutput.image) {
+    Column() {
+      if (this.artifactUrl(this.previewOutput).length === 0) {
+        Column() {
+          Text('未连接 ComfyUI，无法预览。')
+            .fontSize(12.5)
+            .fontColor(this.c().textMuted)
+        }
+        .padding(16)
+        .backgroundColor(this.c().card)
+        .borderRadius(16)
+        .border({ width: 1, color: this.c().border })
+      } else if (this.previewOutput.image) {
+        if (this.previewError) {
+          Text('图片预览失败，可能是网络中断或服务端返回了错误。')
+            .fontSize(12.5)
+            .fontColor(this.c().textMuted)
+            .padding(24)
+        } else {
+          Image(this.artifactUrl(this.previewOutput))
+            .width('100%')
+            .height('100%')
+            .objectFit(ImageFit.Contain)
+            .onError(() => {
+              this.previewError = true;
+            })
+        }
+      } else if (this.previewOutput.video) {
+        this.VideoArtifactPlaceholder('点击播放')
+      } else {
         Text('该类型暂不支持内置预览，请下载后打开。')
           .fontSize(12)
-          .fontColor(this.c().text)
-      } else if (this.previewError) {
-        Text('图片预览失败，可能是网络中断或服务端返回了错误。')
-          .fontSize(12)
-          .fontColor(this.c().text)
+          .fontColor(this.c().textMuted)
           .padding(24)
-      } else {
-        Image(this.artifactUrl(this.previewOutput))
-          .width('100%')
-          .height('100%')
-          .objectFit(ImageFit.Contain)
-          .onError(() => {
-            this.previewError = true;
-          })
       }
     }
     .width('100%')
     .layoutWeight(1)
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
     .backgroundColor('#0E0F14')
-    .borderRadius(14)
-  }
+    .borderRadius(16)
+    .clip(true)
+    .border({ width: 1, color: this.c().border })
 
-  @Builder
-  ArtifactPanel() {
-    Column({ space: 8 }) {
+    // 没有播放器接入，文案放在哑光区外，普通背景上才看得清。
+    if (this.previewOutput.video && this.artifactUrl(this.previewOutput).length > 0) {
+      Text('鸿蒙暂未接入内置播放器，可先保存到相册后用系统应用播放。')
+        .fontSize(10.5)
+        .fontColor(this.c().textMuted)
+        .width('100%')
+        .textAlign(TextAlign.Center)
+    }
+
+    if (this.downloadNotice.length > 0 &&
+      this.downloadFailedKey !== this.artifactKey(this.previewOutput)) {
+      Text(this.downloadNotice)
+        .fontSize(11)
+        .fontColor(this.downloadNoticeColor())
+        .width('100%')
+    }
+
+    // 和列表行一致：失败时只留一个 ghost「重试」，不再叠一个渐变下载按钮。
+    if (this.downloadFailedKey === this.artifactKey(this.previewOutput)) {
       Row({ space: 8 }) {
-        Button('返回任务')
+        Text(`下载失败：${this.downloadErrorLine()}`)
           .fontSize(12)
-          .height(30)
-          .onClick(() => this.closeArtifacts())
-        Column({ space: 2 }) {
-          Text('任务产物')
-            .fontSize(17)
-            .fontWeight(FontWeight.Bold)
-          Text(this.taskLabel(this.artifactTask))
-            .fontSize(11)
-            .fontColor(this.c().textDim)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-        }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
+          .lineHeight(17)
+          .fontColor(this.c().err)
+          .layoutWeight(1)
+        this.GhostAction('重试', this.downloadingKey.length === 0, () => this.download(this.previewOutput))
       }
       .width('100%')
-
-      if (this.downloadNotice.length > 0) {
-        Text(this.downloadNotice)
-          .fontSize(11)
-          .fontColor(this.downloadNoticeColor())
+      .alignItems(VerticalAlign.Center)
+    } else {
+      Row() {
+        this.ArtifactActionButton(
+          this.downloadingKey === this.artifactKey(this.previewOutput)
+            ? '下载中…' : this.artifactActionLabel(this.previewOutput),
+          this.downloadingKey.length === 0 && this.artifactUrl(this.previewOutput).length > 0,
+          () => this.download(this.previewOutput),
+        )
       }
+      .width('100%')
+      .justifyContent(FlexAlign.End)
+    }
+  }
 
-      if (this.previewOpen) {
-        this.ArtifactPreview()
-      } else if (this.artifactTask.outputRefs.length === 0) {
-        Text('该任务没有产物。').fontSize(12).fontColor(this.c().textMuted)
-      } else {
-        Scroll() {
-          Column({ space: 8 }) {
-            ForEach(this.artifactTask.outputRefs, (output: BridgeOutput) => {
-              this.ArtifactCard(output)
-            }, (output: BridgeOutput) => this.artifactKey(output))
+  /**
+   * 产物面板：玻璃底（dialog 0.88/0.84 + 22 圆角 + 1px borderStrong）浮在页面同一层光晕上，
+   * 列表 / 预览 / 空态三态同 Android ArtifactDialog。
+   */
+  @Builder
+  ArtifactPanel() {
+    Column() {
+      Column({ space: 8 }) {
+        if (this.previewOpen) {
+          this.ArtifactPreview()
+        } else {
+          Row({ space: 8 }) {
+            Column({ space: 2 }) {
+              Text('产物')
+                .fontSize(15)
+                .fontWeight(600)
+                .letterSpacing(-0.2)
+                .fontColor(this.c().text)
+                .maxLines(1)
+              Text(this.taskLabel(this.artifactTask))
+                .fontSize(10)
+                .fontFamily('monospace')
+                .fontColor(this.c().textDim)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+
+            this.PanelTextAction('关闭', true, () => this.closeArtifacts())
           }
           .width('100%')
+          .padding({ left: 2, right: 0, top: 2, bottom: 4 })
+          .alignItems(VerticalAlign.Center)
+
+          if (this.downloadNotice.length > 0 && this.downloadFailedKey.length === 0) {
+            Text(this.downloadNotice)
+              .fontSize(11)
+              .fontColor(this.downloadNoticeColor())
+              .width('100%')
+          }
+
+          if (this.artifactTask.outputRefs.length === 0) {
+            Column() {
+              Text('该任务没有产物。')
+                .fontSize(12.5)
+                .fontColor(this.c().textMuted)
+            }
+            .width('100%')
+            .alignItems(HorizontalAlign.Start)
+            .padding(16)
+            .backgroundColor(this.c().card)
+            .borderRadius(16)
+            .border({ width: 1, color: this.c().border })
+          } else {
+            Scroll() {
+              Column({ space: 10 }) {
+                ForEach(this.artifactTask.outputRefs, (output: BridgeOutput) => {
+                  this.ArtifactCard(output)
+                }, (output: BridgeOutput) => this.artifactKey(output))
+              }
+              .width('100%')
+            }
+            .layoutWeight(1)
+            .width('100%')
+            .align(Alignment.Top)
+            .scrollBar(BarState.Off)
+          }
         }
-        .layoutWeight(1)
-        .width('100%')
       }
+      .width('100%')
+      .layoutWeight(1)
+      .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+      .backgroundColor(this.glassPanelColor())
+      .borderRadius(22)
+      .border({ width: 1, color: this.c().borderStrong })
     }
-    .padding({
-      left: 12,
-      right: 12,
-      top: 12 + px2vp(this.statusBarPx),
-      bottom: 12 + px2vp(this.navBarPx),
-    })
     .width('100%')
     .height('100%')
-    .backgroundColor(this.c().background)
+    .padding({
+      left: 8,
+      right: 8,
+      top: 8 + px2vp(this.statusBarPx),
+      bottom: 8 + px2vp(this.navBarPx),
+    })
   }
 
   @Builder

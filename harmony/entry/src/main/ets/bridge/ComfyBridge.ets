@@ -134,6 +134,8 @@ interface BridgeCommand {
   workflow?: string;
   workflowName?: string;
   workflowPath?: string;
+  /** `cancel` 用：要取消的 ComfyUI promptId（不是宿主侧的任务 id）。 */
+  promptId?: string;
   path?: string;
   code?: number;
   reason?: string;
@@ -336,6 +338,20 @@ export class ComfyBridge {
 
   reconnect(): void {
     this.send({ t: 'reconnect' });
+  }
+
+  /**
+   * 取消任务。
+   *
+   * 共享层 `BridgeProtocol.kt` 只认 `{"t":"cancel","promptId":"..."}`：`promptId` 是
+   * ComfyUI 返回的 prompt 号，共享层按它找任务、置为 Cancelled 并发 `/interrupt`。
+   * 还没拿到 promptId 的草稿任务无法取消，调用方需要自己禁用按钮。
+   */
+  cancelTask(promptId: string): void {
+    if (promptId.length === 0) {
+      return;
+    }
+    this.send({ t: 'cancel', promptId: promptId });
   }
 
   private send(command: BridgeCommand): void {
