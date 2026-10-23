@@ -142,6 +142,9 @@ struct Index {
   @State generation: number = 0;
   @State network: string = '-';
   @State tasks: BridgeTask[] = [];
+  /** 队列计数：共享层状态帧里的 queueRunning / queuePending，对应 Android state.queue。 */
+  @State queueRunning: number = 0;
+  @State queuePending: number = 0;
   @State notice: string = '';
   @State logs: string[] = [];
   @State storageReady: boolean = false;
@@ -359,6 +362,8 @@ struct Index {
     this.generation = state.generation;
     this.network = state.validated ? `${state.network}（已验证）` : state.network;
     this.tasks = state.tasks;
+    this.queueRunning = state.queueRunning ?? 0;
+    this.queuePending = state.queuePending ?? 0;
     this.catalog = state.catalog;
     this.workflow = state.workflow;
     this.livePreviewMeta = state.preview ?? null;
@@ -1675,6 +1680,115 @@ struct Index {
 
   private taskLabel(task: BridgeTask): string {
     return task.name !== null && task.name.length > 0 ? task.name : (task.promptId ?? task.id);
+  }
+
+  // ---- 任务页：分组、配色与卡片文案（对应 Android TaskList.kt） ----
+
+  /**
+   * 任务按最近更新时间倒序，和 Android `sortedByDescending { it.createdAtMs }` 一致。
+   * 鸿蒙侧桥接只给 updatedAtMs（没有创建时间），用更新时间排同一目的。
+   */
+  private tasksNewestFirst(list: BridgeTask[]): BridgeTask[] {
+    const sorted: BridgeTask[] = list.slice();
+    sorted.sort((a: BridgeTask, b: BridgeTask) => b.updatedAtMs - a.updatedAtMs);
+    return sorted;
+  }
+
+  /** 进行中：提交中 + 执行中，对应 Android TaskState.Submitting / Running。 */
+  private inProgressTasks(): BridgeTask[] {
+    return this.tasksNewestFirst(this.tasks.filter((task: BridgeTask) =>
+      task.state === 'Submitting' || task.state === 'Running'));
+  }
+
+  /** 排队中：对应 Android TaskState.Queued。 */
+  private queuedTasks(): BridgeTask[] {
+    return this.tasksNewestFirst(this.tasks.filter((task: BridgeTask) => task.state === 'Queued'));
+  }
+
+  /** 已结束：完成 / 失败 / 取消 / 未知；状态胶囊仍分别显示具体状态。 */
+  private finishedTasks(): BridgeTask[] {
+    return this.tasksNewestFirst(this.tasks.filter((task: BridgeTask) =>
+      task.state !== 'Submitting' && task.state !== 'Running' && task.state !== 'Queued'));
+  }
+
+  /** 状态色：Android PillTone（Ok / Warn / Err / Neutral）到调色板的映射。 */
+  private taskToneColor(state: string): string {
+    if (state === 'Running') {
+      return this.c().ok;
+    }
+    if (state === 'Submitting' || state === 'Queued') {
+      return this.c().warn;
+    }
+    if (state === 'Failed') {
+      return this.c().err;
+    }
+    return this.c().textMuted;
+  }
+
+  private taskToneBackground(state: string): string {
+    if (state === 'Running') {
+      return this.c().okSoft;
+    }
+    if (state === 'Submitting' || state === 'Queued') {
+      return this.c().warnSoft;
+    }
+    if (state === 'Failed') {
+      return this.c().errSoft;
+    }
+    return this.c().cardStrong;
+  }
+
+  /** 卡片左侧 3vp 状态色轨，同 Android TaskCard 的 rail。 */
+  private taskRailColor(state: string): string {
+    if (state === 'Running') {
+      return this.c().ok;
+    }
+    if (state === 'Submitting' || state === 'Queued') {
+      return this.c().warn;
+    }
+    if (state === 'Failed') {
+      return this.c().err;
+    }
+    return this.c().textDim;
+  }
+
+  /** Android 只在有进度快照时画进度条；这里用状态 + percent 判断。 */
+  private taskShowsProgress(task: BridgeTask): boolean {
+    return task.state === 'Running' || task.state === 'Submitting' || task.percent > 0;
+  }
+
+  /** 卡片上的产物摘要行，文案同 Android：「输出：a、b」。 */
+  private taskOutputLine(task: BridgeTask): string {
+    const names: string[] = [];
+    task.outputRefs.forEach((output: BridgeOutput) => {
+      names.push(output.displayName.length > 0 ? output.displayName : output.filename);
+    });
+    return `输出：${names.join('、')}`;
+  }
+
+  /** 卡片缩略图：最多 3 张可访问的图片产物，复用 artifactUrl 拼装。 */
+  private taskThumbnails(task: BridgeTask): BridgeOutput[] {
+    const images: BridgeOutput[] = [];
+    task.outputRefs.forEach((output: BridgeOutput) => {
+      if (images.length < 3 && output.image && this.artifactUrl(output).length > 0) {
+        images.push(output);
+      }
+    });
+    return images;
+  }
+
+  /** ForEach key：状态、进度、产物和错误变化时重建卡片。 */
+  private taskCardKey(task: BridgeTask): string {
+    const error: string = task.error !== null ? task.error : '';
+    return `${task.id}:${task.state}:${task.percent}:${task.outputRefs.length}:${error}`;
+  }
+
+  /** 任务页「刷新」：让共享层重新对账一次，不重建会话。 */
+  private refreshTaskState(): void {
+    if (!this.running) {
+      return;
+    }
+    this.bridge.reconnect();
   }
 
   /** 关于页：点「项目作者」时复制作者名，并弹一个短暂提示。 */
@@ -3316,6 +3430,25 @@ struct Index {
     .height(7)
   }
 
+  /** 任务卡里的细进度条（5vp），同 Android TaskCard 的 SpectrumProgress(height = 5.dp)。 */
+  @Builder
+  TaskProgressBar(fraction: number) {
+    Stack({ alignContent: Alignment.Start }) {
+      Row()
+        .width('100%')
+        .height(5)
+        .borderRadius(999)
+        .backgroundColor(this.c().cardStrong)
+      Row()
+        .width(`${Math.max(0, Math.min(100, fraction * 100))}%`)
+        .height(5)
+        .borderRadius(999)
+        .linearGradient({ angle: 90, colors: Spectrum.gradientColors(this.c()) })
+    }
+    .width('100%')
+    .height(5)
+  }
+
   /** 全部节点底部面板：搜索 + 特征筛选 + 节点列表，对应 Android ModalBottomSheet。 */
   @Builder
   AllNodesSheet() {
@@ -3477,46 +3610,125 @@ struct Index {
     }
   }
 
+  /**
+   * 任务卡：对应 Android TaskCard —— 左侧 3vp 状态色轨、等宽任务名 + 状态胶囊、
+   * 工作流路径、产物缩略图与「输出：…」摘要、细进度条 + 百分比、可关闭的错误行，
+   * 以及底部「查看产物」（产物面板入口，行为与改造前一致）。
+   */
   @Builder
   TaskCard(task: BridgeTask) {
-    Column({ space: 4 }) {
+    Column({ space: 7 }) {
       Row({ space: 8 }) {
-        Text(task.state === 'Failed' ? 'Failed · 未执行' : `${task.state} · ${task.percent}%`)
-          .fontSize(13)
+        Text(this.taskLabel(task))
+          .fontSize(11.5)
           .fontWeight(FontWeight.Medium)
+          .fontFamily('monospace')
+          .fontColor(this.c().text)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
-        Button(`产物 ${task.outputRefs.length}`)
-          .fontSize(12)
-          .height(30)
-          .enabled(task.outputRefs.length > 0)
-          .onClick(() => this.openArtifacts(task))
+        this.StatusTag(this.taskStateName(task.state),
+          this.taskToneColor(task.state), this.taskToneBackground(task.state))
       }
       .width('100%')
-      Text(this.taskLabel(task))
-        .fontSize(11)
-        .fontColor(this.c().textMuted)
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      .alignItems(VerticalAlign.Center)
+
       if (task.workflowPath !== null && task.workflowPath.length > 0) {
         Text(task.workflowPath)
-          .fontSize(10)
+          .fontSize(9.5)
+          .fontFamily('monospace')
           .fontColor(this.c().textDim)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
       }
-      Progress({ value: task.percent, total: 100, type: ProgressType.Linear })
+
+      if (this.taskShowsProgress(task)) {
+        Row({ space: 8 }) {
+          Column() {
+            this.TaskProgressBar(task.percent / 100)
+          }
+          .layoutWeight(1)
+          Text(`${task.percent}%`)
+            .fontSize(9.5)
+            .fontFamily('monospace')
+            .fontColor(this.c().textDim)
+        }
         .width('100%')
-      if (task.error !== null && task.error.length > 0) {
-        Text(task.error)
-          .fontSize(11)
-          .fontColor(this.c().err)
+        .alignItems(VerticalAlign.Center)
+      }
+
+      if (this.taskThumbnails(task).length > 0) {
+        Row({ space: 6 }) {
+          ForEach(this.taskThumbnails(task), (output: BridgeOutput) => {
+            Image(this.artifactUrl(output))
+              .width(46)
+              .height(46)
+              .borderRadius(9)
+              .objectFit(ImageFit.Cover)
+              .backgroundColor(this.c().cardStrong)
+              .onClick(() => this.openArtifacts(task))
+          }, (output: BridgeOutput) => this.artifactKey(output))
+        }
+        .width('100%')
+      }
+
+      if (task.outputRefs.length > 0) {
+        Text(this.taskOutputLine(task))
+          .fontSize(10)
+          .fontFamily('monospace')
+          .fontColor(this.c().textDim)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+      }
+
+      if (task.error !== null && task.error.length > 0 &&
+        !this.isErrorDismissed(task.id, task.error)) {
+        Row({ space: 8 }) {
+          Text(task.error)
+            .fontSize(10.5)
+            .lineHeight(15)
+            .fontColor(this.c().err)
+            .maxLines(3)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1)
+          this.DismissButton(() => {
+            if (task.error !== null) {
+              this.dismissError(task.id, task.error);
+            }
+          })
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Top)
+      }
+
+      if (task.outputRefs.length > 0) {
+        Row() {
+          this.GhostAction('查看产物', true, () => this.openArtifacts(task))
+        }
+        .width('100%')
       }
     }
     .alignItems(HorizontalAlign.Start)
-    .padding(10)
-    .backgroundColor(this.c().card)
-    .borderRadius(14)
     .width('100%')
+    .padding({ left: 12, right: 12, top: 11, bottom: 11 })
+    .backgroundColor(this.c().card)
+    .borderRadius(16)
+    .border({
+      width: { left: 3, top: 1, right: 1, bottom: 1 },
+      color: {
+        left: this.taskRailColor(task.state),
+        top: this.c().border,
+        right: this.c().border,
+        bottom: this.c().border,
+      },
+    })
+    .onClick(() => {
+      if (task.outputRefs.length > 0) {
+        this.openArtifacts(task);
+      }
+    })
   }
 
   /** 预览卡当前使用的任务：任务页看全局，工作流详情看当前工作流。 */
@@ -3612,25 +3824,138 @@ struct Index {
     .borderRadius(14)
   }
 
+  /** 任务分组标题：11sp 粗体 + 计数胶囊，对应 Android SectionHeader 的排版。 */
+  @Builder
+  TasksSectionHeader(title: string, count: number) {
+    Row({ space: 8 }) {
+      Text(title)
+        .fontSize(11)
+        .fontWeight(FontWeight.Bold)
+        .letterSpacing(0.4)
+        .fontColor(this.c().textMuted)
+      Text(`${count}`)
+        .fontSize(9)
+        .fontFamily('monospace')
+        .fontColor(this.c().textDim)
+        .padding({ left: 6, right: 6, top: 1, bottom: 1 })
+        .borderRadius(999)
+        .backgroundColor(this.c().cardStrong)
+      Blank()
+    }
+    .width('100%')
+    .padding({ left: 2, top: 4, bottom: 1 })
+    .alignItems(VerticalAlign.Center)
+  }
+
+  /** 空状态：对应 Android TaskScreen 没有任务时的 GlassCard，文案原样搬过来。 */
+  @Builder
+  TasksEmptyState() {
+    Column({ space: 4 }) {
+      Text('还没有提交过任务。')
+        .fontSize(12.5)
+        .fontColor(this.c().textMuted)
+        .width('100%')
+      Text('在详情页调好参数后点「提交任务」，进度和产物会出现在这里。')
+        .fontSize(11)
+        .lineHeight(16)
+        .fontColor(this.c().textDim)
+        .width('100%')
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding(16)
+    .margin({ top: 24 })
+    .backgroundColor(this.c().card)
+    .borderRadius(18)
+    .border({ width: 1, color: this.c().border })
+  }
+
+  /**
+   * 任务页正文：连接信息行 + 最近事件 + 进行中卡片，然后按
+   * 进行中 / 排队中 / 已结束 分组列出任务卡；没有任务时给 Android 同款空状态。
+   */
   @Builder
   TasksTab() {
-    if (this.liveCardTask() !== null) {
-      this.LivePreviewCard()
-    }
-    if (this.tasks.length === 0) {
-      Text('还没有任务。').fontSize(12).fontColor(this.c().textMuted)
-    } else {
-      Scroll() {
-        Column({ space: 6 }) {
-          ForEach(this.tasks, (task: BridgeTask) => {
-            this.TaskCard(task)
-          }, (task: BridgeTask) => `${task.id}:${task.state}:${task.percent}:${task.outputRefs.length}`)
+    Column({ space: 10 }) {
+      // Dot + 连接标签 + 「· transport · 第 N 代」，同 Android TaskScreen 顶部那行。
+      Row({ space: 7 }) {
+        Column()
+          .width(6)
+          .height(6)
+          .borderRadius(3)
+          .backgroundColor(this.running ? this.c().ok : this.c().textDim)
+        Text(this.label.split(' · ')[0])
+          .fontSize(11.5)
+          .fontColor(this.c().textMuted)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(`· ${this.network} · 第 ${this.generation} 代`)
+          .fontSize(10)
+          .fontFamily('monospace')
+          .fontColor(this.c().textDim)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1)
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+
+      if (this.notice.length > 0) {
+        Row({ space: 6 }) {
+          Text('最近事件')
+            .fontSize(10)
+            .fontFamily('monospace')
+            .fontColor(this.c().textDim)
+          Text(this.notice)
+            .fontSize(11)
+            .fontColor(this.c().textMuted)
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1)
         }
         .width('100%')
+        .alignItems(VerticalAlign.Top)
       }
-      .layoutWeight(1)
-      .width('100%')
+
+      // 进行中任务保留采样预览卡（Harmony 既有实现，Android 放在详情页）。
+      if (this.liveCardTask() !== null) {
+        this.LivePreviewCard()
+      }
+
+      if (this.tasks.length === 0) {
+        this.TasksEmptyState()
+      } else {
+        Scroll() {
+          Column({ space: 9 }) {
+            if (this.inProgressTasks().length > 0) {
+              this.TasksSectionHeader('进行中', this.inProgressTasks().length)
+              ForEach(this.inProgressTasks(), (task: BridgeTask) => {
+                this.TaskCard(task)
+              }, (task: BridgeTask) => this.taskCardKey(task))
+            }
+            if (this.queuedTasks().length > 0) {
+              this.TasksSectionHeader('排队中', this.queuedTasks().length)
+              ForEach(this.queuedTasks(), (task: BridgeTask) => {
+                this.TaskCard(task)
+              }, (task: BridgeTask) => this.taskCardKey(task))
+            }
+            if (this.finishedTasks().length > 0) {
+              this.TasksSectionHeader('已完成', this.finishedTasks().length)
+              ForEach(this.finishedTasks(), (task: BridgeTask) => {
+                this.TaskCard(task)
+              }, (task: BridgeTask) => this.taskCardKey(task))
+            }
+          }
+          .width('100%')
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .scrollBar(BarState.Off)
+      }
     }
+    .width('100%')
+    .layoutWeight(1)
+    .alignItems(HorizontalAlign.Start)
   }
 
   @Builder
@@ -4388,20 +4713,56 @@ struct Index {
     .height('100%')
   }
 
+  /** 任务页：顶栏（关闭 / 标题 + 队列计数 / 连接状态 / 刷新）+ 正文，对应 Android TaskScreen。 */
   @Builder
   TasksPanel() {
     Column({ space: 8 }) {
-      Row({ space: 8 }) {
-        Text('任务')
-          .fontSize(20)
-          .fontWeight(FontWeight.Bold)
-          .layoutWeight(1)
+      Row({ space: 2 }) {
+        Text('关闭')
+          .fontSize(12)
+          .fontColor(this.c().textMuted)
+          .padding({ left: 7, right: 7, top: 7, bottom: 7 })
+          .borderRadius(8)
+          .margin({ right: 2 })
+          .onClick(() => {
+            this.tasksOpen = false;
+          })
+        Column({ space: 2 }) {
+          Text('任务')
+            .fontSize(15)
+            .fontWeight(FontWeight.Bold)
+            .letterSpacing(-0.2)
+            .fontColor(this.c().text)
+            .maxLines(1)
+          // 队列计数只在连接时可信（Android 同理：queue 为 null 时不显示队列行）。
+          Text(this.running
+            ? `队列：运行 ${this.queueRunning} / 等待 ${this.queuePending}`
+            : `历史任务 ${this.tasks.length} 个`)
+            .fontSize(9.5)
+            .fontFamily('monospace')
+            .letterSpacing(0.4)
+            .fontColor(this.c().textDim)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
         this.StatusPill()
-        this.GhostAction('关闭', true, () => {
-          this.tasksOpen = false;
-        })
+        Text('刷新')
+          .fontSize(12)
+          .fontColor(this.running ? this.c().textMuted : this.c().textDim)
+          .padding({ left: 7, right: 7, top: 7, bottom: 7 })
+          .borderRadius(8)
+          .enabled(this.running)
+          .onClick(() => {
+            this.refreshTaskState();
+          })
       }
       .width('100%')
+      .padding({ left: 4, right: 4 })
+      .constraintSize({ minHeight: 46 })
+      .alignItems(VerticalAlign.Center)
+
       this.TasksTab()
     }
     // 任务面板是整屏覆盖层，不在 MainPanel 的内边距里，需要自己避开系统栏。
