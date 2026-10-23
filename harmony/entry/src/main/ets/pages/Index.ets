@@ -4,6 +4,7 @@ import { image } from '@kit.ImageKit';
 import { util } from '@kit.ArkTS';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { promptAction } from '@kit.ArkUI';
+import { http } from '@kit.NetworkKit';
 import {
   BridgeCatalog,
   BridgeOutput,
@@ -18,6 +19,9 @@ import {
 import { PinnedNodeStore } from '../bridge/PinnedNodeStore';
 import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
 import { NodeNoteStore } from '../bridge/NodeNoteStore';
+import { AddressEntry, AddressStore } from '../bridge/AddressStore';
+import { DismissedErrorStore } from '../bridge/DismissedErrorStore';
+import { emptyServerStats, fetchServerStats, sameServerStats, ServerStats } from '../bridge/ServerStats';
 import { Palette, Spectrum } from '../theme/Spectrum';
 import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/ArtifactDownloader';
 import { ImageUploader, PickedImage } from '../workflow/ImageUploader';
@@ -29,6 +33,9 @@ import {
   WorkflowNodeView,
   WorkflowViewResponse,
 } from '../model/WorkflowTypes';
+
+/** 服务器性能条的轮询间隔（毫秒）；页面不可见时会整个停掉。 */
+const STATS_POLL_MS: number = 2000;
 
 function emptyTask(): BridgeTask {
   return {
@@ -122,6 +129,14 @@ interface PopupStateEvent {
 @Component
 struct Index {
   @State baseUrl: string = 'http://127.0.0.1:8188';
+  /** 最近连接过的地址（冷启动从这里恢复）与地址历史（最新在前）。 */
+  @State addressHistory: AddressEntry[] = [];
+  @State lastUsedUrl: string = '';
+  @State addressMenuOpen: boolean = false;
+  /** 性能条的数据；拿不到的项保持 -1 / ''，页面直接跳过。 */
+  @State serverStats: ServerStats = emptyServerStats();
+  /** 被用户关掉的错误提示 key：`taskId|errorText`，按工作流持久化。 */
+  @State dismissedErrorKey: string = '';
   @State running: boolean = false;
   @State label: string = '未连接';
   @State generation: number = 0;
@@ -203,6 +218,13 @@ struct Index {
   private downloader: ArtifactDownloader = new ArtifactDownloader();
   private imageUploader: ImageUploader = new ImageUploader();
   private noteStore: NodeNoteStore = new NodeNoteStore();
+  private addressStore: AddressStore = new AddressStore();
+  private dismissedStore: DismissedErrorStore = new DismissedErrorStore();
+  /** 性能条复用一个 HttpRequest 句柄，页面离场时 destroy()。 */
+  private statsRequest: http.HttpRequest | null = null;
+  private statsTimer: number = -1;
+  private statsBusy: boolean = false;
+  private statsPaused: boolean = false;
   private notes: Map<number, string> = new Map();
   private previewUris: Map<string, string> = new Map();
   private uiContext: common.UIAbilityContext | null = null;
@@ -222,6 +244,11 @@ struct Index {
   private previewBase64: util.Base64Helper = new util.Base64Helper();
 
   aboutToAppear(): void {
+    // 从相册选择器或后台回来时页面重新可见：恢复性能轮询（此时连接可能还活着）。
+    this.statsPaused = false;
+    if (this.running) {
+      this.startStatsPolling();
+    }
     PersistentStorage.persistProp('appearanceMode', 'system');
     this.applyAppearance();
     // 相册选择器会把页面短暂切到后台；回来时不要重建会话，否则正在进行的上传
@@ -246,6 +273,8 @@ struct Index {
   }
 
   aboutToDisappear(): void {
+    // 先停掉性能轮询和复用的 HTTP 句柄，再走原来的离场逻辑。
+    this.stopStatsPolling();
     if (this.pickerActive) {
       return;
     }
@@ -253,6 +282,20 @@ struct Index {
     this.clearLivePreview();
     this.bridge.stop();
     this.running = false;
+  }
+
+  /** 页面重新可见（含应用回前台）：恢复性能轮询。 */
+  onPageShow(): void {
+    this.statsPaused = false;
+    if (this.running) {
+      this.startStatsPolling();
+    }
+  }
+
+  /** 页面不可见（切后台 / 跳走）：停掉轮询，回来再开。 */
+  onPageHide(): void {
+    this.statsPaused = true;
+    this.stopStatsPolling();
   }
 
   private async bootstrap(): Promise<void> {
@@ -268,8 +311,19 @@ struct Index {
     const pinnedReady: boolean = await this.pinnedStore.open(context);
     const notesReady: boolean = await this.noteStore.open(context);
     const workflowPinsReady: boolean = await this.pinnedWorkflowStore.open(context);
+    // 地址历史和错误关闭状态都必须在第一次连接前就绪。
+    const addressReady: boolean = await this.addressStore.load(context);
+    const dismissedReady: boolean = await this.dismissedStore.open(context);
     if (workflowPinsReady) {
       this.pinnedWorkflowPaths = this.pinnedWorkflowStore.load();
+    }
+    if (addressReady) {
+      // 冷启动优先恢复上次连通过的地址；没有记录时保留默认的 127.0.0.1:8188。
+      this.lastUsedUrl = this.addressStore.lastUrl();
+      this.addressHistory = this.addressStore.history();
+      if (this.lastUsedUrl.length > 0) {
+        this.baseUrl = this.lastUsedUrl;
+      }
     }
     this.storageReady = true;
     if (!result.storage) {
@@ -285,6 +339,12 @@ struct Index {
     }
     if (!notesReady) {
       this.log(`备注存储不可用：${this.noteStore.error}`);
+    }
+    if (!addressReady) {
+      this.log(`地址历史存储不可用：${this.addressStore.error}`);
+    }
+    if (!dismissedReady) {
+      this.log(`错误关闭状态存储不可用：${this.dismissedStore.error}`);
     }
     this.bridge.prepare(this.baseUrl);
   }
@@ -311,6 +371,9 @@ struct Index {
     }
 
     if (this.running && state.phase === 'Connected') {
+      // 共享层确认连上（随后会拉工作流目录）才算“成功连接”：这时才记住地址。
+      this.rememberAddress(this.normalizedBaseUrl());
+      this.startStatsPolling();
       if (!this.catalogRequested) {
         this.catalogRequested = true;
         this.bridge.refreshWorkflows();
@@ -496,6 +559,156 @@ struct Index {
     return url;
   }
 
+  /** 输入框为空时用上次连通的地址当占位，避免冷启动后忘了上次连的是哪台机器。 */
+  private addressPlaceholder(): string {
+    return this.lastUsedUrl.length > 0 ? this.lastUsedUrl : 'http://192.168.1.10:8188';
+  }
+
+  /** 下拉面板里的「当前」标记：和输入框里规范化后的地址比较。 */
+  private isCurrentAddress(entry: AddressEntry): boolean {
+    return this.normalizedBaseUrl() === entry.url;
+  }
+
+  private addressAge(usedAt: number): string {
+    if (usedAt <= 0) {
+      return '';
+    }
+    const elapsed = Date.now() - usedAt;
+    if (elapsed < 60 * 1000) {
+      return '刚刚使用';
+    }
+    if (elapsed < 60 * 60 * 1000) {
+      return `${Math.floor(elapsed / (60 * 1000))} 分钟前`;
+    }
+    if (elapsed < 24 * 60 * 60 * 1000) {
+      return `${Math.floor(elapsed / (60 * 60 * 1000))} 小时前`;
+    }
+    const date = new Date(usedAt);
+    return `${date.getMonth() + 1} 月 ${date.getDate()} 日`;
+  }
+
+  /** 只在连接成功路径上调用：去重、置顶、最多保留 8 条。 */
+  private rememberAddress(url: string): void {
+    if (url.length === 0) {
+      return;
+    }
+    if (this.lastUsedUrl === url && this.addressHistory.length > 0 &&
+      this.addressHistory[0].url === url) {
+      return;
+    }
+    this.addressStore.remember(url).then(() => {
+      this.addressHistory = this.addressStore.history();
+      this.lastUsedUrl = this.addressStore.lastUrl();
+    }).catch((err: Error) => this.log(`地址历史保存失败：${err.message}`));
+  }
+
+  /** ✕ 只从历史里删掉，不清空输入框（用户可能还想连它）。 */
+  private forgetAddress(url: string): void {
+    this.addressStore.forget(url).then(() => {
+      this.addressHistory = this.addressStore.history();
+      this.lastUsedUrl = this.addressStore.lastUrl();
+    }).catch((err: Error) => this.log(`地址历史删除失败：${err.message}`));
+  }
+
+  /** 点历史里的地址：填回输入框并收起面板，连不连由「连接」按钮决定。 */
+  private pickAddress(url: string): void {
+    if (this.running) {
+      // 连接期间输入框锁着，历史也不能偷偷换掉正在用的地址。
+      this.addressMenuOpen = false;
+      return;
+    }
+    this.baseUrl = url;
+    this.addressMenuOpen = false;
+  }
+
+  // ---- 服务器性能条：每 2 秒拉一次 /system_stats + /crystools/monitor ----
+
+  private startStatsPolling(): void {
+    if (!this.running || this.statsPaused) {
+      return;
+    }
+    if (this.statsTimer !== -1) {
+      return;
+    }
+    if (this.statsRequest === null) {
+      try {
+        this.statsRequest = http.createHttp();
+      } catch (err) {
+        // 创建句柄失败时静默放弃性能条，连接与其它功能不受影响。
+        this.statsRequest = null;
+        return;
+      }
+    }
+    this.statsTimer = setInterval(() => {
+      this.pollServerStats();
+    }, STATS_POLL_MS);
+    // 首帧不等 2 秒，连上就显示。
+    this.pollServerStats();
+  }
+
+  private stopStatsPolling(): void {
+    if (this.statsTimer !== -1) {
+      clearInterval(this.statsTimer);
+      this.statsTimer = -1;
+    }
+    const request = this.statsRequest;
+    this.statsRequest = null;
+    if (request !== null) {
+      try {
+        request.destroy();
+      } catch (err) {
+        // 句柄可能已随失败的请求销毁，这里忽略。
+      }
+    }
+    this.clearServerStats();
+  }
+
+  private clearServerStats(): void {
+    if (this.hasServerStats()) {
+      this.serverStats = emptyServerStats();
+    }
+  }
+
+  private hasServerStats(): boolean {
+    const stats = this.serverStats;
+    return stats.ramPercent >= 0 || stats.vramPercent >= 0 || stats.cpuPercent >= 0 ||
+      stats.gpuPercent >= 0 || stats.temperature >= 0 || stats.version.length > 0;
+  }
+
+  private async pollServerStats(): Promise<void> {
+    if (this.statsBusy) {
+      // 上一次请求还没回来（服务器慢），跳过这一拍，别把请求堆起来。
+      return;
+    }
+    const request = this.statsRequest;
+    const url = this.normalizedBaseUrl();
+    if (request === null || url.length === 0) {
+      return;
+    }
+    this.statsBusy = true;
+    try {
+      const stats: ServerStats | null = await fetchServerStats(request, url);
+      // 轮询期间可能已经断开或换了地址：旧句柄的结果直接丢弃。
+      if (this.statsRequest !== request) {
+        return;
+      }
+      if (stats === null) {
+        // 两个接口都失败（服务器离线 / 没有该扩展）：整块消失，不留永久红字。
+        this.clearServerStats();
+        return;
+      }
+      if (!sameServerStats(this.serverStats, stats)) {
+        this.serverStats = stats;
+      }
+    } catch (err) {
+      if (this.statsRequest === request) {
+        this.clearServerStats();
+      }
+    } finally {
+      this.statsBusy = false;
+    }
+  }
+
   private connect(): void {
     const url = this.normalizedBaseUrl();
     if (url.length === 0) {
@@ -511,6 +724,8 @@ struct Index {
     this.reopenRequested = false;
     this.summaryKey = '';
     this.clearLivePreview();
+    // 旧地址的性能数据不能留在界面上；连上后 applyState 会重新开轮询。
+    this.stopStatsPolling();
     this.log(`开始连接 ${url}`);
     this.running = true;
     const started = this.bridge.start(url);
@@ -524,6 +739,7 @@ struct Index {
   private disconnect(): void {
     this.cancelEditRefresh();
     this.clearLivePreview();
+    this.stopStatsPolling();
     this.bridge.stop();
     this.running = false;
     this.label = '未连接';
@@ -558,6 +774,9 @@ struct Index {
     this.resetUploadState();
     this.pinnedIds = this.pinnedStore.load(path);
     this.notes = this.noteStore.load(path);
+    // 同一个工作流上次关掉的错误块重新打开时保持关闭（key 由 taskId|errorText 组成，
+    // 换了错误文案就不再匹配，会自动重新显示）。
+    this.dismissedErrorKey = this.dismissedStore.load(path);
     this.nodeNotesVersion++;
     this.previewUris.clear();
     this.previewVersion++;
@@ -600,6 +819,7 @@ struct Index {
     this.view = emptyView();
     this.viewError = '';
     this.submitNotice = '';
+    this.dismissedErrorKey = '';
   }
 
   private refreshView(scrollTop: boolean = false): void {
@@ -1339,6 +1559,45 @@ struct Index {
       : '不可提交：工作流还没有就绪';
   }
 
+  // ---- 可关闭的错误提示 ----
+
+  /** 错误块的 key：`taskId|errorText`；工作流级错误用 `selectedPath#来源` 当作用域 id。 */
+  private errorSurfaceKey(scopeId: string, text: string): string {
+    return `${scopeId}|${text}`;
+  }
+
+  private workflowScopeId(surface: string): string {
+    // 工作流级错误没有 taskId，用「工作流 + 错误来源」当作用域，避免不同错误文案
+    // 恰好相同时互相顶掉对方的关闭状态。
+    return `${this.selectedPath}#${surface}`;
+  }
+
+  /** 构建失败的完整文案（problems 每条一行），key 跟着内容变。 */
+  private buildErrorText(): string {
+    return this.view.problems.map((problem: BuildProblemView) => problem.display).join('\n');
+  }
+
+  private isErrorDismissed(scopeId: string, text: string): boolean {
+    return text.length > 0 && this.dismissedErrorKey === this.errorSurfaceKey(scopeId, text);
+  }
+
+  /**
+   * 关掉一条错误提示：只影响展示，不改错误来源。key 里带错误原文，
+   * 下一条不同的错误依然会显示；按工作流持久化，重开工作流仍然保持关闭。
+   */
+  private dismissError(scopeId: string, text: string): void {
+    if (text.length === 0) {
+      return;
+    }
+    const key = this.errorSurfaceKey(scopeId, text);
+    this.dismissedErrorKey = key;
+    if (this.selectedPath.length === 0) {
+      return;
+    }
+    this.dismissedStore.save(this.selectedPath, key)
+      .catch((err: Error) => this.log(`错误关闭状态保存失败：${err.message}`));
+  }
+
   private openArtifacts(task: BridgeTask): void {
     this.artifactTask = task;
     this.artifactOpen = true;
@@ -2038,25 +2297,43 @@ struct Index {
       .constraintSize({ minHeight: 46 })
       .alignItems(VerticalAlign.Center)
 
+      // ---- 服务器性能条：对应 Android 详情页标题下方的 ServerStatsStrip ----
+      this.ServerStatsStrip()
+
       // ---- 读取状态：对应 Android LoadingBody / ErrorBody 的内联提示 ----
       if (this.workflow.loadingPath !== null) {
         this.InlineNote(`正在读取 ${this.workflow.loadingPath}`)
       }
-      if (this.workflow.error !== null && this.workflow.error.length > 0) {
-        Text(`读取失败：${this.workflow.error}`)
-          .fontSize(11)
-          .lineHeight(16)
-          .fontColor(this.c().err)
-          .width('100%')
-          .padding({ left: 4, right: 4 })
+      if (this.workflow.error !== null && this.workflow.error.length > 0 &&
+        !this.isErrorDismissed(this.workflowScopeId('load'), `读取失败：${this.workflow.error}`)) {
+        Row({ space: 8 }) {
+          Text(`读取失败：${this.workflow.error}`)
+            .fontSize(11)
+            .lineHeight(16)
+            .fontColor(this.c().err)
+            .layoutWeight(1)
+          this.DismissButton(() => {
+            if (this.workflow.error !== null) {
+              this.dismissError(this.workflowScopeId('load'), `读取失败：${this.workflow.error}`);
+            }
+          })
+        }
+        .width('100%')
+        .padding({ left: 4, right: 4 })
+        .alignItems(VerticalAlign.Top)
       }
-      if (this.viewError.length > 0) {
-        Text(this.viewError)
-          .fontSize(11)
-          .lineHeight(16)
-          .fontColor(this.c().err)
-          .width('100%')
-          .padding({ left: 4, right: 4 })
+      if (this.viewError.length > 0 && !this.isErrorDismissed(this.workflowScopeId('view'), this.viewError)) {
+        Row({ space: 8 }) {
+          Text(this.viewError)
+            .fontSize(11)
+            .lineHeight(16)
+            .fontColor(this.c().err)
+            .layoutWeight(1)
+          this.DismissButton(() => this.dismissError(this.workflowScopeId('view'), this.viewError))
+        }
+        .width('100%')
+        .padding({ left: 4, right: 4 })
+        .alignItems(VerticalAlign.Top)
       }
       if (this.viewLoading) {
         this.InlineNote('正在生成字段视图…')
@@ -2143,19 +2420,37 @@ struct Index {
           .width('100%')
           .padding({ left: 4, right: 4 })
       }
-      if (this.view.problems.length > 0) {
+      if (this.view.problems.length > 0 &&
+        !this.isErrorDismissed(this.workflowScopeId('build'), this.buildErrorText())) {
         Column() {
-          Column({ space: 2 }) {
-            ForEach(this.view.problems, (problem: BuildProblemView) => {
-              Text(problem.display)
-                .fontSize(11)
-                .lineHeight(16)
+          Column() {
+            Row({ space: 8 }) {
+              Text('构建失败')
+                .fontSize(10)
+                .fontFamily('monospace')
+                .letterSpacing(0.6)
                 .fontColor(this.c().err)
-            }, (problem: BuildProblemView) => `${problem.nodeId}:${problem.message}`)
+                .layoutWeight(1)
+              this.DismissButton(() => this.dismissError(this.workflowScopeId('build'), this.buildErrorText()))
+            }
+            .width('100%')
+            .padding({ left: 11, right: 5, top: 6, bottom: 2 })
+            .alignItems(VerticalAlign.Center)
+
+            Column({ space: 2 }) {
+              ForEach(this.view.problems, (problem: BuildProblemView) => {
+                Text(problem.display)
+                  .fontSize(11)
+                  .lineHeight(16)
+                  .fontColor(this.c().err)
+              }, (problem: BuildProblemView) => `${problem.nodeId}:${problem.message}`)
+            }
+            .alignItems(HorizontalAlign.Start)
+            .width('100%')
+            .padding({ left: 11, right: 11, bottom: 11 })
           }
           .alignItems(HorizontalAlign.Start)
           .width('100%')
-          .padding(11)
           .backgroundColor(this.c().card)
           .borderRadius(16)
           .border({ width: 1, color: this.c().border })
@@ -2241,12 +2536,18 @@ struct Index {
           .height(1)
           .backgroundColor(this.c().border)
         Column({ space: 8 }) {
-          if (this.submitNotice.length > 0) {
-            Text(this.submitNotice)
-              .fontSize(10.5)
-              .lineHeight(15)
-              .fontColor(this.submitNotice.startsWith('已提交') ? this.c().ok : this.c().err)
-              .width('100%')
+          if (this.submitNotice.length > 0 &&
+            !this.isErrorDismissed(this.workflowScopeId('submit'), this.submitNotice)) {
+            Row({ space: 8 }) {
+              Text(this.submitNotice)
+                .fontSize(10.5)
+                .lineHeight(15)
+                .fontColor(this.submitNotice.startsWith('已提交') ? this.c().ok : this.c().err)
+                .layoutWeight(1)
+              this.DismissButton(() => this.dismissError(this.workflowScopeId('submit'), this.submitNotice))
+            }
+            .width('100%')
+            .alignItems(VerticalAlign.Top)
           }
           if (!this.view.canSubmit) {
             Text(this.blockReason())
@@ -2361,6 +2662,19 @@ struct Index {
     .width('100%')
     .padding({ left: 4, right: 4, top: 4, bottom: 2 })
     .alignItems(VerticalAlign.Center)
+  }
+
+  /** 错误块右上角的小 ✕：只隐藏这一条提示，不改变错误来源。 */
+  @Builder
+  DismissButton(action: () => void) {
+    Text('✕')
+      .fontSize(11)
+      .fontColor(this.c().textDim)
+      .padding({ left: 7, right: 7, top: 4, bottom: 4 })
+      .borderRadius(8)
+      .backgroundColor(this.c().card)
+      .border({ width: 1, color: this.c().border })
+      .onClick(() => action())
   }
 
   /** 节点图分组标题，对应 Android SectionHeader。 */
@@ -2483,6 +2797,154 @@ struct Index {
     .borderRadius(12)
     .backgroundColor(checked ? this.c().accentSoft : Color.Transparent)
     .onClick(() => action())
+  }
+
+  /** 地址历史下拉：最近连通的地址（最新在前）+ 删除；样式与图选择器一致。 */
+  @Builder
+  AddressMenuPanel() {
+    Column() {
+      Text('最近的地址')
+        .fontSize(9)
+        .fontFamily('monospace')
+        .letterSpacing(0.8)
+        .fontColor(this.c().textDim)
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 4, bottom: 6 })
+
+      if (this.addressHistory.length === 0) {
+        Text('还没有保存过的地址')
+          .fontSize(11)
+          .fontColor(this.c().textMuted)
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 6, bottom: 10 })
+      } else {
+        ForEach(this.addressHistory, (entry: AddressEntry, index: number) => {
+          if (index > 0) {
+            Column() {
+              Row()
+                .width('100%')
+                .height(1)
+                .backgroundColor(this.c().border)
+            }
+            .width('100%')
+            .padding({ left: 8, right: 8, top: 2, bottom: 2 })
+          }
+          this.AddressMenuRow(entry)
+        }, (entry: AddressEntry) => `${entry.url}:${entry.usedAt}`)
+      }
+    }
+    .width(300)
+    .padding({ top: 6, bottom: 6, left: 6, right: 6 })
+    .backgroundColor(this.c().dialog)
+    .borderRadius(18)
+    .border({ width: 1, color: this.c().border })
+    .shadow({ radius: 22, color: 'rgba(0,0,0,0.45)', offsetX: 0, offsetY: 10 })
+  }
+
+  /** 下拉里的一行：地址 + 使用时间 + 「当前」标记 + ✕。 */
+  @Builder
+  AddressMenuRow(entry: AddressEntry) {
+    Row({ space: 6 }) {
+      Row({ space: 6 }) {
+        Column({ space: 2 }) {
+          Text(entry.url)
+            .fontSize(11.5)
+            .fontFamily('monospace')
+            .fontColor(this.isCurrentAddress(entry) ? this.c().text : this.c().textMuted)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(this.addressAge(entry.usedAt))
+            .fontSize(9)
+            .fontFamily('monospace')
+            .fontColor(this.c().textDim)
+            .maxLines(1)
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+
+        if (this.isCurrentAddress(entry)) {
+          Text('当前')
+            .fontSize(9.5)
+            .fontFamily('monospace')
+            .fontColor(this.c().ok)
+            .padding({ left: 7, right: 7, top: 3, bottom: 3 })
+            .borderRadius(7)
+            .backgroundColor(this.c().okSoft)
+            .border({ width: 1, color: this.c().ok })
+        }
+      }
+      .layoutWeight(1)
+      .padding({ top: 6, bottom: 6 })
+      .alignItems(VerticalAlign.Center)
+      .onClick(() => this.pickAddress(entry.url))
+
+      Text('✕')
+        .fontSize(11)
+        .fontColor(this.c().textDim)
+        .padding({ left: 8, right: 8, top: 7, bottom: 7 })
+        .borderRadius(8)
+        .onClick(() => this.forgetAddress(entry.url))
+    }
+    .width('100%')
+    .padding({ left: 10, right: 6 })
+    .borderRadius(12)
+    .backgroundColor(this.isCurrentAddress(entry) ? this.c().accentSoft : Color.Transparent)
+    .alignItems(VerticalAlign.Center)
+  }
+
+  /**
+   * 服务器性能条：一行可换行的紧凑单元。
+   * 拿不到的项不渲染；全部拿不到时整块不渲染（离线时页面不会多一条红字）。
+   */
+  @Builder
+  ServerStatsStrip() {
+    if (this.hasServerStats()) {
+      Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center }) {
+        if (this.serverStats.ramPercent >= 0) {
+          this.ServerStatCell('内存 %', `${Math.round(this.serverStats.ramPercent)}`)
+        }
+        if (this.serverStats.vramPercent >= 0) {
+          this.ServerStatCell('显存 %', `${Math.round(this.serverStats.vramPercent)}`)
+        }
+        if (this.serverStats.cpuPercent >= 0) {
+          this.ServerStatCell('CPU %', `${Math.round(this.serverStats.cpuPercent)}`)
+        }
+        if (this.serverStats.gpuPercent >= 0) {
+          this.ServerStatCell('GPU %', `${Math.round(this.serverStats.gpuPercent)}`)
+        }
+        if (this.serverStats.temperature >= 0) {
+          this.ServerStatCell('温度 °C', `${Math.round(this.serverStats.temperature)}`)
+        }
+        if (this.serverStats.version.length > 0) {
+          this.ServerStatCell('版本', this.serverStats.version)
+        }
+      }
+      .width('100%')
+      .padding({ left: 4, right: 4, top: 6, bottom: 6 })
+      .backgroundColor(this.c().card)
+      .borderRadius(14)
+      .border({ width: 1, color: this.c().border })
+    }
+  }
+
+  /** 性能条里的一个单元：9sp 等宽标签 + 12sp 数值。 */
+  @Builder
+  ServerStatCell(label: string, value: string) {
+    Column({ space: 1 }) {
+      Text(label)
+        .fontSize(9)
+        .fontFamily('monospace')
+        .letterSpacing(0.4)
+        .fontColor(this.c().textDim)
+        .maxLines(1)
+      Text(value)
+        .fontSize(12)
+        .fontColor(this.c().text)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+    }
+    .alignItems(HorizontalAlign.Start)
+    .margin({ left: 10, right: 10, top: 3, bottom: 3 })
   }
 
   @Builder
@@ -2642,11 +3104,17 @@ struct Index {
         .backgroundColor(this.c().dialog)
         .border({ width: 1, color: this.c().borderStrong })
 
-        if (this.submitNotice.length > 0) {
-          Text(this.submitNotice)
-            .fontSize(11)
-            .fontColor(this.submitNotice.startsWith('已提交') ? this.c().ok : this.c().err)
-            .width('100%')
+        if (this.submitNotice.length > 0 &&
+          !this.isErrorDismissed(this.workflowScopeId('submit'), this.submitNotice)) {
+          Row({ space: 8 }) {
+            Text(this.submitNotice)
+              .fontSize(11)
+              .fontColor(this.submitNotice.startsWith('已提交') ? this.c().ok : this.c().err)
+              .layoutWeight(1)
+            this.DismissButton(() => this.dismissError(this.workflowScopeId('submit'), this.submitNotice))
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Top)
         } else {
           Text('这个工作流还没有任务。')
             .fontSize(11)
@@ -2732,12 +3200,22 @@ struct Index {
         .width('100%')
         .alignItems(VerticalAlign.Bottom)
 
-        if (task.error !== null && task.error.length > 0) {
-          Text(`任务失败：${task.error}`)
-            .fontSize(11)
-            .lineHeight(16)
-            .fontColor(this.c().err)
-            .width('100%')
+        if (task.error !== null && task.error.length > 0 &&
+          !this.isErrorDismissed(task.id, task.error)) {
+          Row({ space: 8 }) {
+            Text(`任务失败：${task.error}`)
+              .fontSize(11)
+              .lineHeight(16)
+              .fontColor(this.c().err)
+              .layoutWeight(1)
+            this.DismissButton(() => {
+              if (task.error !== null) {
+                this.dismissError(task.id, task.error);
+              }
+            })
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Top)
         } else if (task.outputRefs.length > 0 && this.firstImageUrl(task).length === 0) {
           Text(`产物 ${task.outputRefs.length} 个；该类型暂不内置预览。`)
             .fontSize(10.5)
@@ -3586,10 +4064,9 @@ struct Index {
               .letterSpacing(1.1)
               .width('100%')
 
-            // 对应 AddressField 的输入框外观。历史下拉在鸿蒙侧还没有对应的状态，暂不渲染，
-            // 输入框本身的行为与 Android 一致（失焦写入由 connect() 统一处理）。
+            // 对应 AddressField：输入框 + 右侧 ▾ 历史下拉。空输入时占位显示上次连通的地址。
             Row() {
-              TextInput({ text: this.baseUrl, placeholder: 'http://192.168.1.10:8188' })
+              TextInput({ text: this.baseUrl, placeholder: this.addressPlaceholder() })
                 .fontSize(12.5)
                 .fontFamily('monospace')
                 .fontColor(this.c().text)
@@ -3603,6 +4080,37 @@ struct Index {
                 .enabled(!this.running)
                 .onChange((value: string) => {
                   this.baseUrl = value;
+                })
+              Text('▾')
+                .fontSize(11)
+                .fontColor(this.addressHistory.length > 0 ? this.c().textMuted : this.c().textDim)
+                .width(28)
+                .height(28)
+                .textAlign(TextAlign.Center)
+                .borderRadius(9)
+                .backgroundColor(this.addressMenuOpen ? this.c().accentSoft : this.c().card)
+                .border({
+                  width: 1,
+                  color: this.addressMenuOpen ? this.c().accentBorder : this.c().border,
+                })
+                .margin({ left: 6 })
+                // 输入框在连接期间是锁住的，历史下拉也不该能改地址。
+                .enabled(!this.running)
+                .opacity(this.running ? 0.45 : 1)
+                .onClick(() => {
+                  this.addressMenuOpen = !this.addressMenuOpen;
+                })
+                .bindPopup(this.addressMenuOpen, {
+                  builder: this.AddressMenuPanel,
+                  placement: Placement.Bottom,
+                  popupColor: this.c().dialog,
+                  enableArrow: false,
+                  radius: 18,
+                  onStateChange: (event: PopupStateEvent) => {
+                    if (!event.isVisible) {
+                      this.addressMenuOpen = false;
+                    }
+                  },
                 })
             }
             .width('100%')
@@ -3738,6 +4246,11 @@ struct Index {
           .backgroundColor(this.c().card)
           .borderRadius(18)
           .border({ width: 1, color: this.c().border })
+
+          // 已连接时顺手显示服务器性能；拿不到就整块不渲染。
+          if (this.running) {
+            this.ServerStatsStrip()
+          }
 
           if (this.notice.length > 0) {
             // notice?.let { 最近事件 … }：等宽小标签 + 正文。
