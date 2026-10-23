@@ -2,27 +2,39 @@
 
 ## 方案
 「纯 C」：一条粗笔画、圆头的开口环，开口朝右，形成字母 C；颜色沿弧线从青绿走到粉，
-深色圆角底承托。不放任何附加元素——之前版本在节点外圈加了背景色描边，缩放后会出现
-黑色尖刺，已废弃。
+深色圆角底承托。不放任何附加元素。
+
+本轮实现改成 **角度渐变 + 形状遮罩** 绘制，不再逐段画线，因此缩放后不会出现
+放射状条纹；Android 背景和鸿蒙背景都是纯色 `#0A0B10`，不再叠加光晕。
 
 ## 几何
 - 画布 1024×1024，圆角半径 22.5%（230）。
-- 环中心居中，半径 27%，笔画宽度 15.5%，开口 45°→315°（右侧 90° 缺口）。
+- 环中心居中，中心线半径 27%（276.5），笔画宽度 15.5%（158.7），开口 45°→315°（右侧 90° 缺口）。
 - 端点圆头，直径等于笔画宽度。
+- Android 自适应前景内容按 0.86 缩放，外接圆约 260px，压在 66dp 安全区（432px 下为 264px）内。
+- 鸿蒙分层前景使用完整 1024 画布的环，背景同尺寸纯色。
 
 ## 颜色
 - 底：#0A0B10
 - 渐变：#5EEAD4（0%）→ #8B5CF6（50%）→ #F472B6（100%），沿弧线角度线性插值。
+- 端点圆头沿用端点色，避免圆头与弧线之间出现色差接缝。
 
 ## 交付尺寸
 - 主图：1024×1024（应用商店、关于页）。
-- Android 自适应图标：前景 432×432（108dp@4x，内容缩至 66dp 安全区）、背景 432×432、monochrome 432×432；
-  由系统裁切成 mipmap 各密度。
+- Android 自适应图标：前景 432×432、背景 432×432、monochrome 432×432（白色 C，
+  同样压在 66dp 安全区）；由系统裁切成 mipmap 各密度。
 - 鸿蒙分层图标：前景 1024、背景 1024，交给 `layered_image.json`。
-- 小尺寸验证：24 / 32 / 48 / 72 / 96 / 160 均可辨认（见 sizes.png）。
+- 小尺寸验证：24 / 32 / 48 / 72 / 96 / 160，见 `sizes.png`。
+
+## 生成
+```powershell
+python docs/design/app-icon/generate.py
+```
+脚本只依赖 Pillow 与 numpy，输出目录就是本目录。所有几何/颜色常量都在脚本顶部。
 
 ## 文件
-- master_1024.png
-- android_foreground_432.png / android_background_432.png / android_monochrome_432.png
-- harmony_foreground_1024.png / harmony_background_1024.png
-- sizes.png
+- `generate.py`
+- `master_1024.png`
+- `android_foreground_432.png` / `android_background_432.png` / `android_monochrome_432.png`
+- `harmony_foreground_1024.png` / `harmony_background_1024.png`
+- `sizes.png`
