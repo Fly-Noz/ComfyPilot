@@ -749,19 +749,45 @@ struct Index {
   private download(output: BridgeOutput): void {
     const context = this.uiContext;
     if (context === null) {
-      this.downloadNotice = '没有 Ability 上下文，不能写入下载目录';
+      this.downloadNotice = '没有 Ability 上下文，不能保存产物';
       return;
     }
     this.downloadingKey = this.artifactKey(output);
     this.downloadNotice = '';
     this.downloader.download(context, this.normalizedBaseUrl(), output).then((result: ArtifactDownloadResult) => {
       this.downloadingKey = '';
-      this.downloadNotice = result.ok ? result.message : `下载失败：${result.message}`;
+      if (result.ok || result.cancelled === true) {
+        this.downloadNotice = result.message;
+      } else {
+        this.downloadNotice = `保存失败：${result.message}`;
+      }
       this.log(result.message);
     }).catch((err: Error) => {
       this.downloadingKey = '';
-      this.downloadNotice = `下载失败：${err.message}`;
+      this.downloadNotice = `保存失败：${err.message}`;
     });
+  }
+
+  private isGalleryOutput(output: BridgeOutput): boolean {
+    return output.image || output.video;
+  }
+
+  private artifactActionLabel(output: BridgeOutput): string {
+    return this.isGalleryOutput(output) ? '保存到相册' : '下载';
+  }
+
+  private artifactActionBusyLabel(output: BridgeOutput): string {
+    return this.isGalleryOutput(output) ? '保存中…' : '下载中…';
+  }
+
+  private downloadNoticeColor(): string {
+    if (this.downloadNotice.startsWith('已保存')) {
+      return '#1B8A3A';
+    }
+    if (this.downloadNotice.startsWith('已取消')) {
+      return '#666666';
+    }
+    return '#B00020';
   }
 
   private catalogError(): string {
@@ -1217,7 +1243,7 @@ struct Index {
             this.previewError = false;
           })
       } else if (output.video) {
-        Text('视频产物：鸿蒙侧本轮提供下载；下载后可用系统播放器打开。')
+        Text('视频产物：点击“保存到相册”，系统确认后会写入相册。')
           .fontSize(11)
           .fontColor('#666666')
       } else if (output.audio) {
@@ -1242,7 +1268,11 @@ struct Index {
               this.previewError = false;
             })
         }
-        Button(this.downloadingKey === this.artifactKey(output) ? '下载中…' : '下载')
+        Button(
+          this.downloadingKey === this.artifactKey(output)
+            ? this.artifactActionBusyLabel(output)
+            : this.artifactActionLabel(output),
+        )
           .fontSize(12)
           .height(30)
           .enabled(this.downloadingKey.length === 0)
@@ -1273,7 +1303,11 @@ struct Index {
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .layoutWeight(1)
-      Button(this.downloadingKey === this.artifactKey(this.previewOutput) ? '下载中…' : '下载')
+      Button(
+        this.downloadingKey === this.artifactKey(this.previewOutput)
+          ? this.artifactActionBusyLabel(this.previewOutput)
+          : this.artifactActionLabel(this.previewOutput),
+      )
         .fontSize(12)
         .height(30)
         .enabled(this.downloadingKey.length === 0)
@@ -1333,7 +1367,7 @@ struct Index {
       if (this.downloadNotice.length > 0) {
         Text(this.downloadNotice)
           .fontSize(11)
-          .fontColor(this.downloadNotice.startsWith('已保存') ? '#1B8A3A' : '#B00020')
+          .fontColor(this.downloadNoticeColor())
       }
 
       if (this.previewOpen) {

@@ -13,7 +13,8 @@
 | 真实 ComfyUI | 鸿蒙通过 Tailscale 直连 `http://100.x.x.x:8188`；Android 通过 `adb reverse` + 本机 TCP 代理访问同一主机 |
 
 结论边界：工作流提交、任务进度、图片预览和产物文件名唯一性已在真机验证；
-系统下载目录、视频/音频播放和多图编辑仍属于后续范围；本机相册上传已由 S7-02 完成。
+图片/视频相册保存、视频/音频播放和多图编辑仍待真机确认或属于后续范围；
+本机相册上传已由 S7-02 完成。
 旧任务中已经被覆盖的产物无法恢复，只能保证新提交的产物不再互相覆盖。
 
 ## 1. 已实现
@@ -56,16 +57,19 @@
 - 状态帧中的每个任务新增 `outputRefs`，字段包括文件名、显示名、MIME、
   节点、类型、是否图片/视频/音频和相对 `/view` 路径；
 - 图片使用 ArkUI `Image` 预览；
-- 视频、音频和其他类型至少下载；
-- 下载流程：
-  1. 用 `DocumentViewPicker` 的 `DOWNLOAD` 模式取得 `Download/<包名>/` 目录 URI；
-  2. 系统 `request.downloadFile` 下载到 app cache；
-  3. 复制到该下载目录；
-  4. 同名文件按 `name (1).ext` 避让；
+- 图片/视频保存到系统相册；音频和其他类型下载到 `Download/<包名>/`；
+- 保存流程：
+  1. 系统 `request.downloadFile` 下载到 app cache，临时文件带正确扩展名；
+  2. 图片/视频：`showAssetsCreationDialog` 弹出系统保存确认框，用户允许后
+     返回相册 URI，再用 `fileIo.copyFile` 写入；
+  3. 音频/其他：用 `DocumentViewPicker` 的 `DOWNLOAD` 模式取得
+     `Download/<包名>/` 目录 URI，再复制过去；
+  4. 下载目录中的同名文件按 `name (1).ext` 避让；
   5. 清理临时文件。
 - 不申请 `ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY`：该权限在当前
-  HarmonyOS 版本属于受限权限，普通 debug HAP 没有 ACL 时无法授权，
-  会直接报“未获得下载目录权限”。`DOWNLOAD` 模式由 FilePicker 授权，无需权限。
+  HarmonyOS 版本属于受限权限，普通 debug HAP 没有 ACL 时无法授权。
+- 不申请 `ohos.permission.WRITE_IMAGEVIDEO`：图片/视频走
+  `showAssetsCreationDialog` 弹窗授权，普通应用即可使用。
 - 文件名/MIME/媒体判断由共享层 `ArtifactNames` 提供，鸿蒙侧不重写规则。
 
 ### 真实工作流文件名覆盖修复
@@ -130,12 +134,14 @@ QW21-%date:yyyyMMddhhmmss%_00001_.png
    - 修复前多个成功任务都写同一个 `QW21-%date:yyyyMMddhhmmss%_00001_.png`；
    - 修复后用户真机确认新任务产物不再互相覆盖；
    - 旧产物已被覆盖，无法恢复。
-4. 下载权限修复（2026-10-23，待用户真机确认）：
+4. 保存位置调整（2026-10-23，待用户真机确认）：
    - 旧实现申请 `ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY`，在当前
      HarmonyOS 7.0 / API 26 的 debug HAP 上授权结果为 `-1`，界面报
      “未获得下载目录权限”；
-   - 新实现改用 `DocumentViewPicker` 的 `DOWNLOAD` 模式，不再申请该权限；
-   - 新 HAP 已构建并安装，下载目录为 `Download/<包名>/`。
+   - 新实现不再申请该权限；图片/视频改用 `showAssetsCreationDialog`
+     弹窗授权并保存到相册，音频/其他仍用 `DocumentViewPicker` 的
+     `DOWNLOAD` 模式保存到 `Download/<包名>/`；
+   - 新 HAP 已构建并安装，等待真机确认相册保存和取消分支。
 5. 跨端提交规则（2026-10-22 18:30 回归）：
    - 鸿蒙：关闭两个节点图后，页面显示“不可提交：没有启用任何节点图，不能提交”，
      提交按钮变为不可用；重新启用后恢复。
