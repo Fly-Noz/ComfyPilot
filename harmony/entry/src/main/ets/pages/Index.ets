@@ -1,5 +1,5 @@
 import { nativeVersion } from 'libentry.so';
-import { common } from '@kit.AbilityKit';
+import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { util } from '@kit.ArkTS';
 import {
@@ -16,7 +16,7 @@ import {
 import { PinnedNodeStore } from '../bridge/PinnedNodeStore';
 import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
 import { NodeNoteStore } from '../bridge/NodeNoteStore';
-import { Spectrum } from '../theme/Spectrum';
+import { Palette, Spectrum } from '../theme/Spectrum';
 import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/ArtifactDownloader';
 import { ImageUploader, PickedImage } from '../workflow/ImageUploader';
 import {
@@ -153,6 +153,8 @@ struct Index {
   @State nodeNotesVersion: number = 0;
   @State previewVersion: number = 0;
   @State noteEditorId: number = -1;
+  @StorageLink('appearanceMode') appearanceMode: string = 'system';
+  @State isDark: boolean = true;
   @State tasksOpen: boolean = false;
   @State settingsOpen: boolean = false;
   @State noteDraft: string = '';
@@ -197,6 +199,8 @@ struct Index {
   private previewBase64: util.Base64Helper = new util.Base64Helper();
 
   aboutToAppear(): void {
+    PersistentStorage.persistProp('appearanceMode', 'system');
+    this.applyAppearance();
     // 相册选择器会把页面短暂切到后台；回来时不要重建会话，否则正在进行的上传
     // 会被停止，工作流和节点图选择也会被重置。
     if (this.skipNextAppear) {
@@ -1086,12 +1090,12 @@ struct Index {
 
   private noticeColor(): string {
     if (this.notice.startsWith('提交被拒绝')) {
-      return Spectrum.err;
+      return this.c().err;
     }
     if (this.notice.startsWith('已提交')) {
-      return Spectrum.ok;
+      return this.c().ok;
     }
-    return Spectrum.warn;
+    return this.c().warn;
   }
 
   /** 按钮禁用时，把“为什么不能提交”放在按钮正上方，避免只看到灰按钮没有提示。 */
@@ -1165,12 +1169,12 @@ struct Index {
 
   private downloadNoticeColor(): string {
     if (this.downloadNotice.startsWith('已保存')) {
-      return Spectrum.ok;
+      return this.c().ok;
     }
     if (this.downloadNotice.startsWith('已取消')) {
-      return Spectrum.textMuted;
+      return this.c().textMuted;
     }
-    return Spectrum.err;
+    return this.c().err;
   }
 
   private catalogError(): string {
@@ -1191,7 +1195,7 @@ struct Index {
             .fontWeight(FontWeight.Medium)
           Text(node.title !== null && node.title.length > 0 ? node.title : node.type)
             .fontSize(11)
-            .fontColor(Spectrum.textDim)
+            .fontColor(this.c().textDim)
         }
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
@@ -1209,11 +1213,11 @@ struct Index {
       if (node.missing) {
         Text('服务端没有这个节点的定义，请先在 ComfyUI 安装对应自定义节点。')
           .fontSize(11)
-          .fontColor(Spectrum.warn)
+          .fontColor(this.c().warn)
       } else if (!node.reachable) {
         Text('该节点未连接到已启用的输出，本次不会执行；置顶状态会保留。')
           .fontSize(11)
-          .fontColor(Spectrum.textDim)
+          .fontColor(this.c().textDim)
       }
 
       ForEach(node.fields, (field: WorkflowFieldView) => {
@@ -1223,7 +1227,7 @@ struct Index {
     }
     .alignItems(HorizontalAlign.Start)
     .padding(10)
-    .backgroundColor(Spectrum.card)
+    .backgroundColor(this.c().card)
     .borderRadius(14)
     .width('100%')
   }
@@ -1237,12 +1241,12 @@ struct Index {
         if (field.needsInput) {
           Text('待填写')
             .fontSize(10)
-            .fontColor(Spectrum.warn)
+            .fontColor(this.c().warn)
         }
         if (field.linked) {
           Text('由连线提供')
             .fontSize(10)
-            .fontColor(Spectrum.textDim)
+            .fontColor(this.c().textDim)
         }
       }
       .width('100%')
@@ -1250,11 +1254,11 @@ struct Index {
       if (field.linked) {
         Text('上游连线会提供这个值，不能在表单里覆盖。')
           .fontSize(11)
-          .fontColor(Spectrum.textDim)
+          .fontColor(this.c().textDim)
       } else if (!field.widget) {
         Text(field.required ? '需要连接上游节点' : '由上游连线提供')
           .fontSize(11)
-          .fontColor(field.required ? Spectrum.warn : Spectrum.textDim)
+          .fontColor(field.required ? this.c().warn : this.c().textDim)
       } else if (this.isImageField(field)) {
         this.ImageField(field)
       } else if (field.options.length > 0) {
@@ -1293,7 +1297,7 @@ struct Index {
       }
       Text(this.fieldText(field).length > 0 ? `当前：${this.fieldText(field)}` : '尚未选择图片')
         .fontSize(12)
-        .fontColor(this.fieldText(field).length > 0 ? Spectrum.text : Spectrum.textDim)
+        .fontColor(this.fieldText(field).length > 0 ? this.c().text : this.c().textDim)
         .width('100%')
       Button(
         this.uploadingField === this.editKey(field.nodeId, field.inputName)
@@ -1307,12 +1311,12 @@ struct Index {
       if (this.uploadNoticeKey === this.editKey(field.nodeId, field.inputName)) {
         Text(this.uploadNotice)
           .fontSize(11)
-          .fontColor(Spectrum.ok)
+          .fontColor(this.c().ok)
       }
       if (this.uploadErrorKey === this.editKey(field.nodeId, field.inputName)) {
         Text(this.uploadError)
           .fontSize(11)
-          .fontColor(Spectrum.err)
+          .fontColor(this.c().err)
       }
     }
     .alignItems(HorizontalAlign.Start)
@@ -1334,7 +1338,7 @@ struct Index {
     Column({ space: 6 }) {
       Text(`备注 #${this.noteEditorId}`)
         .fontSize(11)
-        .fontColor(Spectrum.textDim)
+        .fontColor(this.c().textDim)
       TextInput({ text: this.noteDraft, placeholder: '给这个节点起个好认的名字' })
         .fontSize(13)
         .height(38)
@@ -1364,7 +1368,7 @@ struct Index {
     }
     .alignItems(HorizontalAlign.Start)
     .padding(10)
-    .backgroundColor(Spectrum.dialog)
+    .backgroundColor(this.c().dialog)
     .borderRadius(14)
     .width('100%')
   }
@@ -1373,7 +1377,7 @@ struct Index {
   WorkflowCatalog() {
     Row({ space: 8 }) {
       Text('工作流')
-      .fontColor(Spectrum.text)
+      .fontColor(this.c().text)
         .fontSize(17)
         .fontWeight(FontWeight.Bold)
         .layoutWeight(1)
@@ -1391,20 +1395,20 @@ struct Index {
     if (this.catalog.state === 'loading') {
       Row({ space: 8 }) {
         LoadingProgress().width(18).height(18)
-        Text('正在读取工作流目录…').fontSize(12).fontColor(Spectrum.textMuted)
+        Text('正在读取工作流目录…').fontSize(12).fontColor(this.c().textMuted)
       }
     } else if (this.catalog.state === 'failed') {
       Text(`读取失败：${this.catalogError()}`)
         .fontSize(12)
-        .fontColor(Spectrum.err)
+        .fontColor(this.c().err)
     } else if (this.catalog.state === 'ready' && (this.catalog.entries ?? []).length === 0) {
       Text('服务器 workflows 目录是空的。')
         .fontSize(12)
-        .fontColor(Spectrum.textMuted)
+        .fontColor(this.c().textMuted)
     } else if (this.catalog.state === 'idle') {
       Text('连接后点“刷新”读取服务器上的工作流。')
         .fontSize(12)
-        .fontColor(Spectrum.textMuted)
+        .fontColor(this.c().textMuted)
     }
 
     Scroll(this.catalogScroller) {
@@ -1418,7 +1422,7 @@ struct Index {
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
               Text(entry.path)
                 .fontSize(10)
-                .fontColor(Spectrum.textDim)
+                .fontColor(this.c().textDim)
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
             }
@@ -1436,7 +1440,7 @@ struct Index {
           }
           .width('100%')
           .padding(10)
-          .backgroundColor(Spectrum.card)
+          .backgroundColor(this.c().card)
           .borderRadius(14)
         }, (entry: CatalogEntry) => `${entry.path}:${this.isWorkflowPinned(entry.path)}`)
       }
@@ -1451,12 +1455,12 @@ struct Index {
     Row({ space: 8 }) {
       Button('返回')
         .fontSize(12)
-        .fontColor(Spectrum.textMuted)
+        .fontColor(this.c().textMuted)
         .height(30)
         .padding({ left: 12, right: 12 })
         .borderRadius(10)
-        .backgroundColor(Spectrum.card)
-        .border({ width: 1, color: Spectrum.border })
+        .backgroundColor(this.c().card)
+        .border({ width: 1, color: this.c().border })
         .onClick(() => this.closeWorkflow())
       Column({ space: 2 }) {
         Text(this.view.name.length > 0 ? this.view.name : (this.workflow.name ?? this.selectedPath))
@@ -1466,29 +1470,29 @@ struct Index {
           .textOverflow({ overflow: TextOverflow.Ellipsis })
         Text(`${this.view.format} · ${this.view.nodes.length} 个节点 · ${this.pinnedIds.length} 个置顶`)
           .fontSize(10)
-          .fontColor(Spectrum.textDim)
+          .fontColor(this.c().textDim)
       }
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
       Button('任务')
         .fontSize(12)
-        .fontColor(Spectrum.textMuted)
+        .fontColor(this.c().textMuted)
         .height(30)
         .padding({ left: 10, right: 10 })
         .borderRadius(10)
-        .backgroundColor(Spectrum.card)
-        .border({ width: 1, color: Spectrum.border })
+        .backgroundColor(this.c().card)
+        .border({ width: 1, color: this.c().border })
         .onClick(() => {
           this.tasksOpen = true;
         })
       Button('刷新')
         .fontSize(12)
-        .fontColor(Spectrum.textMuted)
+        .fontColor(this.c().textMuted)
         .height(30)
         .padding({ left: 10, right: 10 })
         .borderRadius(10)
-        .backgroundColor(Spectrum.card)
-        .border({ width: 1, color: Spectrum.border })
+        .backgroundColor(this.c().card)
+        .border({ width: 1, color: this.c().border })
         .enabled(this.running)
         .onClick(() => {
           this.summaryKey = '';
@@ -1500,19 +1504,19 @@ struct Index {
     if (this.workflow.loadingPath !== null) {
       Row({ space: 8 }) {
         LoadingProgress().width(18).height(18)
-        Text(`正在读取 ${this.workflow.loadingPath}`).fontSize(12).fontColor(Spectrum.textMuted)
+        Text(`正在读取 ${this.workflow.loadingPath}`).fontSize(12).fontColor(this.c().textMuted)
       }
     }
     if (this.workflow.error !== null && this.workflow.error.length > 0) {
-      Text(`读取失败：${this.workflow.error}`).fontSize(12).fontColor(Spectrum.err)
+      Text(`读取失败：${this.workflow.error}`).fontSize(12).fontColor(this.c().err)
     }
     if (this.viewError.length > 0) {
-      Text(this.viewError).fontSize(12).fontColor(Spectrum.err)
+      Text(this.viewError).fontSize(12).fontColor(this.c().err)
     }
     if (this.viewLoading) {
       Row({ space: 8 }) {
         LoadingProgress().width(18).height(18)
-        Text('正在生成字段视图…').fontSize(12).fontColor(Spectrum.textMuted)
+        Text('正在生成字段视图…').fontSize(12).fontColor(this.c().textMuted)
       }
     }
 
@@ -1527,7 +1531,7 @@ struct Index {
             .height(34)
             .width('100%')
             .backgroundColor(graph.selected ? 'rgba(139,92,246,0.22)' : 'rgba(255,255,255,0.08)')
-            .fontColor(Spectrum.text)
+            .fontColor(this.c().text)
             .onClick(() => this.toggleGraph(graph))
           if (graph.selected && this.childGraphs(graph.id).length > 0) {
             ForEach(this.childGraphs(graph.id), (child: WorkflowGraphView) => {
@@ -1537,7 +1541,7 @@ struct Index {
                 .width('92%')
                 .margin({ left: 16 })
                 .backgroundColor(child.selected ? 'rgba(139,92,246,0.14)' : 'rgba(255,255,255,0.05)')
-                .fontColor(Spectrum.text)
+                .fontColor(this.c().text)
                 .onClick(() => this.toggleGraph(child))
             }, (child: WorkflowGraphView) => `${child.id}:${child.selected}`)
           }
@@ -1549,17 +1553,17 @@ struct Index {
     if (this.view.pendingNodeClasses.length > 0) {
       Text(`正在加载节点定义：${this.view.pendingNodeClasses.join('、')}`)
         .fontSize(11)
-        .fontColor(Spectrum.warn)
+        .fontColor(this.c().warn)
     }
     if (this.view.missingNodeClasses.length > 0) {
       Text(`服务端缺少节点：${this.view.missingNodeClasses.join('、')}`)
         .fontSize(11)
-        .fontColor(Spectrum.err)
+        .fontColor(this.c().err)
     }
     if (this.view.problems.length > 0) {
       Column({ space: 2 }) {
         ForEach(this.view.problems, (problem: BuildProblemView) => {
-          Text(problem.display).fontSize(11).fontColor(Spectrum.err)
+          Text(problem.display).fontSize(11).fontColor(this.c().err)
         }, (problem: BuildProblemView) => `${problem.nodeId}:${problem.message}`)
       }
       .alignItems(HorizontalAlign.Start)
@@ -1567,9 +1571,9 @@ struct Index {
     }
     if (this.view.warnings.length > 0) {
       Column({ space: 2 }) {
-        Text('提交提示').fontSize(11).fontColor(Spectrum.warn)
+        Text('提交提示').fontSize(11).fontColor(this.c().warn)
         ForEach(this.view.warnings, (warning: string, index: number) => {
-          Text(`· ${warning}`).fontSize(11).fontColor(Spectrum.warn)
+          Text(`· ${warning}`).fontSize(11).fontColor(this.c().warn)
         }, (warning: string, index: number) => `${index}:${warning}`)
       }
       .alignItems(HorizontalAlign.Start)
@@ -1579,7 +1583,7 @@ struct Index {
     if (!this.view.canSubmit) {
       Text(this.blockReason())
         .fontSize(11)
-        .fontColor(Spectrum.err)
+        .fontColor(this.c().err)
         .width('100%')
     }
 
@@ -1591,7 +1595,7 @@ struct Index {
     if (this.submitNotice.length > 0) {
       Text(this.submitNotice)
         .fontSize(11)
-        .fontColor(this.submitNotice.startsWith('已提交') ? Spectrum.ok : Spectrum.err)
+        .fontColor(this.submitNotice.startsWith('已提交') ? this.c().ok : this.c().err)
     }
 
     if (this.noteEditorId >= 0) {
@@ -1604,7 +1608,7 @@ struct Index {
         .height(32)
         .layoutWeight(1)
         .backgroundColor(this.detailTab === 0 ? 'rgba(139,92,246,0.22)' : 'rgba(255,255,255,0.08)')
-        .fontColor(Spectrum.text)
+        .fontColor(this.c().text)
         .onClick(() => {
           this.detailTab = 0;
         })
@@ -1613,7 +1617,7 @@ struct Index {
         .height(32)
         .layoutWeight(1)
         .backgroundColor(this.detailTab === 1 ? 'rgba(139,92,246,0.22)' : 'rgba(255,255,255,0.08)')
-        .fontColor(Spectrum.text)
+        .fontColor(this.c().text)
         .onClick(() => {
           this.detailTab = 1;
         })
@@ -1653,12 +1657,12 @@ struct Index {
       .width('100%')
       Text(`${this.filteredNodes().length} / ${this.view.nodes.length} 个节点`)
         .fontSize(10)
-        .fontColor(Spectrum.textDim)
+        .fontColor(this.c().textDim)
 
       if (this.view.ok && this.view.nodes.length === 0) {
         Text('这是 API 格式工作流，没有网页字段可编辑；可以直接提交。')
           .fontSize(12)
-          .fontColor(Spectrum.textMuted)
+          .fontColor(this.c().textMuted)
       }
 
       ForEach(this.filteredNodes(), (node: WorkflowNodeView) => {
@@ -1705,7 +1709,7 @@ struct Index {
         ? this.submitNotice
         : '这个工作流还没有提交过任务。')
         .fontSize(12)
-        .fontColor(this.submitNotice.startsWith('已提交') ? Spectrum.ok : Spectrum.textMuted)
+        .fontColor(this.submitNotice.startsWith('已提交') ? this.c().ok : this.c().textMuted)
       Button('查看全部任务')
         .fontSize(12)
         .height(30)
@@ -1721,7 +1725,7 @@ struct Index {
         if (task.error !== null && task.error.length > 0) {
           Text(task.error)
             .fontSize(11)
-            .fontColor(Spectrum.err)
+            .fontColor(this.c().err)
             .width('100%')
         }
         if (this.firstImageUrl(task).length > 0) {
@@ -1734,7 +1738,7 @@ struct Index {
         } else if (task.outputRefs.length > 0) {
           Text(`产物 ${task.outputRefs.length} 个；该类型暂不内置预览。`)
             .fontSize(11)
-            .fontColor(Spectrum.textMuted)
+            .fontColor(this.c().textMuted)
         }
         Row({ space: 8 }) {
           Button('查看产物')
@@ -1790,13 +1794,13 @@ struct Index {
       .width('100%')
       Text(this.taskLabel(task))
         .fontSize(11)
-        .fontColor(Spectrum.textMuted)
+        .fontColor(this.c().textMuted)
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
       if (task.workflowPath !== null && task.workflowPath.length > 0) {
         Text(task.workflowPath)
           .fontSize(10)
-          .fontColor(Spectrum.textDim)
+          .fontColor(this.c().textDim)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
@@ -1805,12 +1809,12 @@ struct Index {
       if (task.error !== null && task.error.length > 0) {
         Text(task.error)
           .fontSize(11)
-          .fontColor(Spectrum.err)
+          .fontColor(this.c().err)
       }
     }
     .alignItems(HorizontalAlign.Start)
     .padding(10)
-    .backgroundColor(Spectrum.card)
+    .backgroundColor(this.c().card)
     .borderRadius(14)
     .width('100%')
   }
@@ -1849,7 +1853,7 @@ struct Index {
         if (this.livePreviewMeta !== null && this.livePreviewMatches(this.liveCardTask())) {
           Text(`${this.livePreviewMeta.bytes} B`)
             .fontSize(10)
-            .fontColor(Spectrum.textDim)
+            .fontColor(this.c().textDim)
         }
       }
       .width('100%')
@@ -1858,10 +1862,10 @@ struct Index {
         Row({ space: 8 }) {
           Text(`${this.liveCardPercent()}%`)
             .fontSize(10)
-            .fontColor(Spectrum.textDim)
+            .fontColor(this.c().textDim)
           Text(this.liveCardState())
             .fontSize(10)
-            .fontColor(Spectrum.textDim)
+            .fontColor(this.c().textDim)
             .layoutWeight(1)
         }
         .width('100%')
@@ -1872,7 +1876,7 @@ struct Index {
       if (this.liveCardStep().length > 0) {
         Text(this.liveCardStep())
           .fontSize(10)
-          .fontColor(Spectrum.textDim)
+          .fontColor(this.c().textDim)
           .width('100%')
       }
 
@@ -1886,25 +1890,25 @@ struct Index {
       } else if (this.livePreviewFailed && this.livePreviewMatches(this.liveCardTask())) {
         Text('预览帧解码失败')
           .fontSize(11)
-          .fontColor(Spectrum.err)
+          .fontColor(this.c().err)
       } else {
         Column({ space: 2 }) {
           Row({ space: 8 }) {
             LoadingProgress().width(18).height(18)
             Text('等待采样画面…')
               .fontSize(11)
-              .fontColor(Spectrum.textMuted)
+              .fontColor(this.c().textMuted)
           }
           Text('若持续没有画面，确认 ComfyUI 启动参数包含 --preview-method auto')
             .fontSize(10)
-            .fontColor(Spectrum.textDim)
+            .fontColor(this.c().textDim)
         }
         .alignItems(HorizontalAlign.Start)
       }
     }
     .width('100%')
     .padding(10)
-    .backgroundColor(Spectrum.card)
+    .backgroundColor(this.c().card)
     .borderRadius(14)
   }
 
@@ -1914,7 +1918,7 @@ struct Index {
       this.LivePreviewCard()
     }
     if (this.tasks.length === 0) {
-      Text('还没有任务。').fontSize(12).fontColor(Spectrum.textMuted)
+      Text('还没有任务。').fontSize(12).fontColor(this.c().textMuted)
     } else {
       Scroll() {
         Column({ space: 6 }) {
@@ -1935,7 +1939,7 @@ struct Index {
       Column({ space: 2 }) {
         ForEach(this.logs, (line: string) => {
           Text(line)
-          .fontColor(Spectrum.textMuted)
+          .fontColor(this.c().textMuted)
             .fontSize(11)
             .fontFamily('monospace')
             .width('100%')
@@ -1960,7 +1964,7 @@ struct Index {
         .textOverflow({ overflow: TextOverflow.Ellipsis })
       Text(`${output.kind} · ${output.type} · ${output.mime}`)
         .fontSize(10)
-        .fontColor(Spectrum.textDim)
+        .fontColor(this.c().textDim)
 
       if (output.image && this.artifactUrl(output).length > 0) {
         Image(this.artifactUrl(output))
@@ -1976,15 +1980,15 @@ struct Index {
       } else if (output.video) {
         Text('视频产物：点击“保存到相册”，系统确认后会写入相册。')
           .fontSize(11)
-          .fontColor(Spectrum.textMuted)
+          .fontColor(this.c().textMuted)
       } else if (output.audio) {
         Text('音频产物：下载后可用系统播放器打开。')
           .fontSize(11)
-          .fontColor(Spectrum.textMuted)
+          .fontColor(this.c().textMuted)
       } else {
         Text('该类型暂不内置预览，可下载后用系统应用打开。')
           .fontSize(11)
-          .fontColor(Spectrum.textMuted)
+          .fontColor(this.c().textMuted)
       }
 
       Row({ space: 8 }) {
@@ -2014,7 +2018,7 @@ struct Index {
     }
     .alignItems(HorizontalAlign.Start)
     .padding(10)
-    .backgroundColor(Spectrum.card)
+    .backgroundColor(this.c().card)
     .borderRadius(14)
     .width('100%')
   }
@@ -2030,7 +2034,7 @@ struct Index {
           this.previewError = false;
         })
       Text(this.previewOutput.displayName)
-      .fontColor(Spectrum.textMuted)
+      .fontColor(this.c().textMuted)
         .fontSize(13)
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -2051,11 +2055,11 @@ struct Index {
       if (!this.previewOutput.image) {
         Text('该类型暂不支持内置预览，请下载后打开。')
           .fontSize(12)
-          .fontColor(Spectrum.text)
+          .fontColor(this.c().text)
       } else if (this.previewError) {
         Text('图片预览失败，可能是网络中断或服务端返回了错误。')
           .fontSize(12)
-          .fontColor(Spectrum.text)
+          .fontColor(this.c().text)
           .padding(24)
       } else {
         Image(this.artifactUrl(this.previewOutput))
@@ -2087,7 +2091,7 @@ struct Index {
             .fontWeight(FontWeight.Bold)
           Text(this.taskLabel(this.artifactTask))
             .fontSize(11)
-            .fontColor(Spectrum.textDim)
+            .fontColor(this.c().textDim)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
@@ -2105,7 +2109,7 @@ struct Index {
       if (this.previewOpen) {
         this.ArtifactPreview()
       } else if (this.artifactTask.outputRefs.length === 0) {
-        Text('该任务没有产物。').fontSize(12).fontColor(Spectrum.textMuted)
+        Text('该任务没有产物。').fontSize(12).fontColor(this.c().textMuted)
       } else {
         Scroll() {
           Column({ space: 8 }) {
@@ -2122,7 +2126,7 @@ struct Index {
     .padding(12)
     .width('100%')
     .height('100%')
-    .backgroundColor(Spectrum.background)
+    .backgroundColor(this.c().background)
   }
 
   @Builder
@@ -2134,11 +2138,11 @@ struct Index {
           .fontWeight(FontWeight.Bold)
         Text('以下提示不会阻止提交：')
           .fontSize(12)
-          .fontColor(Spectrum.textMuted)
+          .fontColor(this.c().textMuted)
         ForEach(this.confirmWarnings, (warning: string, index: number) => {
           Text(`· ${warning}`)
             .fontSize(12)
-            .fontColor(Spectrum.warn)
+            .fontColor(this.c().warn)
         }, (warning: string, index: number) => `${index}:${warning}`)
         Row({ space: 8 }) {
           Button('取消')
@@ -2160,17 +2164,41 @@ struct Index {
     .backgroundColor('#66000000')
   }
 
+  c(): Palette {
+    return Spectrum.palette(this.isDark);
+  }
+
+  private systemDark(): boolean {
+    try {
+      const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      return ctx.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
+    } catch (e) {
+      return true;
+    }
+  }
+
+  private applyAppearance(): void {
+    this.isDark = this.appearanceMode === 'dark' ||
+      (this.appearanceMode === 'system' && this.systemDark());
+  }
+
+  private setAppearance(mode: string): void {
+    animateTo({ duration: 200, curve: Curve.EaseOut }, () => {
+      this.appearanceMode = mode;
+      this.applyAppearance();
+    });
+  }
   @Builder
   GradientAction(label: string, enabled: boolean, action: () => void) {
     Button(label)
       .fontSize(13)
       .fontWeight(FontWeight.Medium)
-      .fontColor(Spectrum.accentInk)
+      .fontColor(this.c().accentInk)
       .height(44)
       .padding({ left: 18, right: 18 })
       .borderRadius(14)
       .backgroundColor(Color.Transparent)
-      .linearGradient({ angle: 120, colors: Spectrum.gradientColors() })
+      .linearGradient({ angle: 120, colors: Spectrum.gradientColors(this.c()) })
       .enabled(enabled)
       .onClick(() => action())
   }
@@ -2179,12 +2207,12 @@ struct Index {
   GhostAction(label: string, enabled: boolean, action: () => void) {
     Button(label)
       .fontSize(12)
-      .fontColor(Spectrum.textMuted)
+      .fontColor(this.c().textMuted)
       .height(36)
       .padding({ left: 14, right: 14 })
       .borderRadius(12)
-      .backgroundColor(Spectrum.card)
-      .border({ width: 1, color: Spectrum.border })
+      .backgroundColor(this.c().card)
+      .border({ width: 1, color: this.c().border })
       .enabled(enabled)
       .onClick(() => action())
   }
@@ -2193,24 +2221,88 @@ struct Index {
   StatusPill() {
     Text(this.running ? '已连接' : '未连接')
       .fontSize(10)
-      .fontColor(this.running ? Spectrum.ok : Spectrum.textDim)
+      .fontColor(this.running ? this.c().ok : this.c().textDim)
       .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-      .backgroundColor(this.running ? Spectrum.okSoft : Spectrum.card)
+      .backgroundColor(this.running ? this.c().okSoft : this.c().card)
       .borderRadius(999)
-      .border({ width: 1, color: this.running ? Spectrum.ok : Spectrum.border })
+      .border({ width: 1, color: this.running ? this.c().ok : this.c().border })
   }
 
+  @Builder
+  HeroArt() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor(this.c().isDark ? '#12161C' : '#E8E4F5')
+      Column()
+        .width(220)
+        .height(220)
+        .borderRadius(110)
+        .radialGradient({
+          center: [110, 110],
+          radius: 110,
+          colors: [[this.c().isDark ? 'rgba(255,154,99,0.85)' : 'rgba(255,154,99,0.55)', 0.0],
+            ['rgba(255,154,99,0)', 1.0]],
+        })
+        .position({ x: -30, y: -40 })
+      Column()
+        .width(190)
+        .height(190)
+        .borderRadius(95)
+        .radialGradient({
+          center: [95, 95],
+          radius: 95,
+          colors: [[this.c().isDark ? 'rgba(123,92,255,0.85)' : 'rgba(123,92,255,0.55)', 0.0],
+            ['rgba(123,92,255,0)', 1.0]],
+        })
+        .position({ x: 190, y: -20 })
+      Column()
+        .width(230)
+        .height(230)
+        .borderRadius(115)
+        .radialGradient({
+          center: [115, 115],
+          radius: 115,
+          colors: [[this.c().isDark ? 'rgba(36,199,154,0.8)' : 'rgba(36,199,154,0.5)', 0.0],
+            ['rgba(36,199,154,0)', 1.0]],
+        })
+        .position({ x: 110, y: 60 })
+      Column()
+        .width(170)
+        .height(170)
+        .borderRadius(85)
+        .radialGradient({
+          center: [85, 85],
+          radius: 85,
+          colors: [[this.c().isDark ? 'rgba(255,209,102,0.7)' : 'rgba(255,209,102,0.45)', 0.0],
+            ['rgba(255,209,102,0)', 1.0]],
+        })
+        .position({ x: -10, y: 70 })
+      Text('ComfyPilot')
+        .fontSize(13)
+        .fontColor('#F2F4F7')
+        .opacity(0.9)
+        .position({ x: 18, y: 96 })
+    }
+    .width('100%')
+    .height(150)
+    .borderRadius(20)
+    .clip(true)
+    .border({ width: 1, color: this.c().border })
+  }
   @Builder
   ConnectPanel() {
     Scroll() {
       Column({ space: 12 }) {
+        this.HeroArt()
         Column({ space: 4 }) {
           Text('ComfyPilot')
             .fontSize(30)
             .fontWeight(FontWeight.Bold)
           Text('Spectrum · 连接到你的 ComfyUI')
             .fontSize(12)
-            .fontColor(Spectrum.textDim)
+            .fontColor(this.c().textDim)
         }
         .alignItems(HorizontalAlign.Start)
         .width('100%')
@@ -2219,15 +2311,15 @@ struct Index {
         Column({ space: 8 }) {
           Text('服务器地址')
             .fontSize(11)
-            .fontColor(Spectrum.textDim)
+            .fontColor(this.c().textDim)
             .width('100%')
           TextInput({ text: this.baseUrl, placeholder: 'http://127.0.0.1:18188' })
             .fontSize(13)
-            .fontColor(Spectrum.text)
-            .placeholderColor(Spectrum.textDim)
+            .fontColor(this.c().text)
+            .placeholderColor(this.c().textDim)
             .backgroundColor('rgba(255,255,255,0.03)')
             .borderRadius(12)
-            .border({ width: 1, color: Spectrum.border })
+            .border({ width: 1, color: this.c().border })
             .height(44)
             .width('100%')
             .enabled(!this.running)
@@ -2247,9 +2339,9 @@ struct Index {
           .width('100%')
         }
         .padding(14)
-        .backgroundColor(Spectrum.card)
+        .backgroundColor(this.c().card)
         .borderRadius(18)
-        .border({ width: 1, color: Spectrum.border })
+        .border({ width: 1, color: this.c().border })
         .width('100%')
 
         if (this.notice.length > 0) {
@@ -2261,11 +2353,11 @@ struct Index {
 
         Text(`${this.label} · ABI ${this.abi}`)
           .fontSize(10)
-          .fontColor(Spectrum.textDim)
+          .fontColor(this.c().textDim)
           .width('100%')
         Text(this.storageLabel)
           .fontSize(10)
-          .fontColor(Spectrum.textDim)
+          .fontColor(this.c().textDim)
           .width('100%')
 
         Row({ space: 8 }) {
@@ -2280,7 +2372,7 @@ struct Index {
 
         Text('后台可能暂停监控，回来自动同步；设置页与长任务后台保活仍未完成。')
           .fontSize(10)
-          .fontColor(Spectrum.textDim)
+          .fontColor(this.c().textDim)
           .width('100%')
       }
       .padding(18)
@@ -2300,7 +2392,7 @@ struct Index {
           .fontWeight(FontWeight.Bold)
         Text(`${this.label} · ${(this.catalog.entries ?? []).length} 个工作流`)
           .fontSize(10)
-          .fontColor(Spectrum.textDim)
+          .fontColor(this.c().textDim)
       }
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
@@ -2351,7 +2443,7 @@ struct Index {
     .padding(14)
     .width('100%')
     .height('100%')
-    .backgroundColor(Spectrum.background)
+    .backgroundColor(this.c().background)
   }
 
   @Builder
@@ -2367,20 +2459,52 @@ struct Index {
     }
     .width('100%')
 
+    Text('外观').fontSize(11).fontColor(this.c().textDim)
+    Row({ space: 6 }) {
+      Button('跟随系统')
+        .layoutWeight(1)
+        .height(36)
+        .fontSize(12)
+        .borderRadius(11)
+        .backgroundColor(this.appearanceMode === 'system' ? this.c().accentSoft : this.c().card)
+        .fontColor(this.appearanceMode === 'system' ? this.c().text : this.c().textDim)
+        .border({ width: 1, color: this.appearanceMode === 'system' ? this.c().accentBorder : this.c().border })
+        .onClick(() => this.setAppearance('system'))
+      Button('深色')
+        .layoutWeight(1)
+        .height(36)
+        .fontSize(12)
+        .borderRadius(11)
+        .backgroundColor(this.appearanceMode === 'dark' ? this.c().accentSoft : this.c().card)
+        .fontColor(this.appearanceMode === 'dark' ? this.c().text : this.c().textDim)
+        .border({ width: 1, color: this.appearanceMode === 'dark' ? this.c().accentBorder : this.c().border })
+        .onClick(() => this.setAppearance('dark'))
+      Button('浅色')
+        .layoutWeight(1)
+        .height(36)
+        .fontSize(12)
+        .borderRadius(11)
+        .backgroundColor(this.appearanceMode === 'light' ? this.c().accentSoft : this.c().card)
+        .fontColor(this.appearanceMode === 'light' ? this.c().text : this.c().textDim)
+        .border({ width: 1, color: this.appearanceMode === 'light' ? this.c().accentBorder : this.c().border })
+        .onClick(() => this.setAppearance('light'))
+    }
+    .width('100%')
+
     Column({ space: 6 }) {
-      Text('服务器').fontSize(11).fontColor(Spectrum.textDim)
-      Text(this.baseUrl).fontSize(13).fontColor(Spectrum.text)
-      Text(`ABI ${this.abi} · ${this.label}`).fontSize(10).fontColor(Spectrum.textDim)
-      Text(this.storageLabel).fontSize(10).fontColor(Spectrum.textDim)
+      Text('服务器').fontSize(11).fontColor(this.c().textDim)
+      Text(this.baseUrl).fontSize(13).fontColor(this.c().text)
+      Text(`ABI ${this.abi} · ${this.label}`).fontSize(10).fontColor(this.c().textDim)
+      Text(this.storageLabel).fontSize(10).fontColor(this.c().textDim)
     }
     .alignItems(HorizontalAlign.Start)
     .padding(14)
-    .backgroundColor(Spectrum.card)
+    .backgroundColor(this.c().card)
     .borderRadius(16)
-    .border({ width: 1, color: Spectrum.border })
+    .border({ width: 1, color: this.c().border })
     .width('100%')
 
-    Text('诊断日志').fontSize(11).fontColor(Spectrum.textDim)
+    Text('诊断日志').fontSize(11).fontColor(this.c().textDim)
     this.LogsTab()
   }
 
@@ -2456,6 +2580,6 @@ struct Index {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(Spectrum.background)
+    .backgroundColor(this.c().background)
   }
 }

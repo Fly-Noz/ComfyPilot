@@ -121,7 +121,9 @@
 
 第二轮（结构）：导航已改成与 Android 一致——未连接显示连接页，连上自动进目录页，打开工作流进详情页（返回回目录），任务做成覆盖层（详情不销毁），设置/日志单独一页；详情顶栏补了 任务 按钮，连接页补了 任务/设置 入口。
 
-动画：连接、页签切换用 animateTo；卡片圆角/描边统一。未做的：主题切换（鸿蒙目前固定深色）、Android 那种 hero 大图。
+第三轮：Spectrum.ets 改成 Palette 双调色板（Dark/Light，值同 Android），页面统一走 	his.c()；设置页加 跟随系统/深色/浅色 三档，用 PersistentStorage 持久化，跟随系统读 config.colorMode；连接页补 HeroArt（四团径向渐变，对应 Android SpectrumArt）。
+
+动画：连接、页签切换、主题切换都用 animateTo；卡片圆角/描边统一。
 
 
 - 目标：鸿蒙端换成与 Android 同一套 Spectrum 视觉——`#0A0B10` 深色底 + 青绿→紫→粉渐变、玻璃卡面、同一套导航（连接 → 目录 → 详情，任务覆盖层、设置）。

@@ -1,55 +1,114 @@
 /**
- * 光谱（Spectrum）设计语言的鸿蒙侧 token。
+ * 光谱（Spectrum）主题的鸿蒙侧实现。
  *
- * 与 Android `app/src/main/kotlin/com/comfypilot/app/ui/theme/Spectrum.kt` 的
- * DarkSpectrum 一一对应：深色底 + 玻璃卡面 + 青绿→紫→粉渐变。
- * 页面只引用这里的常量，不写死颜色，改主题只改这一个文件。
+ * token 与 Android `Spectrum.kt` 的 DarkSpectrum / LightSpectrum 一一对应，
+ * 页面通过 `Spectrum.palette(isDark)` 取当前调色板，不写死颜色。
  */
+export interface Palette {
+  isDark: boolean;
+  background: string;
+  card: string;
+  cardStrong: string;
+  dialog: string;
+  border: string;
+  borderStrong: string;
+  text: string;
+  textMuted: string;
+  textDim: string;
+  accent: string;
+  accentInk: string;
+  accentSoft: string;
+  accentBorder: string;
+  ok: string;
+  okSoft: string;
+  warn: string;
+  warnSoft: string;
+  err: string;
+  errSoft: string;
+  gradientStart: string;
+  gradientMid: string;
+  gradientEnd: string;
+  glowPurple: string;
+  glowTeal: string;
+  glowPink: string;
+}
+
+class DarkPalette implements Palette {
+  isDark: boolean = true;
+  background: string = '#0A0B10';
+  card: string = 'rgba(255,255,255,0.055)';
+  cardStrong: string = 'rgba(255,255,255,0.094)';
+  dialog: string = '#14151B';
+  border: string = 'rgba(255,255,255,0.09)';
+  borderStrong: string = 'rgba(255,255,255,0.16)';
+  text: string = '#F3F4F8';
+  textMuted: string = '#A9AEBE';
+  textDim: string = '#7C8196';
+  accent: string = '#A78BFA';
+  accentInk: string = '#0B0614';
+  accentSoft: string = 'rgba(139,92,246,0.16)';
+  accentBorder: string = 'rgba(139,92,246,0.44)';
+  ok: string = '#5EEAD4';
+  okSoft: string = 'rgba(94,234,212,0.10)';
+  warn: string = '#FBBF24';
+  warnSoft: string = 'rgba(251,191,36,0.10)';
+  err: string = '#FB7185';
+  errSoft: string = 'rgba(251,113,133,0.12)';
+  gradientStart: string = '#5EEAD4';
+  gradientMid: string = '#8B5CF6';
+  gradientEnd: string = '#F472B6';
+  glowPurple: string = '#8B5CF6';
+  glowTeal: string = '#5EEAD4';
+  glowPink: string = '#F472B6';
+}
+
+class LightPalette implements Palette {
+  isDark: boolean = false;
+  background: string = '#F5F4F8';
+  card: string = 'rgba(255,255,255,0.65)';
+  cardStrong: string = 'rgba(255,255,255,0.85)';
+  dialog: string = '#FFFFFF';
+  border: string = 'rgba(20,21,26,0.09)';
+  borderStrong: string = 'rgba(20,21,26,0.16)';
+  text: string = '#14151A';
+  textMuted: string = '#545666';
+  textDim: string = '#6F7182';
+  accent: string = '#7C3AED';
+  accentInk: string = '#FFFFFF';
+  accentSoft: string = 'rgba(124,58,237,0.10)';
+  accentBorder: string = 'rgba(124,58,237,0.30)';
+  ok: string = '#0B7F6A';
+  okSoft: string = 'rgba(11,127,106,0.08)';
+  warn: string = '#A16207';
+  warnSoft: string = 'rgba(161,98,7,0.08)';
+  err: string = '#BE123C';
+  errSoft: string = 'rgba(190,18,60,0.08)';
+  gradientStart: string = '#2DD4BF';
+  gradientMid: string = '#7C3AED';
+  gradientEnd: string = '#DB2777';
+  glowPurple: string = '#8B5CF6';
+  glowTeal: string = '#2DD4BF';
+  glowPink: string = '#F472B6';
+}
+
+const DARK: Palette = new DarkPalette();
+const LIGHT: Palette = new LightPalette();
+
 export class Spectrum {
-  // 背景与卡面
-  static readonly background: string = '#0A0B10';
-  static readonly card: string = 'rgba(255,255,255,0.055)';
-  static readonly cardStrong: string = 'rgba(255,255,255,0.094)';
-  static readonly dialog: string = '#14151B';
-  static readonly border: string = 'rgba(255,255,255,0.09)';
-  static readonly borderStrong: string = 'rgba(255,255,255,0.16)';
-
-  // 文字
-  static readonly text: string = '#F3F4F8';
-  static readonly textMuted: string = '#A9AEBE';
-  static readonly textDim: string = '#7C8196';
-
-  // 强调色
-  static readonly accent: string = '#A78BFA';
-  static readonly accentInk: string = '#0B0614';
-  static readonly accentSoft: string = 'rgba(139,92,246,0.16)';
-  static readonly accentBorder: string = 'rgba(139,92,246,0.44)';
-
-  // 状态色
-  static readonly ok: string = '#5EEAD4';
-  static readonly okSoft: string = 'rgba(94,234,212,0.10)';
-  static readonly warn: string = '#FBBF24';
-  static readonly warnSoft: string = 'rgba(251,191,36,0.10)';
-  static readonly err: string = '#FB7185';
-  static readonly errSoft: string = 'rgba(251,113,133,0.12)';
-
-  // 强调渐变：青绿 → 紫 → 粉
-  static readonly gradientStart: string = '#5EEAD4';
-  static readonly gradientMid: string = '#8B5CF6';
-  static readonly gradientEnd: string = '#F472B6';
+  static palette(isDark: boolean): Palette {
+    return isDark ? DARK : LIGHT;
+  }
 
   /** 主按钮/进度条用的渐变 stops。 */
-  static gradientColors(): Array<[string, number]> {
+  static gradientColors(c: Palette): Array<[string, number]> {
     const stops: Array<[string, number]> = [
-      [Spectrum.gradientStart, 0.0],
-      [Spectrum.gradientMid, 0.55],
-      [Spectrum.gradientEnd, 1.0],
+      [c.gradientStart, 0.0],
+      [c.gradientMid, 0.55],
+      [c.gradientEnd, 1.0],
     ];
     return stops;
   }
 
-  /** 卡面通用描边。 */
-  static cardBorderWidth: number = 1;
   static radiusCard: number = 16;
   static radiusPill: number = 999;
 }
