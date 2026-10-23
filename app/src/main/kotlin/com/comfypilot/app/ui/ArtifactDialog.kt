@@ -1,13 +1,20 @@
 package com.comfypilot.app.ui
 
 import android.Manifest
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
+import android.util.LruCache
 import android.widget.MediaController
 import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,7 +24,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -44,6 +50,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -60,21 +69,35 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.comfypilot.app.artifact.ArtifactDownloadResult
 import com.comfypilot.app.artifact.ArtifactDownloader
 import com.comfypilot.app.ui.theme.GhostButton
+import com.comfypilot.app.ui.theme.GlassCard
+import com.comfypilot.app.ui.theme.GradientButton
 import com.comfypilot.app.ui.theme.Spectrum
 import com.comfypilot.app.ui.theme.SpectrumMono
+import com.comfypilot.app.ui.theme.SpectrumPill
 import com.comfypilot.app.ui.theme.TopBarAction
 import com.comfypilot.core.api.ApiPaths
 import com.comfypilot.core.api.ArtifactNames
 import com.comfypilot.core.api.TaskOutput
 import com.comfypilot.core.api.ViewRequest
 import com.comfypilot.core.task.PromptTask
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private sealed interface DownloadUiState {
     data object Downloading : DownloadUiState
     data class Saved(val name: String) : DownloadUiState
     data class Failed(val message: String) : DownloadUiState
+}
+
+/** 预览区统一的深色底板；图片、视频都落在这块哑光面上，避免发白。 */
+private val ViewerMatte = Color(0xFF0E0F14)
+private val PosterScrim = Color(0x26000000)
+
+/** 首帧缓存：列表缩略图和预览页共用，按 URL 命中，字节数封顶，避免视频帧常驻。 */
+private val videoPosterCache = object : LruCache<String, Bitmap>(8 * 1024 * 1024) {
+    override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
 }
 
 /**
@@ -158,25 +181,38 @@ fun ArtifactDialog(
         },
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
+        val panelShape = RoundedCornerShape(22.dp)
         Box(modifier = Modifier.fillMaxSize().background(c.background)) {
-            val current = selected
-            if (current == null) {
-                ArtifactList(
-                    task = task,
-                    baseUrl = baseUrl,
-                    downloadStates = downloadStates,
-                    onPreview = { selected = it },
-                    onDownload = ::requestDownload,
-                    onDismiss = onDismiss,
-                )
-            } else {
-                ArtifactPreview(
-                    output = current,
-                    baseUrl = baseUrl,
-                    downloadState = stateOf(current),
-                    onBack = { selected = null },
-                    onDownload = { requestDownload(current) },
-                )
+            // 产物面板：对话框底色 + 22dp 圆角 + 1dp 边框，浮在页面底色上。
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(8.dp)
+                    .clip(panelShape)
+                    .background(c.dialog)
+                    .border(1.dp, c.border, panelShape),
+            ) {
+                val current = selected
+                if (current == null) {
+                    ArtifactList(
+                        task = task,
+                        baseUrl = baseUrl,
+                        downloadStates = downloadStates,
+                        onPreview = { selected = it },
+                        onDownload = ::requestDownload,
+                        onDismiss = onDismiss,
+                    )
+                } else {
+                    ArtifactPreview(
+                        output = current,
+                        baseUrl = baseUrl,
+                        downloadState = stateOf(current),
+                        onBack = { selected = null },
+                        onDownload = { requestDownload(current) },
+                        onDismiss = onDismiss,
+                    )
+                }
             }
         }
     }
@@ -192,46 +228,52 @@ private fun ArtifactList(
     onDismiss: () -> Unit,
 ) {
     val c = Spectrum.colors
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.safeDrawing),
-    ) {
+    Column(modifier = Modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 14.dp, end = 8.dp, top = 10.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = "产物",
-                color = c.text,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.2).sp,
+            Column(
                 modifier = Modifier.weight(1f),
-            )
-            TopBarAction(text = "关闭", onClick = onDismiss)
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = "产物",
+                    color = c.text,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = (-0.2).sp,
+                    maxLines = 1,
+                )
+                Text(
+                    text = task.displayName ?: task.promptId ?: task.id,
+                    color = c.textDim,
+                    fontSize = 10.sp,
+                    fontFamily = SpectrumMono,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            TopBarAction(text = "关闭", onClick = onDismiss, emphasized = true)
         }
-        Text(
-            text = task.displayName ?: task.promptId ?: task.id,
-            color = c.textDim,
-            fontSize = 10.sp,
-            fontFamily = SpectrumMono,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 18.dp),
-        )
         if (task.outputs.isEmpty()) {
-            Text(
-                text = "该任务没有产物。",
-                color = c.textMuted,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(18.dp),
-            )
+            GlassCard(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                padding = PaddingValues(16.dp),
+            ) {
+                Text(
+                    text = "该任务没有产物。",
+                    color = c.textMuted,
+                    fontSize = 12.5.sp,
+                )
+            }
         }
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(task.outputs) { output ->
                 ArtifactRow(
@@ -258,14 +300,19 @@ private fun ArtifactRow(
     val url = viewUrl(baseUrl, output)
     val isImage = ArtifactNames.isImage(output.filename)
     val isVideo = ArtifactNames.isVideo(output.filename)
-    val shape = RoundedCornerShape(16.dp)
+    val cardShape = RoundedCornerShape(16.dp)
+    val mediaShape = RoundedCornerShape(16.dp)
+    val showPreview = url != null && (isImage || isVideo)
+    val showPrimary = url != null &&
+        downloadState !is DownloadUiState.Downloading &&
+        downloadState !is DownloadUiState.Failed
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(shape)
+            .clip(cardShape)
             .background(c.card)
-            .border(1.dp, c.border, shape)
+            .border(1.dp, c.border, cardShape)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -278,79 +325,66 @@ private fun ArtifactRow(
             overflow = TextOverflow.Ellipsis,
         )
         Text(
-            text = "${output.kind} · ${output.type}",
+            text = artifactMeta(output),
             color = c.textDim,
-            fontSize = 9.sp,
+            fontSize = 10.sp,
             fontFamily = SpectrumMono,
             letterSpacing = 0.5.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
-        if (url != null && isImage) {
-            RemoteOutputImage(
-                url = url,
+        when {
+            url == null -> Text(
+                text = "未连接 ComfyUI，无法预览或下载。",
+                color = c.textMuted,
+                fontSize = 12.sp,
+            )
+
+            isImage -> Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(190.dp)
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(mediaShape)
+                    .background(ViewerMatte)
+                    .border(1.dp, c.border, mediaShape)
                     .clickable(onClick = onPreview),
-            )
-        } else if (url != null && isVideo) {
-            Box(
+            ) {
+                RemoteOutputImage(
+                    url = url,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+
+            isVideo -> VideoPosterFrame(
+                url = url,
+                label = "视频 · 点击预览",
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(120.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(c.dialog)
-                    .border(1.dp, c.border, RoundedCornerShape(12.dp))
-                    .clickable(onClick = onPreview),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("▶", color = c.heroText, fontSize = 22.sp)
-                    Text("视频 · 点击预览", color = c.textDim, fontSize = 10.5.sp)
-                }
-            }
-        } else if (url == null) {
-            Text(
-                text = "未连接 ComfyUI，无法预览或下载。",
-                color = c.textDim,
-                fontSize = 11.sp,
+                    .clip(mediaShape)
+                    .background(ViewerMatte)
+                    .border(1.dp, c.border, mediaShape),
+                onClick = onPreview,
             )
-        } else {
-            Text(
+
+            else -> Text(
                 text = "该类型暂不支持内置预览，可下载后用系统应用打开。",
-                color = c.textDim,
-                fontSize = 11.sp,
+                color = c.textMuted,
+                fontSize = 12.sp,
             )
         }
 
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(9.dp, Alignment.End),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (url != null && (isImage || isVideo)) {
-                GhostButton(text = "预览", onClick = onPreview, height = 36.dp)
-            }
-            if (url != null) {
-                if (downloadState is DownloadUiState.Downloading) {
-                    Row(
-                        modifier = Modifier
-                            .height(36.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .border(1.dp, c.borderStrong, RoundedCornerShape(12.dp))
-                            .padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(13.dp),
-                            color = c.accent,
-                            strokeWidth = 1.5.dp,
-                        )
-                        Text("下载中…", color = c.textMuted, fontSize = 11.sp)
-                    }
-                } else {
-                    GhostButton(
+        if (showPreview || showPrimary) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(9.dp, Alignment.End),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (showPreview) {
+                    GhostButton(text = "预览", onClick = onPreview, height = 36.dp)
+                }
+                if (showPrimary) {
+                    GradientButton(
                         text = downloadLabel(downloadState),
                         onClick = onDownload,
                         height = 36.dp,
@@ -359,14 +393,7 @@ private fun ArtifactRow(
             }
         }
 
-        downloadMessage(downloadState)?.let {
-            Text(
-                text = it,
-                color = if (downloadState is DownloadUiState.Failed) c.err else c.textDim,
-                fontSize = 10.5.sp,
-                lineHeight = 15.sp,
-            )
-        }
+        DownloadStatusLine(downloadState = downloadState, onRetry = onDownload)
     }
 }
 
@@ -377,51 +404,76 @@ private fun ArtifactPreview(
     downloadState: DownloadUiState?,
     onBack: () -> Unit,
     onDownload: () -> Unit,
+    onDismiss: () -> Unit,
 ) {
     val c = Spectrum.colors
+    val context = LocalContext.current
     val url = viewUrl(baseUrl, output)
-    val viewerBackground = Color(0xFF0B0C10)
-    val viewerInk = Color(0xFFF2F4F7)
+    val mediaShape = RoundedCornerShape(16.dp)
+    val showPrimary = url != null &&
+        downloadState !is DownloadUiState.Downloading &&
+        downloadState !is DownloadUiState.Failed
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(viewerBackground)
-            .windowInsetsPadding(WindowInsets.safeDrawing),
-    ) {
+    Column(modifier = Modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 8.dp, top = 10.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            TopBarAction(text = "返回", onClick = onBack, emphasized = true)
-            Text(
-                text = output.filename,
-                color = viewerInk.copy(alpha = 0.85f),
-                fontSize = 10.5.sp,
-                fontFamily = SpectrumMono,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-            )
-            if (url != null) {
-                TopBarAction(
-                    text = downloadLabel(downloadState),
-                    onClick = onDownload,
-                    enabled = downloadState !is DownloadUiState.Downloading,
-                    emphasized = true,
+            GhostButton(text = "返回", onClick = onBack, height = 34.dp)
+            Column(
+                modifier = Modifier.weight(1f).padding(horizontal = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = output.filename,
+                    color = c.text,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = artifactMeta(output),
+                    color = c.textDim,
+                    fontSize = 10.sp,
+                    fontFamily = SpectrumMono,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
+            if (url != null) {
+                TopBarAction(
+                    text = "分享",
+                    onClick = { shareArtifact(context, output, url) },
+                )
+            }
+            TopBarAction(text = "关闭", onClick = onDismiss, emphasized = true)
         }
+
+        // 内容区：高度沿用原有 weight(1f)，统一哑光底 + 16dp 圆角。
         Box(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .padding(horizontal = 14.dp)
+                .clip(mediaShape)
+                .background(ViewerMatte)
+                .border(1.dp, c.border, mediaShape),
         ) {
             when {
-                url == null -> Text(
-                    text = "未连接 ComfyUI，无法预览。",
-                    color = viewerInk.copy(alpha = 0.6f),
-                    fontSize = 12.sp,
-                )
+                url == null -> GlassCard(
+                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                    padding = PaddingValues(16.dp),
+                ) {
+                    Text(
+                        text = "未连接 ComfyUI，无法预览。",
+                        color = c.textMuted,
+                        fontSize = 12.5.sp,
+                    )
+                }
 
                 ArtifactNames.isImage(output.filename) -> RemoteOutputImage(
                     url = url,
@@ -433,22 +485,102 @@ private fun ArtifactPreview(
                     ArtifactVideo(url = url, modifier = Modifier.fillMaxSize())
                 }
 
-                else -> Text(
-                    text = "该类型暂不支持内置预览，可下载后用系统应用打开。",
-                    color = viewerInk.copy(alpha = 0.6f),
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(24.dp),
+                else -> GlassCard(
+                    modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                    padding = PaddingValues(16.dp),
+                ) {
+                    Text(
+                        text = "该类型暂不支持内置预览，可下载后用系统应用打开。",
+                        color = c.textMuted,
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp,
+                    )
+                }
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            DownloadStatusLine(downloadState = downloadState, onRetry = onDownload)
+            if (showPrimary) {
+                GradientButton(
+                    text = downloadLabel(downloadState),
+                    onClick = onDownload,
+                    height = 44.dp,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
-        downloadMessage(downloadState)?.let {
-            Text(
-                text = it,
-                color = viewerInk.copy(alpha = 0.7f),
-                fontSize = 10.5.sp,
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+    }
+}
+
+/**
+ * 视频首帧封面：抽出首帧前先显示可点击的占位，点击后才挂载 [VideoView]。
+ * 抽帧失败时保留占位并允许直接播放，不阻塞预览。
+ */
+@Composable
+private fun VideoPosterFrame(
+    url: String,
+    label: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val c = Spectrum.colors
+    val poster = rememberVideoPoster(url)
+    Box(
+        modifier = modifier.clickable(
+            interactionSource = remember { MutableInteractionSource() },
+            indication = null,
+            onClick = onClick,
+        ),
+        contentAlignment = Alignment.Center,
+    ) {
+        val frame = poster
+        if (frame != null) {
+            Image(
+                bitmap = frame.asImageBitmap(),
+                contentDescription = "视频首帧",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
             )
+            Box(modifier = Modifier.fillMaxSize().background(PosterScrim))
+            PlayGlyph(modifier = Modifier.size(54.dp))
+        } else {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                PlayGlyph(modifier = Modifier.size(46.dp))
+                Text(text = label, color = c.textMuted, fontSize = 11.sp)
+            }
         }
+        Box(modifier = Modifier.align(Alignment.TopStart).padding(8.dp)) {
+            SpectrumPill(text = "视频")
+        }
+    }
+}
+
+@Composable
+private fun PlayGlyph(modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val radius = size.minDimension / 2f
+        drawCircle(color = Color(0x59000000), radius = radius)
+        drawCircle(
+            color = Color(0x4DFFFFFF),
+            radius = (radius - 1.dp.toPx()).coerceAtLeast(0f),
+            style = Stroke(width = 1.dp.toPx()),
+        )
+        val path = Path().apply {
+            moveTo(size.width * 0.40f, size.height * 0.32f)
+            lineTo(size.width * 0.40f, size.height * 0.68f)
+            lineTo(size.width * 0.66f, size.height * 0.50f)
+            close()
+        }
+        drawPath(path = path, color = Color(0xE6FFFFFF))
     }
 }
 
@@ -458,6 +590,7 @@ private fun ArtifactVideo(url: String, modifier: Modifier = Modifier) {
     val c = Spectrum.colors
     var failed by remember(url) { mutableStateOf(false) }
     var prepared by remember(url) { mutableStateOf(false) }
+    var started by remember(url) { mutableStateOf(false) }
     var videoView by remember(url) { mutableStateOf<VideoView?>(null) }
     var mediaController by remember(url) { mutableStateOf<MediaController?>(null) }
 
@@ -469,8 +602,9 @@ private fun ArtifactVideo(url: String, modifier: Modifier = Modifier) {
     }
 
     // VideoView 对 HTTP 404 等错误不一定回调 onError；加一个兜底，避免一直转圈。
-    LaunchedEffect(url, failed, prepared) {
-        if (!failed && !prepared) {
+    // 用户点开首帧封面后才开始计时，封面阶段不能被判定成播放失败。
+    LaunchedEffect(url, failed, prepared, started) {
+        if (started && !failed && !prepared) {
             delay(20_000)
             if (!failed && !prepared) fail()
         }
@@ -495,49 +629,164 @@ private fun ArtifactVideo(url: String, modifier: Modifier = Modifier) {
     }
 
     Box(modifier, contentAlignment = Alignment.Center) {
-        if (failed) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(24.dp),
+        when {
+            failed -> GlassCard(
+                modifier = Modifier.align(Alignment.Center).padding(24.dp),
+                padding = PaddingValues(16.dp),
             ) {
-                Text("视频预览失败", color = Color.White, fontSize = 15.sp)
+                Text(
+                    text = "视频预览失败",
+                    color = c.err,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Text(
                     text = "可能是设备不支持该编码或网络中断，可下载后用系统应用打开。",
-                    color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 11.sp,
+                    color = c.textMuted,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    modifier = Modifier.padding(top = 4.dp),
                 )
             }
-        } else {
-            AndroidView(
+
+            !started -> VideoPosterFrame(
+                url = url,
+                label = "点击播放",
                 modifier = Modifier.fillMaxSize(),
-                factory = { viewContext ->
-                    VideoView(viewContext).apply {
-                        val controller = MediaController(viewContext)
-                        controller.setAnchorView(this)
-                        mediaController = controller
-                        setMediaController(controller)
-                        setOnPreparedListener { player ->
-                            prepared = true
-                            player.isLooping = false
-                            start()
-                        }
-                        setOnErrorListener { _, _, _ ->
-                            fail()
-                            true
-                        }
-                        setVideoURI(Uri.parse(url))
-                    }.also { videoView = it }
-                },
+                onClick = { started = true },
             )
-            if (!prepared) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(30.dp),
-                    color = c.accent,
+
+            else -> {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { viewContext ->
+                        VideoView(viewContext).apply {
+                            val controller = MediaController(viewContext)
+                            controller.setAnchorView(this)
+                            mediaController = controller
+                            setMediaController(controller)
+                            setOnPreparedListener { player ->
+                                prepared = true
+                                player.isLooping = false
+                                start()
+                            }
+                            setOnErrorListener { _, _, _ ->
+                                fail()
+                                true
+                            }
+                            setVideoURI(Uri.parse(url))
+                        }.also { videoView = it }
+                    },
                 )
+                if (!prepared) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(30.dp),
+                        color = c.accent,
+                    )
+                }
             }
         }
     }
+}
+
+/** 下载状态行：加载/已保存用 textMuted 12sp，失败用 err 12sp 并带「重试」。 */
+@Composable
+private fun DownloadStatusLine(
+    downloadState: DownloadUiState?,
+    onRetry: () -> Unit,
+) {
+    val c = Spectrum.colors
+    when (downloadState) {
+        null -> Unit
+
+        is DownloadUiState.Downloading -> Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(12.dp),
+                color = c.accent,
+                strokeWidth = 1.5.dp,
+            )
+            Text(text = "下载中…", color = c.textMuted, fontSize = 12.sp)
+        }
+
+        is DownloadUiState.Saved -> Text(
+            text = "已保存到下载目录：${downloadState.name}",
+            color = c.textMuted,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+        )
+
+        is DownloadUiState.Failed -> Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "下载失败：${downloadState.message}",
+                color = c.err,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+                modifier = Modifier.weight(1f),
+            )
+            GhostButton(text = "重试", onClick = onRetry, height = 32.dp)
+        }
+    }
+}
+
+/** 按 URL 取视频首帧；IO 线程抽帧，成功后进有界缓存，释放 retriever。 */
+@Composable
+private fun rememberVideoPoster(url: String): Bitmap? {
+    // 列表缩略图抽过的帧，进详情页时直接从缓存起画，避免先闪一下占位。
+    var poster by remember(url) { mutableStateOf(videoPosterCache.get(url)) }
+    LaunchedEffect(url) {
+        if (poster == null) {
+            poster = loadVideoPoster(url)
+        }
+    }
+    return poster
+}
+
+private suspend fun loadVideoPoster(url: String): Bitmap? = withContext(Dispatchers.IO) {
+    videoPosterCache.get(url)?.let { return@withContext it }
+    val retriever = MediaMetadataRetriever()
+    try {
+        if (url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true)) {
+            retriever.setDataSource(url, emptyMap<String, String>())
+        } else {
+            retriever.setDataSource(url)
+        }
+        retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)?.also { frame ->
+            videoPosterCache.put(url, frame)
+        }
+    } catch (_: Throwable) {
+        // 网络、鉴权或编码不支持时，交给调用方回退到占位/播放器。
+        null
+    } finally {
+        runCatching { retriever.release() }
+    }
+}
+
+private fun shareArtifact(context: Context, output: TaskOutput, url: String) {
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = ArtifactNames.mimeType(output.filename)
+        putExtra(Intent.EXTRA_SUBJECT, output.filename)
+        putExtra(Intent.EXTRA_TEXT, url)
+    }
+    runCatching { context.startActivity(Intent.createChooser(send, "分享产物")) }
+}
+
+/** 头部副标题：类型 · 格式。*/
+private fun artifactMeta(output: TaskOutput): String {
+    val kind = when {
+        ArtifactNames.isImage(output.filename) -> "图片"
+        ArtifactNames.isVideo(output.filename) -> "视频"
+        ArtifactNames.isAudio(output.filename) -> "音频"
+        else -> "文件"
+    }
+    val format = ArtifactNames.extension(output.filename).uppercase()
+    return if (format.isEmpty()) "$kind · ${output.kind}" else "$kind · $format"
 }
 
 private fun viewUrl(baseUrl: String?, output: TaskOutput): String? = baseUrl
@@ -552,10 +801,4 @@ private fun downloadLabel(state: DownloadUiState?): String = when (state) {
     is DownloadUiState.Downloading -> "下载中…"
     is DownloadUiState.Saved -> "再次下载"
     is DownloadUiState.Failed -> "重试"
-}
-
-private fun downloadMessage(state: DownloadUiState?): String? = when (state) {
-    null, is DownloadUiState.Downloading -> null
-    is DownloadUiState.Saved -> "已保存到下载目录：${state.name}"
-    is DownloadUiState.Failed -> "下载失败：${state.message}"
 }
