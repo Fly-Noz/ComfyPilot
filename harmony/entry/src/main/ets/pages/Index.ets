@@ -24,6 +24,7 @@ import { DismissedErrorStore } from '../bridge/DismissedErrorStore';
 import { emptyServerStats, fetchServerStats, sameServerStats, ServerStats } from '../bridge/ServerStats';
 import { Palette, Spectrum } from '../theme/Spectrum';
 import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/ArtifactDownloader';
+import { VideoThumb } from '../artifact/VideoThumb';
 import { ImageUploader, PickedImage } from '../workflow/ImageUploader';
 import {
   BuildProblemView,
@@ -4175,7 +4176,8 @@ struct Index {
           .height('100%')
           .objectFit(contain ? ImageFit.Contain : ImageFit.Cover)
       } else if (output.video && this.artifactUrl(output).length > 0) {
-        this.VideoArtifactPlaceholder('点击播放')
+        // 视频首帧：抽到帧就画 PixelMap，抽不到自动退回哑光占位（点击行为在外层 Stack）。
+        VideoThumb({ url: this.artifactUrl(output), isDark: this.isDark, hint: '点击播放' })
       } else {
         Text('该类型暂不支持内置预览，可下载后用系统应用打开。')
           .fontSize(12)
@@ -4332,7 +4334,8 @@ struct Index {
             })
         }
       } else if (this.previewOutput.video) {
-        this.VideoArtifactPlaceholder('点击播放')
+        // 预览区同列表行：首帧抽到就 Cover 铺满，抽不到退回原占位。
+        VideoThumb({ url: this.artifactUrl(this.previewOutput), isDark: this.isDark, hint: '点击播放' })
       } else {
         Text('该类型暂不支持内置预览，请下载后打开。')
           .fontSize(12)
