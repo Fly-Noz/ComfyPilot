@@ -6,6 +6,7 @@ const DOMAIN = 0x0000;
 
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    PersistentStorage.persistProp('appearanceMode', 'system');
     this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
     AppStorage.setOrCreate('systemDark',
       this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK);

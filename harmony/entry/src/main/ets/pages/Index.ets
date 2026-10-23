@@ -201,7 +201,6 @@ struct Index {
   private previewBase64: util.Base64Helper = new util.Base64Helper();
 
   aboutToAppear(): void {
-    PersistentStorage.persistProp('appearanceMode', 'system');
     this.applyAppearance();
     // 相册选择器会把页面短暂切到后台；回来时不要重建会话，否则正在进行的上传
     // 会被停止，工作流和节点图选择也会被重置。
