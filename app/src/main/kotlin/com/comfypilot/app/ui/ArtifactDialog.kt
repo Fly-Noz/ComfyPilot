@@ -81,6 +81,7 @@ import com.comfypilot.app.ui.theme.GhostButton
 import com.comfypilot.app.ui.theme.GlassCard
 import com.comfypilot.app.ui.theme.GradientButton
 import com.comfypilot.app.ui.theme.Spectrum
+import com.comfypilot.app.ui.theme.SpectrumBackdrop
 import com.comfypilot.app.ui.theme.SpectrumMono
 import com.comfypilot.app.ui.theme.SpectrumPill
 import com.comfypilot.app.ui.theme.TopBarAction
@@ -198,16 +199,18 @@ fun ArtifactDialog(
         // 窗口底色来自平台主题，不是 Compose 画的；先把它也刷成光谱底色。
         DialogWindowBackdrop()
         val panelShape = RoundedCornerShape(22.dp)
-        Box(modifier = Modifier.fillMaxSize().background(c.background)) {
-            // 产物面板：对话框底色 + 22dp 圆角 + 1dp 边框，浮在页面底色上。
+        Box(modifier = Modifier.fillMaxSize()) {
+            // 和页面共用同一层光晕背景：浅色模式下也不是一块死白。
+            SpectrumBackdrop(modifier = Modifier.matchParentSize())
+            // 产物面板：半透明玻璃底，让背后的光晕透上来一点，再加 22dp 圆角 + 1dp 边框。
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(8.dp)
                     .clip(panelShape)
-                    .background(c.dialog)
-                    .border(1.dp, c.border, panelShape),
+                    .background(c.dialog.copy(alpha = if (c.isDark) 0.88f else 0.84f))
+                    .border(1.dp, c.borderStrong, panelShape),
             ) {
                 val current = selected
                 if (current == null) {
