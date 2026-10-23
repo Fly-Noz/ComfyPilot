@@ -153,6 +153,8 @@ struct Index {
   @State nodeNotesVersion: number = 0;
   @State previewVersion: number = 0;
   @State noteEditorId: number = -1;
+  @State tasksOpen: boolean = false;
+  @State settingsOpen: boolean = false;
   @State noteDraft: string = '';
   @State nodeQuery: string = '';
   @State traitFilter: number[] = [];
@@ -1449,7 +1451,12 @@ struct Index {
     Row({ space: 8 }) {
       Button('返回')
         .fontSize(12)
+        .fontColor(Spectrum.textMuted)
         .height(30)
+        .padding({ left: 12, right: 12 })
+        .borderRadius(10)
+        .backgroundColor(Spectrum.card)
+        .border({ width: 1, color: Spectrum.border })
         .onClick(() => this.closeWorkflow())
       Column({ space: 2 }) {
         Text(this.view.name.length > 0 ? this.view.name : (this.workflow.name ?? this.selectedPath))
@@ -1463,9 +1470,25 @@ struct Index {
       }
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
+      Button('任务')
+        .fontSize(12)
+        .fontColor(Spectrum.textMuted)
+        .height(30)
+        .padding({ left: 10, right: 10 })
+        .borderRadius(10)
+        .backgroundColor(Spectrum.card)
+        .border({ width: 1, color: Spectrum.border })
+        .onClick(() => {
+          this.tasksOpen = true;
+        })
       Button('刷新')
         .fontSize(12)
+        .fontColor(Spectrum.textMuted)
         .height(30)
+        .padding({ left: 10, right: 10 })
+        .borderRadius(10)
+        .backgroundColor(Spectrum.card)
+        .border({ width: 1, color: Spectrum.border })
         .enabled(this.running)
         .onClick(() => {
           this.summaryKey = '';
@@ -2138,142 +2161,259 @@ struct Index {
   }
 
   @Builder
-  MainPanel() {
-    Column({ space: 8 }) {
-      Row({ space: 10 }) {
-        Column({ space: 3 }) {
+  GradientAction(label: string, enabled: boolean, action: () => void) {
+    Button(label)
+      .fontSize(13)
+      .fontWeight(FontWeight.Medium)
+      .fontColor(Spectrum.accentInk)
+      .height(44)
+      .padding({ left: 18, right: 18 })
+      .borderRadius(14)
+      .backgroundColor(Color.Transparent)
+      .linearGradient({ angle: 120, colors: Spectrum.gradientColors() })
+      .enabled(enabled)
+      .onClick(() => action())
+  }
+
+  @Builder
+  GhostAction(label: string, enabled: boolean, action: () => void) {
+    Button(label)
+      .fontSize(12)
+      .fontColor(Spectrum.textMuted)
+      .height(36)
+      .padding({ left: 14, right: 14 })
+      .borderRadius(12)
+      .backgroundColor(Spectrum.card)
+      .border({ width: 1, color: Spectrum.border })
+      .enabled(enabled)
+      .onClick(() => action())
+  }
+
+  @Builder
+  StatusPill() {
+    Text(this.running ? '已连接' : '未连接')
+      .fontSize(10)
+      .fontColor(this.running ? Spectrum.ok : Spectrum.textDim)
+      .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+      .backgroundColor(this.running ? Spectrum.okSoft : Spectrum.card)
+      .borderRadius(999)
+      .border({ width: 1, color: this.running ? Spectrum.ok : Spectrum.border })
+  }
+
+  @Builder
+  ConnectPanel() {
+    Scroll() {
+      Column({ space: 12 }) {
+        Column({ space: 4 }) {
           Text('ComfyPilot')
-            .fontSize(24)
+            .fontSize(30)
             .fontWeight(FontWeight.Bold)
-          Text('Spectrum · ComfyUI 客户端')
-            .fontSize(11)
+          Text('Spectrum · 连接到你的 ComfyUI')
+            .fontSize(12)
             .fontColor(Spectrum.textDim)
         }
         .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-        Text(this.running ? '已连接' : '未连接')
-          .fontSize(10)
-          .fontColor(this.running ? Spectrum.ok : Spectrum.textDim)
-          .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-          .backgroundColor(this.running ? Spectrum.okSoft : Spectrum.card)
-          .borderRadius(999)
-          .border({ width: 1, color: this.running ? Spectrum.ok : Spectrum.border })
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Top)
+        .width('100%')
+        .padding({ top: 24, bottom: 8 })
 
-      Text(`${this.label} · ABI ${this.abi} · ${this.storageLabel}`)
-        .fontSize(10)
-        .fontColor(Spectrum.textDim)
+        Column({ space: 8 }) {
+          Text('服务器地址')
+            .fontSize(11)
+            .fontColor(Spectrum.textDim)
+            .width('100%')
+          TextInput({ text: this.baseUrl, placeholder: 'http://127.0.0.1:18188' })
+            .fontSize(13)
+            .fontColor(Spectrum.text)
+            .placeholderColor(Spectrum.textDim)
+            .backgroundColor('rgba(255,255,255,0.03)')
+            .borderRadius(12)
+            .border({ width: 1, color: Spectrum.border })
+            .height(44)
+            .width('100%')
+            .enabled(!this.running)
+            .onChange((value: string) => {
+              this.baseUrl = value;
+            })
+          Row({ space: 8 }) {
+            this.GradientAction(this.running ? '重连' : '连接', this.storageReady, () => {
+              animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+                this.connect();
+              });
+            })
+            this.GhostAction('断开', this.running, () => {
+              this.disconnect();
+            })
+          }
+          .width('100%')
+        }
+        .padding(14)
+        .backgroundColor(Spectrum.card)
+        .borderRadius(18)
+        .border({ width: 1, color: Spectrum.border })
         .width('100%')
 
-      Row({ space: 8 }) {
-        TextInput({ text: this.baseUrl, placeholder: 'http://127.0.0.1:18188' })
-          .fontSize(13)
-          .fontColor(Spectrum.text)
-          .placeholderColor(Spectrum.textDim)
-          .backgroundColor(Spectrum.card)
-          .borderRadius(14)
-          .border({ width: 1, color: Spectrum.border })
-          .height(44)
-          .onChange((value: string) => {
-            this.baseUrl = value;
-          })
-          .enabled(!this.running)
-          .layoutWeight(1)
-        Button(this.running ? '重连' : '连接')
-          .fontSize(13)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(Spectrum.accentInk)
-          .height(44)
-          .padding({ left: 18, right: 18 })
-          .borderRadius(14)
-          .backgroundColor(Color.Transparent)
-          .linearGradient({ angle: 120, colors: Spectrum.gradientColors() })
-          .enabled(this.storageReady)
-          .onClick(() => {
-            animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
-              this.connect();
-            });
-          })
-        Button('断开')
-          .fontSize(13)
-          .fontColor(Spectrum.textMuted)
-          .height(44)
-          .padding({ left: 14, right: 14 })
-          .borderRadius(14)
-          .backgroundColor(Spectrum.card)
-          .border({ width: 1, color: Spectrum.border })
-          .enabled(this.running)
-          .onClick(() => this.disconnect())
-      }
-      .width('100%')
+        if (this.notice.length > 0) {
+          Text(this.notice)
+            .fontSize(11)
+            .fontColor(this.noticeColor())
+            .width('100%')
+        }
 
-      if (this.notice.length > 0) {
-        Text(this.notice)
-          .fontSize(11)
-          .fontColor(this.noticeColor())
+        Text(`${this.label} · ABI ${this.abi}`)
+          .fontSize(10)
+          .fontColor(Spectrum.textDim)
+          .width('100%')
+        Text(this.storageLabel)
+          .fontSize(10)
+          .fontColor(Spectrum.textDim)
+          .width('100%')
+
+        Row({ space: 8 }) {
+          this.GhostAction(`任务 ${this.tasks.length}`, true, () => {
+            this.tasksOpen = true;
+          })
+          this.GhostAction('设置 / 日志', true, () => {
+            this.settingsOpen = true;
+          })
+        }
+        .width('100%')
+
+        Text('后台可能暂停监控，回来自动同步；设置页与长任务后台保活仍未完成。')
+          .fontSize(10)
+          .fontColor(Spectrum.textDim)
           .width('100%')
       }
+      .padding(18)
+      .width('100%')
+    }
+    .width('100%')
+    .height('100%')
+    .scrollBar(BarState.Off)
+  }
 
-      Row({ space: 4 }) {
-        Button('工作流')
-          .layoutWeight(1)
-          .height(34)
-          .fontSize(12)
-          .borderRadius(11)
-          .backgroundColor(this.tab === 0 ? Spectrum.accentSoft : Color.Transparent)
-          .fontColor(this.tab === 0 ? Spectrum.text : Spectrum.textDim)
-          .onClick(() => {
-            animateTo({ duration: 160, curve: Curve.EaseOut }, () => {
-              this.tab = 0;
-            });
-          })
-        Button(`任务 ${this.tasks.length}`)
-          .layoutWeight(1)
-          .height(34)
-          .fontSize(12)
-          .borderRadius(11)
-          .backgroundColor(this.tab === 1 ? Spectrum.accentSoft : Color.Transparent)
-          .fontColor(this.tab === 1 ? Spectrum.text : Spectrum.textDim)
-          .onClick(() => {
-            animateTo({ duration: 160, curve: Curve.EaseOut }, () => {
-              this.tab = 1;
-            });
-          })
-        Button('日志')
-          .layoutWeight(1)
-          .height(34)
-          .fontSize(12)
-          .borderRadius(11)
-          .backgroundColor(this.tab === 2 ? Spectrum.accentSoft : Color.Transparent)
-          .fontColor(this.tab === 2 ? Spectrum.text : Spectrum.textDim)
-          .onClick(() => {
-            animateTo({ duration: 160, curve: Curve.EaseOut }, () => {
-              this.tab = 2;
-            });
-          })
+  @Builder
+  CatalogPanel() {
+    Row({ space: 8 }) {
+      Column({ space: 2 }) {
+        Text('工作流')
+          .fontSize(22)
+          .fontWeight(FontWeight.Bold)
+        Text(`${this.label} · ${(this.catalog.entries ?? []).length} 个工作流`)
+          .fontSize(10)
+          .fontColor(Spectrum.textDim)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      this.StatusPill()
+    }
+    .width('100%')
+
+    Row({ space: 8 }) {
+      this.GhostAction(`任务 ${this.tasks.length}`, true, () => {
+        this.tasksOpen = true;
+      })
+      this.GhostAction('设置 / 日志', true, () => {
+        this.settingsOpen = true;
+      })
+      this.GhostAction('断开', this.running, () => {
+        this.disconnect();
+      })
+    }
+    .width('100%')
+
+    Scroll() {
+      Column({ space: 8 }) {
+        this.WorkflowCatalog()
       }
       .width('100%')
-      .padding(4)
-      .backgroundColor(Spectrum.card)
-      .borderRadius(16)
-      .border({ width: 1, color: Spectrum.border })
-
-      if (this.tab === 0) {
-        this.WorkflowsTab()
-      } else if (this.tab === 1) {
-        this.TasksTab()
-      } else {
-        this.LogsTab()
-      }
-
-      Text('后台可能暂停监控，回来自动同步；设置页与长任务后台保活仍未完成。')
-        .fontSize(10)
-        .fontColor(Spectrum.textDim)
-        .width('100%')
     }
-    .padding(12)
+    .layoutWeight(1)
+    .width('100%')
+    .scrollBar(BarState.Off)
+  }
+
+  @Builder
+  TasksPanel() {
+    Column({ space: 8 }) {
+      Row({ space: 8 }) {
+        Text('任务')
+          .fontSize(20)
+          .fontWeight(FontWeight.Bold)
+          .layoutWeight(1)
+        this.StatusPill()
+        this.GhostAction('关闭', true, () => {
+          this.tasksOpen = false;
+        })
+      }
+      .width('100%')
+      this.TasksTab()
+    }
+    .padding(14)
+    .width('100%')
+    .height('100%')
+    .backgroundColor(Spectrum.background)
+  }
+
+  @Builder
+  SettingsPanel() {
+    Row({ space: 8 }) {
+      Text('设置')
+        .fontSize(20)
+        .fontWeight(FontWeight.Bold)
+        .layoutWeight(1)
+      this.GhostAction('返回', true, () => {
+        this.settingsOpen = false;
+      })
+    }
+    .width('100%')
+
+    Column({ space: 6 }) {
+      Text('服务器').fontSize(11).fontColor(Spectrum.textDim)
+      Text(this.baseUrl).fontSize(13).fontColor(Spectrum.text)
+      Text(`ABI ${this.abi} · ${this.label}`).fontSize(10).fontColor(Spectrum.textDim)
+      Text(this.storageLabel).fontSize(10).fontColor(Spectrum.textDim)
+    }
+    .alignItems(HorizontalAlign.Start)
+    .padding(14)
+    .backgroundColor(Spectrum.card)
+    .borderRadius(16)
+    .border({ width: 1, color: Spectrum.border })
+    .width('100%')
+
+    Text('诊断日志').fontSize(11).fontColor(Spectrum.textDim)
+    this.LogsTab()
+  }
+
+  @Builder
+  MainPanel() {
+    Stack() {
+      Column({ space: 10 }) {
+        if (this.settingsOpen) {
+          this.SettingsPanel()
+        } else if (!this.running) {
+          this.ConnectPanel()
+        } else if (this.selectedPath.length > 0) {
+          Scroll(this.scroller) {
+            Column({ space: 8 }) {
+              this.WorkflowDetail()
+            }
+            .width('100%')
+          }
+          .layoutWeight(1)
+          .width('100%')
+          .scrollBar(BarState.Off)
+        } else {
+          this.CatalogPanel()
+        }
+      }
+      .padding(14)
+      .width('100%')
+      .height('100%')
+
+      if (this.tasksOpen) {
+        this.TasksPanel()
+      }
+    }
     .width('100%')
     .height('100%')
   }
