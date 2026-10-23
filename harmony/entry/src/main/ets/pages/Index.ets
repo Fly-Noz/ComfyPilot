@@ -119,7 +119,7 @@ interface PopupStateEvent {
 @Entry
 @Component
 struct Index {
-  @State baseUrl: string = 'http://127.0.0.1:18188';
+  @State baseUrl: string = 'http://127.0.0.1:8188';
   @State running: boolean = false;
   @State label: string = '未连接';
   @State generation: number = 0;
