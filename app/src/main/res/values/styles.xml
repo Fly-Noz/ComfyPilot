@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 应用主题：深色平台主题 + 深色窗口底色。
+         产物弹窗、确认弹窗都是独立窗口，浅色主题会让它们的 windowBackground
+         露出一层 #FAFAFA；统一换成深色主题后，任何窗口都不会再闪白。 -->
+    <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0A0B10</item>
+        <item name="android:colorBackground">#0A0B10</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+    </style>
+</resources>
