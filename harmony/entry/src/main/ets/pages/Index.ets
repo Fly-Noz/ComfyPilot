@@ -2875,31 +2875,41 @@ struct Index {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      // 光谱底：深色 + 两团强调色光晕，比纯色底更接近 Android 的观感。
+      // 光谱底：用径向渐变（中心有色、边缘透明）做光晕。
+      // 之前是「实心圆 + opacity + blur」，ArkUI 对空容器不生效 blur，所以看起来是三个硬边圆。
       Column()
-        .width(340)
-        .height(340)
-        .borderRadius(170)
-        .backgroundColor('#8B5CF6')
-        .opacity(0.20)
-        .blur(90)
-        .position({ x: -110, y: -80 })
+        .width(460)
+        .height(460)
+        .borderRadius(230)
+        .radialGradient({
+          center: [230, 230],
+          radius: 230,
+          colors: [['rgba(139,92,246,0.38)', 0.0], ['rgba(139,92,246,0.12)', 0.55],
+            ['rgba(139,92,246,0)', 1.0]],
+        })
+        .position({ x: -150, y: -130 })
       Column()
-        .width(260)
-        .height(260)
-        .borderRadius(130)
-        .backgroundColor('#5EEAD4')
-        .opacity(0.14)
-        .blur(90)
-        .position({ x: 210, y: 120 })
+        .width(400)
+        .height(400)
+        .borderRadius(200)
+        .radialGradient({
+          center: [200, 200],
+          radius: 200,
+          colors: [['rgba(94,234,212,0.26)', 0.0], ['rgba(94,234,212,0.08)', 0.55],
+            ['rgba(94,234,212,0)', 1.0]],
+        })
+        .position({ x: 190, y: 60 })
       Column()
-        .width(220)
-        .height(220)
-        .borderRadius(110)
-        .backgroundColor('#F472B6')
-        .opacity(0.12)
-        .blur(90)
-        .position({ x: 40, y: 620 })
+        .width(380)
+        .height(380)
+        .borderRadius(190)
+        .radialGradient({
+          center: [190, 190],
+          radius: 190,
+          colors: [['rgba(244,114,182,0.24)', 0.0], ['rgba(244,114,182,0.07)', 0.55],
+            ['rgba(244,114,182,0)', 1.0]],
+        })
+        .position({ x: 20, y: 560 })
       if (this.artifactOpen) {
         this.ArtifactPanel()
       } else {
