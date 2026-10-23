@@ -2,6 +2,8 @@ import { nativeVersion } from 'libentry.so';
 import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { util } from '@kit.ArkTS';
+import { pasteboard } from '@kit.BasicServicesKit';
+import { promptAction } from '@kit.ArkUI';
 import {
   BridgeCatalog,
   BridgeOutput,
@@ -167,6 +169,10 @@ struct Index {
   @State tasksOpen: boolean = false;
   @State connectView: boolean = false;
   @State settingsOpen: boolean = false;
+  /** 关于页：从设置进入，返回时回到设置。 */
+  @State aboutOpen: boolean = false;
+  /** 关于页内的许可证说明浮层。 */
+  @State licenseOpen: boolean = false;
   @State noteDraft: string = '';
   @State nodeQuery: string = '';
   @State traitFilter: number[] = [];
@@ -1410,6 +1416,18 @@ struct Index {
 
   private taskLabel(task: BridgeTask): string {
     return task.name !== null && task.name.length > 0 ? task.name : (task.promptId ?? task.id);
+  }
+
+  /** 关于页：点「项目作者」时复制作者名，并弹一个短暂提示。 */
+  private copyAuthor(): void {
+    try {
+      const data: pasteboard.PasteData =
+        pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, 'Fly-Noz');
+      pasteboard.getSystemPasteboard().setDataSync(data);
+      promptAction.showToast({ message: '已复制作者：Fly-Noz', duration: 1600 });
+    } catch (err) {
+      promptAction.showToast({ message: this.errorText(err), duration: 1600 });
+    }
   }
 
   /** 方形小图标按钮：备注 / 置顶 / 展开，对应 Android 的 NodeIconButton。 */
@@ -3945,13 +3963,203 @@ struct Index {
 
     Text('诊断日志').fontSize(11).fontColor(this.c().textDim)
     this.LogsTab()
+
+    // 设置页底部的「关于」入口；点进去后 aboutOpen 打开关于页，返回仍回到设置。
+    Row({ space: 8 }) {
+      Text('关于')
+        .fontSize(14)
+        .fontColor(this.c().text)
+        .layoutWeight(1)
+      Text('版本 0.1.0')
+        .fontSize(11)
+        .fontColor(this.c().textDim)
+      Text('›')
+        .fontSize(16)
+        .fontColor(this.c().textDim)
+    }
+    .width('100%')
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .alignItems(VerticalAlign.Center)
+    .backgroundColor(this.c().card)
+    .borderRadius(16)
+    .border({ width: 1, color: this.c().border })
+    .onClick(() => {
+      this.aboutOpen = true;
+    })
+  }
+
+  /** 关于页的一行：左侧标签、右侧取值、末尾 chevron，整行可点。 */
+  @Builder
+  AboutRow(label: string, value: string, action: () => void) {
+    Row({ space: 8 }) {
+      Text(label)
+        .fontSize(15)
+        .fontColor(this.c().text)
+        .layoutWeight(1)
+      Text(value)
+        .fontSize(12)
+        .fontColor(this.c().textDim)
+      Text('›')
+        .fontSize(16)
+        .fontColor(this.c().textDim)
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 14, bottom: 14 })
+    .alignItems(VerticalAlign.Center)
+    .onClick(action)
+  }
+
+  /** 许可证说明浮层：居中卡片，点「关闭」收起。 */
+  @Builder
+  LicensePanel() {
+    Column({ space: 12 }) {
+      Text('开源许可证')
+        .fontSize(17)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(this.c().text)
+      Text('本项目以 GNU General Public License v3.0 发布；你可以自由使用、修改与分发，衍生作品需同样以 GPL-3.0 开源；完整协议见仓库根目录 LICENSE。')
+        .fontSize(12)
+        .lineHeight(19)
+        .fontColor(this.c().textMuted)
+        .width('100%')
+      Row() {
+        Button('关闭')
+          .fontSize(12)
+          .height(34)
+          .fontColor(this.c().accentInk)
+          .backgroundColor(this.c().accent)
+          .borderRadius(10)
+          .onClick(() => {
+            this.licenseOpen = false;
+          })
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.End)
+    }
+    .padding(18)
+    .width('84%')
+    .alignItems(HorizontalAlign.Start)
+    .backgroundColor(this.c().dialog)
+    .borderRadius(18)
+    .border({ width: 1, color: this.c().borderStrong })
+  }
+
+  /** 关于页：图标 + 版本 + 简介 + 两行信息卡 + 脚注。 */
+  @Builder
+  AboutPanel() {
+    Stack() {
+      Column() {
+        Row({ space: 2 }) {
+          Text('‹ 返回')
+            .fontSize(13)
+            .fontColor(this.c().textDim)
+            .padding({ left: 7, right: 7, top: 7, bottom: 7 })
+            .borderRadius(8)
+            .onClick(() => {
+              this.aboutOpen = false;
+            })
+          Text('关于')
+            .fontSize(15)
+            .fontWeight(FontWeight.Bold)
+            .letterSpacing(-0.2)
+            .fontColor(this.c().text)
+            .layoutWeight(1)
+        }
+        .width('100%')
+        .constraintSize({ minHeight: 46 })
+        .alignItems(VerticalAlign.Center)
+
+        Scroll() {
+          Column({ space: 18 }) {
+            Column({ space: 10 }) {
+              Column() {
+                Image($r('app.media.startIcon'))
+                  .width(96)
+                  .height(96)
+                  .objectFit(ImageFit.Cover)
+              }
+              .borderRadius(24)
+              .clip(true)
+              .backgroundColor(this.c().card)
+              .border({ width: 1, color: this.c().border })
+
+              Text('ComfyPilot')
+                .fontSize(26)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(this.c().text)
+              Text('版本 0.1.0 · 鸿蒙版')
+                .fontSize(10)
+                .fontFamily('monospace')
+                .fontColor(this.c().textDim)
+            }
+            .width('100%')
+            .alignItems(HorizontalAlign.Center)
+            .padding({ top: 10 })
+
+            Text('一个 ComfyUI 远程客户端，支持工作流浏览、参数调节、任务队列与产物预览。共享核心由 Kotlin Multiplatform 实现，界面为 ArkTS 原生。')
+              .fontSize(13)
+              .lineHeight(20)
+              .fontColor(this.c().textMuted)
+              .textAlign(TextAlign.Center)
+              .width('100%')
+              .padding({ left: 8, right: 8 })
+
+            Column() {
+              this.AboutRow('项目作者', 'Fly-Noz', () => {
+                this.copyAuthor();
+              })
+              Divider()
+                .strokeWidth(1)
+                .color(this.c().border)
+                .margin({ left: 16, right: 16 })
+              this.AboutRow('开源许可证', 'GPL-3.0', () => {
+                this.licenseOpen = true;
+              })
+            }
+            .width('100%')
+            .backgroundColor(this.c().card)
+            .borderRadius(18)
+            .border({ width: 1, color: this.c().border })
+            .clip(true)
+
+            Text('本项目的部分界面、文案与图标由 AI 辅助生成。')
+              .fontSize(10.5)
+              .fontColor(this.c().textDim)
+              .textAlign(TextAlign.Center)
+              .width('100%')
+              .padding({ left: 12, right: 12 })
+          }
+          .width('100%')
+          .padding({ left: 4, right: 4, top: 4, bottom: 16 })
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .scrollBar(BarState.Off)
+      }
+      .width('100%')
+      .height('100%')
+
+      if (this.licenseOpen) {
+        // 遮罩用背景色加透明度，不写死颜色，深/浅色下都能压暗底层。
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor(this.c().background)
+          .opacity(0.72)
+        this.LicensePanel()
+      }
+    }
+    .width('100%')
+    .height('100%')
   }
 
   @Builder
   MainPanel() {
     Stack() {
       Column({ space: 10 }) {
-        if (this.settingsOpen) {
+        if (this.aboutOpen) {
+          this.AboutPanel()
+        } else if (this.settingsOpen) {
           this.SettingsPanel()
         } else if (!this.running || this.connectView) {
           this.ConnectPanel()
