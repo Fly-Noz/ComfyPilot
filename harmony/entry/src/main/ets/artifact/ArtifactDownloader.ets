@@ -1,9 +1,7 @@
-import { abilityAccessCtrl, common, Permissions } from '@kit.AbilityKit';
-import { Environment, fileIo } from '@kit.CoreFileKit';
+import { common } from '@kit.AbilityKit';
+import { fileIo, fileUri, picker } from '@kit.CoreFileKit';
 import { request } from '@kit.BasicServicesKit';
 import { BridgeOutput } from '../bridge/ComfyBridge';
-
-const DOWNLOAD_PERMISSION: Permissions = 'ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY';
 
 export interface ArtifactDownloadResult {
   ok: boolean;
@@ -14,8 +12,11 @@ export interface ArtifactDownloadResult {
 /**
  * 把 ComfyUI 的 `/view` 产物落到系统下载目录。
  *
- * 下载本身交给系统下载服务（避免把视频整体读进 ArkTS 内存），完成后再复制到
- * `Environment.getUserDownloadDir()`。同名文件按 `name (1).ext` 避让，和 Android 一致。
+ * 下载本身交给系统下载服务（避免把视频整体读进 ArkTS 内存），再用 FilePicker 的
+ * DOWNLOAD 模式取得 `Download/<包名>/` 目录 URI，最后复制到该目录。
+ *
+ * 这里不使用 READ_WRITE_DOWNLOAD_DIRECTORY：该权限在当前 HarmonyOS 版本属于
+ * 受限权限，需要 ACL；DOWNLOAD 模式由 Picker 授权，普通应用无需申请权限。
  */
 export class ArtifactDownloader {
 
@@ -32,16 +33,16 @@ export class ArtifactDownloader {
       return { ok: false, name: '', message: '未连接 ComfyUI' };
     }
     try {
-      await this.ensurePermission(context);
-      const directory = Environment.getUserDownloadDir().trimEnd();
-      const name = this.uniqueName(directory, output.displayName.length > 0 ? output.displayName : 'artifact');
+      const directoryUri = await this.downloadDirectory(context);
+      const directory = new fileUri.FileUri(directoryUri).path;
+      const name = this.uniqueName(directory, this.safeName(output.displayName));
       const target = `${directory}/${name}`;
       const tempName = `comfypilot-${Date.now()}-${Math.floor(Math.random() * 100000)}.bin`;
       const tempPath = `${context.cacheDir}/${tempName}`;
 
       const task = await request.downloadFile(context, {
         url: base + output.path,
-        filePath: tempName,
+        filePath: tempPath,
         enableMetered: true,
         enableRoaming: true,
         title: name,
@@ -92,12 +93,22 @@ export class ArtifactDownloader {
     }
   }
 
-  private async ensurePermission(context: common.UIAbilityContext): Promise<void> {
-    const manager = abilityAccessCtrl.createAtManager();
-    const result = await manager.requestPermissionsFromUser(context, [DOWNLOAD_PERMISSION]);
-    if (result.authResults.length === 0 || result.authResults[0] !== 0) {
-      throw new Error('未获得下载目录权限');
+  private async downloadDirectory(context: common.UIAbilityContext): Promise<string> {
+    const options = new picker.DocumentSaveOptions();
+    options.pickerMode = picker.DocumentPickerMode.DOWNLOAD;
+    const viewPicker = new picker.DocumentViewPicker(context);
+    const uris = await viewPicker.save(options);
+    if (uris.length === 0 || uris[0].length === 0) {
+      throw new Error('未获得下载目录');
     }
+    return uris[0];
+  }
+
+  private safeName(original: string): string {
+    const raw = original.length > 0 ? original : 'artifact';
+    const slash = Math.max(raw.lastIndexOf('/'), raw.lastIndexOf('\\'));
+    const base = slash >= 0 ? raw.substring(slash + 1) : raw;
+    return base.length > 0 ? base : 'artifact';
   }
 
   private uniqueName(directory: string, original: string): string {

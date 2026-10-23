@@ -58,11 +58,14 @@
 - 图片使用 ArkUI `Image` 预览；
 - 视频、音频和其他类型至少下载；
 - 下载流程：
-  1. 申请 `ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY`；
+  1. 用 `DocumentViewPicker` 的 `DOWNLOAD` 模式取得 `Download/<包名>/` 目录 URI；
   2. 系统 `request.downloadFile` 下载到 app cache；
-  3. 复制到 `Environment.getUserDownloadDir()`；
+  3. 复制到该下载目录；
   4. 同名文件按 `name (1).ext` 避让；
   5. 清理临时文件。
+- 不申请 `ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY`：该权限在当前
+  HarmonyOS 版本属于受限权限，普通 debug HAP 没有 ACL 时无法授权，
+  会直接报“未获得下载目录权限”。`DOWNLOAD` 模式由 FilePicker 授权，无需权限。
 - 文件名/MIME/媒体判断由共享层 `ArtifactNames` 提供，鸿蒙侧不重写规则。
 
 ### 真实工作流文件名覆盖修复
@@ -127,7 +130,13 @@ QW21-%date:yyyyMMddhhmmss%_00001_.png
    - 修复前多个成功任务都写同一个 `QW21-%date:yyyyMMddhhmmss%_00001_.png`；
    - 修复后用户真机确认新任务产物不再互相覆盖；
    - 旧产物已被覆盖，无法恢复。
-4. 跨端提交规则（2026-10-22 18:30 回归）：
+4. 下载权限修复（2026-10-23，待用户真机确认）：
+   - 旧实现申请 `ohos.permission.READ_WRITE_DOWNLOAD_DIRECTORY`，在当前
+     HarmonyOS 7.0 / API 26 的 debug HAP 上授权结果为 `-1`，界面报
+     “未获得下载目录权限”；
+   - 新实现改用 `DocumentViewPicker` 的 `DOWNLOAD` 模式，不再申请该权限；
+   - 新 HAP 已构建并安装，下载目录为 `Download/<包名>/`。
+5. 跨端提交规则（2026-10-22 18:30 回归）：
    - 鸿蒙：关闭两个节点图后，页面显示“不可提交：没有启用任何节点图，不能提交”，
      提交按钮变为不可用；重新启用后恢复。
    - 鸿蒙：Qwen 工作流存在“已忽略 1 个未连接到输出节点的节点”警告时，
@@ -149,7 +158,7 @@ powershell -ExecutionPolicy Bypass -File .\build.ps1
 
 产物：`harmony\entry\build\default\outputs\default\entry-default-signed.hap`。
 
-ArkTS 编译只剩已知告警：`getUserDownloadDir` / `request` 不是所有设备都支持；
+ArkTS 编译只剩已知告警：`request` 不是所有设备都支持；
 代码已捕获异常并在界面显示失败原因，不会让页面崩溃。
 
 ## 5. 明确未验证 / 后续
