@@ -94,6 +94,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 private sealed interface DownloadUiState {
     data object Downloading : DownloadUiState
@@ -127,6 +131,8 @@ fun ArtifactDialog(
     val downloader = remember { ArtifactDownloader() }
     var selected by remember(task.id) { mutableStateOf<TaskOutput?>(null) }
     var downloadStates by remember(task.id) { mutableStateOf<Map<String, DownloadUiState>>(emptyMap()) }
+    // 预览区文件大小：HEAD 结果按文件名缓存，退回列表再进来不用重复请求。
+    var knownSizes by remember(task.id) { mutableStateOf<Map<String, Long>>(emptyMap()) }
     var pendingPermission by remember { mutableStateOf<TaskOutput?>(null) }
 
     fun stateOf(output: TaskOutput): DownloadUiState? = downloadStates[artifactKey(output)]
@@ -226,6 +232,10 @@ fun ArtifactDialog(
                     ArtifactPreview(
                         output = current,
                         baseUrl = baseUrl,
+                        knownSizes = knownSizes,
+                        onSizeKnown = { filename, bytes ->
+                            knownSizes = knownSizes + (filename to bytes)
+                        },
                         downloadState = stateOf(current),
                         onBack = { selected = null },
                         onDownload = { requestDownload(current) },
@@ -461,6 +471,8 @@ private fun ArtifactRow(
 private fun ArtifactPreview(
     output: TaskOutput,
     baseUrl: String?,
+    knownSizes: Map<String, Long>,
+    onSizeKnown: (String, Long) -> Unit,
     downloadState: DownloadUiState?,
     onBack: () -> Unit,
     onDownload: () -> Unit,
@@ -473,6 +485,14 @@ private fun ArtifactPreview(
     val showPrimary = url != null &&
         downloadState !is DownloadUiState.Downloading &&
         downloadState !is DownloadUiState.Failed
+
+    // 大小是锦上添花：按文件名缓存 HEAD 结果，失败就整段省略，不阻塞预览也不提示错误。
+    LaunchedEffect(output.filename) {
+        if (knownSizes.containsKey(output.filename)) return@LaunchedEffect
+        val target = url ?: return@LaunchedEffect
+        val bytes = withContext(Dispatchers.IO) { fetchContentLength(target) }
+        if (bytes != null) onSizeKnown(output.filename, bytes)
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
@@ -496,7 +516,7 @@ private fun ArtifactPreview(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = artifactMeta(output),
+                    text = artifactMeta(output, knownSizes[output.filename]),
                     color = c.textDim,
                     fontSize = 10.sp,
                     fontFamily = SpectrumMono,
@@ -840,8 +860,8 @@ private fun shareArtifact(context: Context, output: TaskOutput, url: String) {
     runCatching { context.startActivity(Intent.createChooser(send, "分享产物")) }
 }
 
-/** 头部副标题：类型 · 格式。*/
-private fun artifactMeta(output: TaskOutput): String {
+/** 头部副标题：类型 · 格式，拿到大小时再追加 · 大小。*/
+private fun artifactMeta(output: TaskOutput, sizeBytes: Long? = null): String {
     val kind = when {
         ArtifactNames.isImage(output.filename) -> "图片"
         ArtifactNames.isVideo(output.filename) -> "视频"
@@ -849,7 +869,48 @@ private fun artifactMeta(output: TaskOutput): String {
         else -> "文件"
     }
     val format = ArtifactNames.extension(output.filename).uppercase()
-    return if (format.isEmpty()) "$kind · ${output.kind}" else "$kind · $format"
+    val base = if (format.isEmpty()) "$kind · ${output.kind}" else "$kind · $format"
+    val size = sizeBytes?.let(::formatBytes) ?: return base
+    return "$base · $size"
+}
+
+/** B / KB 取整，MB / GB 保留一位小数；非正数或缺失一律不显示。 */
+private fun formatBytes(bytes: Long): String? {
+    if (bytes <= 0L) return null
+    val kb = 1024.0
+    val mb = kb * 1024
+    val gb = mb * 1024
+    return when {
+        bytes >= gb -> String.format(Locale.US, "%.1f GB", bytes / gb)
+        bytes >= mb -> String.format(Locale.US, "%.1f MB", bytes / mb)
+        bytes >= kb -> String.format(Locale.US, "%.0f KB", bytes / kb)
+        else -> "$bytes B"
+    }
+}
+
+/**
+ * 对 `/view` 发一个 HEAD 只读 Content-Length。ComfyUI 或反代不返回该头时保持 null，
+ * 界面就不会出现大小段；任何异常都静默吞掉。shared 的 HttpTransport 不暴露响应头，
+ * 所以这里和 ArtifactDownloader 一样直接用 OkHttp。
+ */
+private fun fetchContentLength(url: String): Long? = try {
+    artifactSizeClient.newCall(Request.Builder().url(url).head().build()).execute().use { response ->
+        if (response.isSuccessful) {
+            response.header("Content-Length")?.trim()?.toLongOrNull()?.takeIf { it > 0L }
+        } else {
+            null
+        }
+    }
+} catch (_: Throwable) {
+    null
+}
+
+private val artifactSizeClient: OkHttpClient by lazy {
+    OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(8, TimeUnit.SECONDS)
+        .callTimeout(10, TimeUnit.SECONDS)
+        .build()
 }
 
 private fun viewUrl(baseUrl: String?, output: TaskOutput): String? = baseUrl
