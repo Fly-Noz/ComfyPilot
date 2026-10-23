@@ -157,6 +157,7 @@ struct Index {
   @StorageProp('systemDark') @Watch('onSystemDarkChange') systemDark: boolean = true;
   @State isDark: boolean = true;
   @State tasksOpen: boolean = false;
+  @State connectView: boolean = false;
   @State settingsOpen: boolean = false;
   @State noteDraft: string = '';
   @State nodeQuery: string = '';
@@ -1376,79 +1377,184 @@ struct Index {
 
   @Builder
   WorkflowCatalog() {
-    Row({ space: 8 }) {
-      Text('工作流')
-      .fontColor(this.c().text)
-        .fontSize(17)
-        .fontWeight(FontWeight.Bold)
-        .layoutWeight(1)
-      Button('刷新')
-        .fontSize(12)
-        .height(30)
-        .enabled(this.running)
-        .onClick(() => {
-          this.catalogRequested = true;
-          this.bridge.refreshWorkflows();
-        })
-    }
-    .width('100%')
-
+    // 与 Android WorkflowCatalogScreen 的 when(catalog) 一一对应：Idle / Loading / Failed / Ready。
     if (this.catalog.state === 'loading') {
-      Row({ space: 8 }) {
-        LoadingProgress().width(18).height(18)
-        Text('正在读取工作流目录…').fontSize(12).fontColor(this.c().textMuted)
-      }
-    } else if (this.catalog.state === 'failed') {
-      Text(`读取失败：${this.catalogError()}`)
-        .fontSize(12)
-        .fontColor(this.c().err)
-    } else if (this.catalog.state === 'ready' && (this.catalog.entries ?? []).length === 0) {
-      Text('服务器 workflows 目录是空的。')
-        .fontSize(12)
-        .fontColor(this.c().textMuted)
-    } else if (this.catalog.state === 'idle') {
-      Text('连接后点“刷新”读取服务器上的工作流。')
-        .fontSize(12)
-        .fontColor(this.c().textMuted)
-    }
-
-    Scroll(this.catalogScroller) {
-      Column({ space: 6 }) {
-        ForEach(this.orderedCatalogEntries(), (entry: CatalogEntry) => {
-          Row({ space: 8 }) {
-            Column({ space: 2 }) {
-              Text(entry.name)
-                .fontSize(14)
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text(entry.path)
-                .fontSize(10)
-                .fontColor(this.c().textDim)
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-            }
-            .alignItems(HorizontalAlign.Start)
-            .layoutWeight(1)
-            Button(this.isWorkflowPinned(entry.path) ? '取消置顶' : '置顶')
-              .fontSize(11)
-              .height(30)
-              .onClick(() => this.toggleWorkflowPin(entry.path))
-            Button('打开')
-              .fontSize(12)
-              .height(30)
-              .enabled(this.running)
-              .onClick(() => this.openWorkflow(entry.path, entry.name))
-          }
-          .width('100%')
-          .padding(10)
-          .backgroundColor(this.c().card)
-          .borderRadius(14)
-        }, (entry: CatalogEntry) => `${entry.path}:${this.isWorkflowPinned(entry.path)}`)
+      Row({ space: 10 }) {
+        LoadingProgress()
+          .width(18)
+          .height(18)
+          .color(this.c().accent)
+        Text('正在读取服务器 workflows 目录…')
+          .fontSize(12)
+          .fontColor(this.c().textMuted)
       }
       .width('100%')
+      .padding(14)
+      .backgroundColor(this.c().card)
+      .borderRadius(18)
+      .border({ width: 1, color: this.c().border })
+    } else if (this.catalog.state === 'failed') {
+      Column() {
+        Text(`读取失败：${this.catalogError()}`)
+          .fontSize(12.5)
+          .lineHeight(18)
+          .fontColor(this.c().err)
+          .width('100%')
+        // 对应 Kotlin 的 GhostButton("重试", width = 96.dp)。
+        Button('重试')
+          .fontSize(12.5)
+          .fontColor(this.c().textMuted)
+          .height(42)
+          .width(96)
+          .padding({ left: 16, right: 16 })
+          .borderRadius(14)
+          .backgroundColor(this.c().card)
+          .border({ width: 1, color: this.c().borderStrong })
+          .enabled(this.running)
+          .opacity(this.running ? 1 : 0.45)
+          .margin({ top: 10 })
+          .onClick(() => {
+            this.catalogRequested = true;
+            this.bridge.refreshWorkflows();
+          })
+      }
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+      .padding(14)
+      .backgroundColor(this.c().card)
+      .borderRadius(18)
+      .border({ width: 1, color: this.c().border })
+    } else if (this.catalog.state === 'ready' && (this.catalog.entries ?? []).length === 0) {
+      Column() {
+        Text('服务器 workflows 目录里没有 .json 工作流。')
+          .fontSize(12.5)
+          .fontColor(this.c().textMuted)
+          .width('100%')
+        // 对应 Kotlin 的 GhostButton("刷新", width = 96.dp)。
+        Button('刷新')
+          .fontSize(12.5)
+          .fontColor(this.c().textMuted)
+          .height(42)
+          .width(96)
+          .padding({ left: 16, right: 16 })
+          .borderRadius(14)
+          .backgroundColor(this.c().card)
+          .border({ width: 1, color: this.c().borderStrong })
+          .margin({ top: 10 })
+          .onClick(() => {
+            this.catalogRequested = true;
+            this.bridge.refreshWorkflows();
+          })
+      }
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+      .padding(14)
+      .backgroundColor(this.c().card)
+      .borderRadius(18)
+      .border({ width: 1, color: this.c().border })
+    } else if (this.catalog.state === 'ready') {
+      Text(`共 ${(this.catalog.entries ?? []).length} 个，点一个打开。`)
+        .fontSize(10.5)
+        .fontColor(this.c().textDim)
+        .fontFamily('monospace')
+        .width('100%')
+
+      Scroll(this.catalogScroller) {
+        Column({ space: 9 }) {
+          ForEach(this.orderedCatalogEntries(), (entry: CatalogEntry) => {
+            // 对应 Android EntryCard：置顶时左侧 3vp 强调色条 + accentBorder 描边。
+            Column() {
+              Row({ space: 8 }) {
+                Column({ space: 4 }) {
+                  Row({ space: 8 }) {
+                    Text(entry.name)
+                      .fontSize(13.5)
+                      .fontWeight(600)
+                      .fontColor(this.c().text)
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .layoutWeight(1)
+                    if (entry.size > 0) {
+                      Text(entry.size < 1024
+                        ? `${entry.size} B`
+                        : (entry.size < 1024 * 1024
+                          ? `${Math.floor(entry.size / 1024)} KB`
+                          : `${Math.floor(entry.size / (1024 * 1024))} MB`))
+                        .fontSize(9.5)
+                        .fontColor(this.c().textDim)
+                        .fontFamily('monospace')
+                    }
+                  }
+                  .width('100%')
+                  .alignItems(VerticalAlign.Center)
+
+                  Row({ space: 8 }) {
+                    Text(entry.path)
+                      .fontSize(10)
+                      .fontColor(this.c().textDim)
+                      .fontFamily('monospace')
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .layoutWeight(1)
+                    if (this.isWorkflowPinned(entry.path)) {
+                      Text('已置顶')
+                        .fontSize(9.5)
+                        .fontColor(this.c().accent)
+                        .fontFamily('monospace')
+                    }
+                    // 对应 Kotlin 带描边的置顶切换文本；点它只切换置顶，不打开工作流。
+                    Text(this.isWorkflowPinned(entry.path) ? '取消置顶' : '置顶')
+                      .fontSize(10)
+                      .fontColor(this.c().textMuted)
+                      .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+                      .borderRadius(7)
+                      .border({ width: 1, color: this.c().borderStrong })
+                      .onClick(() => {
+                        this.toggleWorkflowPin(entry.path);
+                      })
+                  }
+                  .width('100%')
+                  .alignItems(VerticalAlign.Center)
+                }
+                .layoutWeight(1)
+                .alignItems(HorizontalAlign.Start)
+                .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+              }
+              .width('100%')
+              .alignItems(VerticalAlign.Center)
+            }
+            .width('100%')
+            .backgroundColor(this.c().card)
+            .borderRadius(18)
+            .border({
+              width: { left: this.isWorkflowPinned(entry.path) ? 3 : 1, top: 1, right: 1, bottom: 1 },
+              color: this.isWorkflowPinned(entry.path) ? this.c().accentBorder : this.c().border,
+              radius: 18
+            })
+            .onClick(() => this.openWorkflow(entry.path, entry.name))
+          }, (entry: CatalogEntry) =>
+            `${entry.path}:${this.isWorkflowPinned(entry.path)}:${entry.size}`)
+        }
+        .width('100%')
+        .padding({ bottom: 16 })
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .scrollBar(BarState.Off)
+    } else {
+      // Idle（以及未知状态）：对应 Kotlin 的 HintCard。
+      Column() {
+        Text(this.running ? '准备读取服务器工作流…' : '尚未连接 ComfyUI。')
+          .fontSize(12.5)
+          .fontColor(this.c().textMuted)
+          .width('100%')
+      }
+      .width('100%')
+      .padding(14)
+      .backgroundColor(this.c().card)
+      .borderRadius(18)
+      .border({ width: 1, color: this.c().border })
     }
-    .layoutWeight(1)
-    .width('100%')
   }
 
   @Builder
@@ -2293,137 +2399,360 @@ struct Index {
     .clip(true)
     .border({ width: 1, color: this.c().border })
   }
+
   @Builder
   ConnectPanel() {
-    Scroll() {
-      Column({ space: 12 }) {
-        this.HeroArt()
-        Column({ space: 4 }) {
-          Text('ComfyPilot')
-            .fontSize(30)
+    Column() {
+      // 顶栏：对应 Android SpectrumTopBar(titleOverride = Wordmark, actions = 设置 / 诊断)。
+      // Android 的「诊断」是独立 DebugScreen；鸿蒙把诊断日志并进了设置页，这里两个入口都进设置。
+      Row({ space: 2 }) {
+        Row() {
+          Text('Comfy')
+            .fontSize(16)
             .fontWeight(FontWeight.Bold)
-          Text('Spectrum · 连接到你的 ComfyUI')
-            .fontSize(12)
-            .fontColor(this.c().textDim)
-        }
-        .alignItems(HorizontalAlign.Start)
-        .width('100%')
-        .padding({ top: 24, bottom: 8 })
-
-        Column({ space: 8 }) {
-          Text('服务器地址')
-            .fontSize(11)
-            .fontColor(this.c().textDim)
-            .width('100%')
-          TextInput({ text: this.baseUrl, placeholder: 'http://127.0.0.1:18188' })
-            .fontSize(13)
+            .letterSpacing(-0.3)
             .fontColor(this.c().text)
-            .placeholderColor(this.c().textDim)
-            .backgroundColor('rgba(255,255,255,0.03)')
-            .borderRadius(12)
-            .border({ width: 1, color: this.c().border })
-            .height(44)
-            .width('100%')
-            .enabled(!this.running)
-            .onChange((value: string) => {
-              this.baseUrl = value;
-            })
-          Row({ space: 8 }) {
-            this.GradientAction(this.running ? '重连' : '连接', this.storageReady, () => {
-              animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
-                this.connect();
-              });
-            })
-            this.GhostAction('断开', this.running, () => {
-              this.disconnect();
-            })
-          }
-          .width('100%')
+          // Wordmark 在 Android 上是渐变字；ArkUI 文本不支持渐变画刷，用强调色近似。
+          Text('Pilot')
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .letterSpacing(-0.3)
+            .fontColor(this.c().accent)
         }
-        .padding(14)
-        .backgroundColor(this.c().card)
-        .borderRadius(18)
-        .border({ width: 1, color: this.c().border })
-        .width('100%')
+        .layoutWeight(1)
+        .alignItems(VerticalAlign.Bottom)
 
-        if (this.notice.length > 0) {
-          Text(this.notice)
-            .fontSize(11)
-            .fontColor(this.noticeColor())
-            .width('100%')
-        }
-
-        Text(`${this.label} · ABI ${this.abi}`)
-          .fontSize(10)
-          .fontColor(this.c().textDim)
-          .width('100%')
-        Text(this.storageLabel)
-          .fontSize(10)
-          .fontColor(this.c().textDim)
-          .width('100%')
-
-        Row({ space: 8 }) {
-          this.GhostAction(`任务 ${this.tasks.length}`, true, () => {
-            this.tasksOpen = true;
-          })
-          this.GhostAction('设置 / 日志', true, () => {
+        Text('设置')
+          .fontSize(12)
+          .fontColor(this.c().textMuted)
+          .padding({ left: 7, right: 7, top: 7, bottom: 7 })
+          .borderRadius(8)
+          .onClick(() => {
             this.settingsOpen = true;
           })
+        Text('诊断')
+          .fontSize(12)
+          .fontColor(this.c().textMuted)
+          .padding({ left: 7, right: 7, top: 7, bottom: 7 })
+          .borderRadius(8)
+          .onClick(() => {
+            this.settingsOpen = true;
+          })
+      }
+      .width('100%')
+      .constraintSize({ minHeight: 46 })
+      .alignItems(VerticalAlign.Center)
+
+      Scroll() {
+        Column({ space: 14 }) {
+          Text('连接 ComfyUI')
+            .fontSize(27)
+            .fontWeight(FontWeight.Bold)
+            .letterSpacing(-0.6)
+            .fontColor(this.c().text)
+            .width('100%')
+          Text('连上后选择服务器上已有的工作流，调参数、提交任务、看采样。')
+            .fontSize(12.5)
+            .lineHeight(18)
+            .fontColor(this.c().textMuted)
+            .width('100%')
+
+          // 地址卡：GlassCard(padding = 14.dp)。
+          Column() {
+            Text('COMFYUI 地址')
+              .fontSize(9.5)
+              .fontColor(this.c().textDim)
+              .fontFamily('monospace')
+              .letterSpacing(1.1)
+              .width('100%')
+
+            // 对应 AddressField 的输入框外观。历史下拉在鸿蒙侧还没有对应的状态，暂不渲染，
+            // 输入框本身的行为与 Android 一致（失焦写入由 connect() 统一处理）。
+            Row() {
+              TextInput({ text: this.baseUrl, placeholder: 'http://192.168.1.10:8188' })
+                .fontSize(12.5)
+                .fontFamily('monospace')
+                .fontColor(this.c().text)
+                .placeholderColor(this.c().textDim)
+                .caretColor(this.c().accent)
+                .backgroundColor(Color.Transparent)
+                .borderRadius(0)
+                .padding({ left: 0, right: 0, top: 8, bottom: 8 })
+                .height(34)
+                .layoutWeight(1)
+                .enabled(!this.running)
+                .onChange((value: string) => {
+                  this.baseUrl = value;
+                })
+            }
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 4, bottom: 4 })
+            .backgroundColor(this.c().card)
+            .borderRadius(12)
+            .border({ width: 1, color: this.c().border })
+            .margin({ top: 7 })
+            .alignItems(VerticalAlign.Center)
+
+            Row({ space: 9 }) {
+              // GradientButton(weight = 1f, height = 46.dp)。
+              Button(this.running ? '重新连接' : '连接')
+                .fontSize(14)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(this.c().accentInk)
+                .height(46)
+                .padding({ left: 18, right: 18 })
+                .borderRadius(14)
+                .backgroundColor(Color.Transparent)
+                .linearGradient({ angle: 120, colors: Spectrum.gradientColors(this.c()) })
+                .layoutWeight(1)
+                .onClick(() => {
+                  animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+                    this.connect();
+                    this.connectView = false;
+                  });
+                })
+              // GhostButton("断开", width = 84.dp, enabled = hasLease)。
+              Button('断开')
+                .fontSize(12.5)
+                .fontColor(this.c().textMuted)
+                .height(42)
+                .width(84)
+                .padding({ left: 16, right: 16 })
+                .borderRadius(14)
+                .backgroundColor(this.c().card)
+                .border({ width: 1, color: this.c().borderStrong })
+                .enabled(this.running)
+                .opacity(this.running ? 1 : 0.45)
+                .onClick(() => this.disconnect())
+            }
+            .width('100%')
+            .alignItems(VerticalAlign.Top)
+            .margin({ top: 12 })
+
+            if (this.running) {
+              // 对应 Kotlin 里有租约时通栏的「选择工作流」。
+              Button('选择工作流')
+                .fontSize(12.5)
+                .fontColor(this.c().textMuted)
+                .height(42)
+                .width('100%')
+                .padding({ left: 16, right: 16 })
+                .borderRadius(14)
+                .backgroundColor(this.c().card)
+                .border({ width: 1, color: this.c().borderStrong })
+                .margin({ top: 9 })
+                .onClick(() => {
+                  this.selectedPath = '';
+                  this.connectView = false;
+                })
+            }
+          }
+          .width('100%')
+          .padding(14)
+          .backgroundColor(this.c().card)
+          .borderRadius(18)
+          .border({ width: 1, color: this.c().border })
+
+          // SessionStatusCard：玻璃卡 / 状态点 / 连接标签 / GEN / 等宽信息行。
+          Column() {
+            Row({ space: 7 }) {
+              Column()
+                .width(6)
+                .height(6)
+                .borderRadius(3)
+                .backgroundColor(this.running ? this.c().ok : this.c().textDim)
+              Text(this.label.split(' · ')[0])
+                .fontSize(13.5)
+                .fontWeight(600)
+                .fontColor(this.c().text)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .layoutWeight(1)
+              Text(`GEN ${this.generation}`)
+                .fontSize(9.5)
+                .fontColor(this.c().textDim)
+                .fontFamily('monospace')
+                .letterSpacing(0.6)
+            }
+            .width('100%')
+            .alignItems(VerticalAlign.Center)
+
+            Row() {
+              Text('网络')
+                .fontSize(9.5)
+                .fontColor(this.c().textDim)
+                .fontFamily('monospace')
+                .letterSpacing(0.5)
+                .width(64)
+              Text(this.network)
+                .fontSize(11.5)
+                .fontColor(this.c().textMuted)
+                .fontFamily('monospace')
+                .layoutWeight(1)
+            }
+            .width('100%')
+            .padding({ top: 17 })
+            .alignItems(VerticalAlign.Top)
+
+            // Android 的 clientId / 队列两行需要租约与服务器队列快照；鸿蒙状态里没有，
+            // 这里保留 clientId 占位（未连接时为 —），队列行暂不渲染。
+            Row() {
+              Text('clientId')
+                .fontSize(9.5)
+                .fontColor(this.c().textDim)
+                .fontFamily('monospace')
+                .letterSpacing(0.5)
+                .width(64)
+              Text('—')
+                .fontSize(11.5)
+                .fontColor(this.c().textMuted)
+                .fontFamily('monospace')
+                .layoutWeight(1)
+            }
+            .width('100%')
+            .padding({ top: 7 })
+            .alignItems(VerticalAlign.Top)
+          }
+          .width('100%')
+          .padding(14)
+          .backgroundColor(this.c().card)
+          .borderRadius(18)
+          .border({ width: 1, color: this.c().border })
+
+          if (this.notice.length > 0) {
+            // notice?.let { 最近事件 … }：等宽小标签 + 正文。
+            Row({ space: 6 }) {
+              Text('最近事件')
+                .fontSize(10)
+                .fontColor(this.c().textDim)
+                .fontFamily('monospace')
+              Text(this.notice)
+                .fontSize(11)
+                .fontColor(this.c().textMuted)
+                .layoutWeight(1)
+            }
+            .width('100%')
+            .alignItems(VerticalAlign.Top)
+          }
+
+          if (this.running) {
+            Text('已连接，正在进入工作流列表；也可以点上面的「选择工作流」。')
+              .fontSize(11)
+              .fontColor(this.c().textDim)
+              .width('100%')
+          }
+
+          Text('后台可能暂停监控，回来自动同步。')
+            .fontSize(11)
+            .fontColor(this.c().textDim)
+            .width('100%')
+            .margin({ top: 2, bottom: 24 })
         }
         .width('100%')
-
-        Text('后台可能暂停监控，回来自动同步；设置页与长任务后台保活仍未完成。')
-          .fontSize(10)
-          .fontColor(this.c().textDim)
-          .width('100%')
+        // MainPanel 已给 14vp 外边距，这里补 4vp，对齐 Android 内容区的 18vp。
+        // 顶部 20vp = Kotlin 的 Spacer(6) + spacedBy(14)。
+        .padding({ left: 4, right: 4, top: 20 })
       }
-      .padding(18)
+      .layoutWeight(1)
       .width('100%')
+      .scrollBar(BarState.Off)
     }
     .width('100%')
     .height('100%')
-    .scrollBar(BarState.Off)
   }
 
   @Builder
   CatalogPanel() {
-    Row({ space: 8 }) {
-      Column({ space: 2 }) {
+    Column() {
+      // 顶栏：对应 Android SpectrumTopBar(返回 + 工作流 + 设置 / 刷新 / 任务 / 断开)。
+      Row({ space: 2 }) {
+        Text('返回')
+          .fontSize(12)
+          .fontColor(this.c().textMuted)
+          .padding({ left: 7, right: 7, top: 7, bottom: 7 })
+          .borderRadius(8)
+          .margin({ right: 2 })
+          .onClick(() => {
+            this.connectView = true;
+          })
         Text('工作流')
-          .fontSize(22)
+          .fontSize(15)
           .fontWeight(FontWeight.Bold)
-        Text(`${this.label} · ${(this.catalog.entries ?? []).length} 个工作流`)
-          .fontSize(10)
-          .fontColor(this.c().textDim)
+          .letterSpacing(-0.2)
+          .fontColor(this.c().text)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1)
+        Text('设置')
+          .fontSize(12)
+          .fontColor(this.c().textMuted)
+          .padding({ left: 7, right: 7, top: 7, bottom: 7 })
+          .borderRadius(8)
+          .onClick(() => {
+            this.settingsOpen = true;
+          })
+        Text('刷新')
+          .fontSize(12)
+          .fontColor(this.running ? this.c().textMuted : this.c().textDim)
+          .padding({ left: 7, right: 7, top: 7, bottom: 7 })
+          .borderRadius(8)
+          .enabled(this.running)
+          .onClick(() => {
+            this.catalogRequested = true;
+            this.bridge.refreshWorkflows();
+          })
+        Text('任务')
+          .fontSize(12)
+          .fontColor(this.c().textMuted)
+          .padding({ left: 7, right: 7, top: 7, bottom: 7 })
+          .borderRadius(8)
+          .onClick(() => {
+            this.tasksOpen = true;
+          })
+        Text('断开')
+          .fontSize(12)
+          .fontColor(this.running ? this.c().textMuted : this.c().textDim)
+          .padding({ left: 7, right: 7, top: 7, bottom: 7 })
+          .borderRadius(8)
+          .enabled(this.running)
+          .onClick(() => {
+            this.disconnect();
+          })
       }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-      this.StatusPill()
-    }
-    .width('100%')
+      .width('100%')
+      .constraintSize({ minHeight: 46 })
+      .alignItems(VerticalAlign.Center)
 
-    Row({ space: 8 }) {
-      this.GhostAction(`任务 ${this.tasks.length}`, true, () => {
-        this.tasksOpen = true;
-      })
-      this.GhostAction('设置 / 日志', true, () => {
-        this.settingsOpen = true;
-      })
-      this.GhostAction('断开', this.running, () => {
-        this.disconnect();
-      })
-    }
-    .width('100%')
+      Column({ space: 10 }) {
+        // Dot + 连接标签 + 「· transport · 第 N 代」。
+        Row({ space: 7 }) {
+          Column()
+            .width(6)
+            .height(6)
+            .borderRadius(3)
+            .backgroundColor(this.running ? this.c().ok : this.c().textDim)
+          Text(this.label.split(' · ')[0])
+            .fontSize(11.5)
+            .fontColor(this.c().textMuted)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(`· ${this.network} · 第 ${this.generation} 代`)
+            .fontSize(10)
+            .fontColor(this.c().textDim)
+            .fontFamily('monospace')
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
 
-    Scroll() {
-      Column({ space: 8 }) {
         this.WorkflowCatalog()
       }
       .width('100%')
+      .layoutWeight(1)
+      // 同 ConnectPanel：补 4vp 对齐 Android 的 18vp 内容边距。
+      .padding({ left: 4, right: 4 })
     }
-    .layoutWeight(1)
     .width('100%')
-    .scrollBar(BarState.Off)
+    .height('100%')
   }
 
   @Builder
@@ -2515,7 +2844,7 @@ struct Index {
     Stack() {
       Column({ space: 10 }) {
         if (this.settingsOpen) {
-          this.SettingsPanel()
+        } else if (!this.running || this.connectView) {
         } else if (!this.running) {
           this.ConnectPanel()
         } else if (this.selectedPath.length > 0) {
