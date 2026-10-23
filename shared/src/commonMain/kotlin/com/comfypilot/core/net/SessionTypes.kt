@@ -55,6 +55,16 @@ sealed interface SessionInput {
 
     data class UserReconnect(val nowMs: Long) : SessionInput
 
+    /**
+     * 回到前台时主动拿非终态任务去 `/history` 对账。
+     *
+     * WebSocket 半死时收不到任何事件，只能靠这个入口补一次；不关 socket、不递增 generation。
+     */
+    data class ReconcileRequested(
+        val nowMs: Long,
+        val reason: String = "回到前台",
+    ) : SessionInput
+
     data class Tick(val nowMs: Long) : SessionInput
 }
 

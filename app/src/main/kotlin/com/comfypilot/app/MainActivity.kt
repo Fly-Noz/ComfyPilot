@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.comfypilot.android.service.ComfyForegroundService
 import com.comfypilot.app.ui.ComfyPilotApp
@@ -24,6 +25,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 全屏铺满，状态栏/导航栏由 ComfyPilotTheme 按深浅色切换图标明暗。
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         requestNotificationPermissionIfNeeded()
 
         // 仅供调试/联调：允许通过 adb 指定地址并自动连接，避免手点 UI 引入不确定性

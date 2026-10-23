@@ -8,12 +8,16 @@ import android.widget.MediaController
 import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,14 +28,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -43,12 +42,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -58,6 +59,10 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.comfypilot.app.artifact.ArtifactDownloadResult
 import com.comfypilot.app.artifact.ArtifactDownloader
+import com.comfypilot.app.ui.theme.GhostButton
+import com.comfypilot.app.ui.theme.Spectrum
+import com.comfypilot.app.ui.theme.SpectrumMono
+import com.comfypilot.app.ui.theme.TopBarAction
 import com.comfypilot.core.api.ApiPaths
 import com.comfypilot.core.api.ArtifactNames
 import com.comfypilot.core.api.TaskOutput
@@ -84,6 +89,7 @@ fun ArtifactDialog(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    val c = Spectrum.colors
     val scope = rememberCoroutineScope()
     val downloader = remember { ArtifactDownloader() }
     var selected by remember(task.id) { mutableStateOf<TaskOutput?>(null) }
@@ -152,7 +158,7 @@ fun ArtifactDialog(
         },
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Box(modifier = Modifier.fillMaxSize().background(c.background)) {
             val current = selected
             if (current == null) {
                 ArtifactList(
@@ -185,36 +191,46 @@ private fun ArtifactList(
     onDownload: (TaskOutput) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val c = Spectrum.colors
     Column(
         modifier = Modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("产物", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-            TextButton(onClick = onDismiss) { Text("关闭") }
+            Text(
+                text = "产物",
+                color = c.text,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.2).sp,
+                modifier = Modifier.weight(1f),
+            )
+            TopBarAction(text = "关闭", onClick = onDismiss)
         }
         Text(
-            task.displayName ?: task.promptId ?: task.id,
-            style = MaterialTheme.typography.bodySmall,
-            fontFamily = FontFamily.Monospace,
+            text = task.displayName ?: task.promptId ?: task.id,
+            color = c.textDim,
+            fontSize = 10.sp,
+            fontFamily = SpectrumMono,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = 18.dp),
         )
         if (task.outputs.isEmpty()) {
             Text(
-                "该任务没有产物。",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(16.dp),
+                text = "该任务没有产物。",
+                color = c.textMuted,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(18.dp),
             )
         }
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(task.outputs) { output ->
@@ -238,89 +254,118 @@ private fun ArtifactRow(
     onPreview: () -> Unit,
     onDownload: () -> Unit,
 ) {
+    val c = Spectrum.colors
     val url = viewUrl(baseUrl, output)
     val isImage = ArtifactNames.isImage(output.filename)
     val isVideo = ArtifactNames.isVideo(output.filename)
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(
-                output.filename,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+    val shape = RoundedCornerShape(16.dp)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(c.card)
+            .border(1.dp, c.border, shape)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = output.filename,
+            color = c.text,
+            fontSize = 10.5.sp,
+            fontFamily = SpectrumMono,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = "${output.kind} · ${output.type}",
+            color = c.textDim,
+            fontSize = 9.sp,
+            fontFamily = SpectrumMono,
+            letterSpacing = 0.5.sp,
+        )
+        if (url != null && isImage) {
+            RemoteOutputImage(
+                url = url,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(190.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(onClick = onPreview),
             )
-            Text(
-                "${output.kind} · ${output.type}",
-                style = MaterialTheme.typography.labelSmall,
-            )
-            if (url != null && isImage) {
-                RemoteOutputImage(
-                    url = url,
-                    modifier = Modifier.fillMaxWidth().height(200.dp).clickable(onClick = onPreview),
-                )
-            } else if (url != null && isVideo) {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp)
-                        .clickable(onClick = onPreview),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = MaterialTheme.shapes.medium,
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("▶", style = MaterialTheme.typography.headlineMedium)
-                            Text("视频 · 点击预览", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            } else if (url == null) {
-                Text("未连接 ComfyUI，无法预览或下载。", style = MaterialTheme.typography.bodySmall)
-            } else {
-                Text(
-                    "该类型暂不支持内置预览，可下载后用系统应用打开。",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically,
+        } else if (url != null && isVideo) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(120.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(c.dialog)
+                    .border(1.dp, c.border, RoundedCornerShape(12.dp))
+                    .clickable(onClick = onPreview),
+                contentAlignment = Alignment.Center,
             ) {
-                if (url != null && (isImage || isVideo)) {
-                    TextButton(onClick = onPreview) { Text("预览") }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("▶", color = c.heroText, fontSize = 22.sp)
+                    Text("视频 · 点击预览", color = c.textDim, fontSize = 10.5.sp)
                 }
-                if (url != null) {
-                    OutlinedButton(
-                        onClick = onDownload,
-                        enabled = downloadState !is DownloadUiState.Downloading,
+            }
+        } else if (url == null) {
+            Text(
+                text = "未连接 ComfyUI，无法预览或下载。",
+                color = c.textDim,
+                fontSize = 11.sp,
+            )
+        } else {
+            Text(
+                text = "该类型暂不支持内置预览，可下载后用系统应用打开。",
+                color = c.textDim,
+                fontSize = 11.sp,
+            )
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(9.dp, Alignment.End),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (url != null && (isImage || isVideo)) {
+                GhostButton(text = "预览", onClick = onPreview, height = 36.dp)
+            }
+            if (url != null) {
+                if (downloadState is DownloadUiState.Downloading) {
+                    Row(
+                        modifier = Modifier
+                            .height(36.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .border(1.dp, c.borderStrong, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        if (downloadState is DownloadUiState.Downloading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        } else {
-                            Text(downloadLabel(downloadState))
-                        }
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(13.dp),
+                            color = c.accent,
+                            strokeWidth = 1.5.dp,
+                        )
+                        Text("下载中…", color = c.textMuted, fontSize = 11.sp)
                     }
+                } else {
+                    GhostButton(
+                        text = downloadLabel(downloadState),
+                        onClick = onDownload,
+                        height = 36.dp,
+                    )
                 }
             }
-            downloadMessage(downloadState)?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (downloadState is DownloadUiState.Failed) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
+        }
+
+        downloadMessage(downloadState)?.let {
+            Text(
+                text = it,
+                color = if (downloadState is DownloadUiState.Failed) c.err else c.textDim,
+                fontSize = 10.5.sp,
+                lineHeight = 15.sp,
+            )
         }
     }
 }
@@ -333,76 +378,76 @@ private fun ArtifactPreview(
     onBack: () -> Unit,
     onDownload: () -> Unit,
 ) {
+    val c = Spectrum.colors
     val url = viewUrl(baseUrl, output)
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = Color(0xFF101010),
-        contentColor = Color.White,
+    val viewerBackground = Color(0xFF0B0C10)
+    val viewerInk = Color(0xFFF2F4F7)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(viewerBackground)
+            .windowInsetsPadding(WindowInsets.safeDrawing),
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing),
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(
-                    onClick = onBack,
-                    colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
-                ) { Text("返回") }
-                Text(
-                    output.filename,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
-                )
-                if (url != null) {
-                    TextButton(
-                        onClick = onDownload,
-                        enabled = downloadState !is DownloadUiState.Downloading,
-                        colors = ButtonDefaults.textButtonColors(
-                            contentColor = Color.White,
-                            disabledContentColor = Color.White.copy(alpha = 0.5f),
-                        ),
-                    ) {
-                        Text(downloadLabel(downloadState))
-                    }
-                }
-            }
-            Box(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                contentAlignment = Alignment.Center,
-            ) {
-                when {
-                    url == null -> Text("未连接 ComfyUI，无法预览。", style = MaterialTheme.typography.bodySmall)
-                    ArtifactNames.isImage(output.filename) -> RemoteOutputImage(
-                        url = url,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Fit,
-                    )
-
-                    ArtifactNames.isVideo(output.filename) -> key(url) {
-                        ArtifactVideo(url = url, modifier = Modifier.fillMaxSize())
-                    }
-
-                    else -> Text(
-                        "该类型暂不支持内置预览，可下载后用系统应用打开。",
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(24.dp),
-                    )
-                }
-            }
-            downloadMessage(downloadState)?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            TopBarAction(text = "返回", onClick = onBack, emphasized = true)
+            Text(
+                text = output.filename,
+                color = viewerInk.copy(alpha = 0.85f),
+                fontSize = 10.5.sp,
+                fontFamily = SpectrumMono,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+            )
+            if (url != null) {
+                TopBarAction(
+                    text = downloadLabel(downloadState),
+                    onClick = onDownload,
+                    enabled = downloadState !is DownloadUiState.Downloading,
+                    emphasized = true,
                 )
             }
+        }
+        Box(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            contentAlignment = Alignment.Center,
+        ) {
+            when {
+                url == null -> Text(
+                    text = "未连接 ComfyUI，无法预览。",
+                    color = viewerInk.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
+                )
+
+                ArtifactNames.isImage(output.filename) -> RemoteOutputImage(
+                    url = url,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                )
+
+                ArtifactNames.isVideo(output.filename) -> key(url) {
+                    ArtifactVideo(url = url, modifier = Modifier.fillMaxSize())
+                }
+
+                else -> Text(
+                    text = "该类型暂不支持内置预览，可下载后用系统应用打开。",
+                    color = viewerInk.copy(alpha = 0.6f),
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(24.dp),
+                )
+            }
+        }
+        downloadMessage(downloadState)?.let {
+            Text(
+                text = it,
+                color = viewerInk.copy(alpha = 0.7f),
+                fontSize = 10.5.sp,
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
+            )
         }
     }
 }
@@ -410,6 +455,7 @@ private fun ArtifactPreview(
 @Composable
 private fun ArtifactVideo(url: String, modifier: Modifier = Modifier) {
     val lifecycleOwner = LocalLifecycleOwner.current
+    val c = Spectrum.colors
     var failed by remember(url) { mutableStateOf(false) }
     var prepared by remember(url) { mutableStateOf(false) }
     var videoView by remember(url) { mutableStateOf<VideoView?>(null) }
@@ -455,10 +501,11 @@ private fun ArtifactVideo(url: String, modifier: Modifier = Modifier) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(24.dp),
             ) {
-                Text("视频预览失败", style = MaterialTheme.typography.bodyLarge)
+                Text("视频预览失败", color = Color.White, fontSize = 15.sp)
                 Text(
-                    "可能是设备不支持该编码或网络中断，可下载后用系统应用打开。",
-                    style = MaterialTheme.typography.bodySmall,
+                    text = "可能是设备不支持该编码或网络中断，可下载后用系统应用打开。",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 11.sp,
                 )
             }
         } else {
@@ -485,8 +532,8 @@ private fun ArtifactVideo(url: String, modifier: Modifier = Modifier) {
             )
             if (!prepared) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(32.dp),
-                    color = Color.White,
+                    modifier = Modifier.size(30.dp),
+                    color = c.accent,
                 )
             }
         }

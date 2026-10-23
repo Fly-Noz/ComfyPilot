@@ -83,7 +83,7 @@ fun LivePreviewImage(bytes: ByteArray, modifier: Modifier = Modifier) {
     }
 
     Box(
-        modifier = modifier.fillMaxWidth().height(240.dp),
+        modifier = modifier,
         contentAlignment = Alignment.Center,
     ) {
         val current = bitmap

@@ -81,6 +81,10 @@ class SessionRuntime(
 
     fun reconnect() = enqueue(SessionInput.UserReconnect(clock.nowMillis()))
 
+    /** 回到前台时补一次对账：不重连，只对非终态任务查 /history。 */
+    fun reconcile(reason: String = "回到前台") =
+        enqueue(SessionInput.ReconcileRequested(clock.nowMillis(), reason))
+
     fun submit(
         workflowJson: String,
         workflowName: String? = null,

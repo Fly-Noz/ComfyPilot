@@ -1,0 +1,174 @@
+package com.comfypilot.app.ui
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.comfypilot.app.ui.theme.GlassCard
+import com.comfypilot.app.ui.theme.Spectrum
+import com.comfypilot.app.ui.theme.SpectrumMono
+import com.comfypilot.app.ui.theme.SpectrumScaffold
+import com.comfypilot.app.ui.theme.SpectrumTopBar
+import com.comfypilot.app.ui.theme.ThemeMode
+import androidx.compose.foundation.shape.RoundedCornerShape
+
+/**
+ * 设置页。目前只有外观一项：跟随系统 / 深色 / 浅色。
+ * 其他设置后续再加，这里只保证入口和分区是稳定的。
+ */
+@Composable
+fun SettingsScreen(
+    mode: ThemeMode,
+    onModeChange: (ThemeMode) -> Unit,
+    onBack: () -> Unit,
+) {
+    val c = Spectrum.colors
+
+    SpectrumScaffold(
+        topBar = { SpectrumTopBar(title = "设置", onBack = onBack) },
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .padding(horizontal = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = "外观",
+                color = c.textDim,
+                fontSize = 10.sp,
+                fontFamily = SpectrumMono,
+                letterSpacing = 1.2.sp,
+            )
+
+            GlassCard(padding = androidx.compose.foundation.layout.PaddingValues(6.dp)) {
+                ThemeMode.entries.forEachIndexed { index, entry ->
+                    ModeRow(
+                        mode = entry,
+                        selected = mode == entry,
+                        onClick = { onModeChange(entry) },
+                    )
+                    if (index != ThemeMode.entries.lastIndex) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp)
+                                .height(1.dp)
+                                .background(c.border),
+                        )
+                    }
+                }
+            }
+
+            Text(
+                text = "外观只影响本机显示，不会改变工作流、任务或连接行为。",
+                color = c.textDim,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                modifier = Modifier.padding(horizontal = 2.dp),
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+                text = "更多设置后续补充。",
+                color = c.textDim,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(horizontal = 2.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModeRow(
+    mode: ThemeMode,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val c = Spectrum.colors
+    val shape = RoundedCornerShape(12.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Canvas(modifier = Modifier.size(18.dp)) {
+            val stroke = 1.5.dp.toPx()
+            if (selected) {
+                drawCircle(color = c.accent, radius = size.minDimension / 2f)
+                drawCircle(color = c.background, radius = size.minDimension / 2f - 5.dp.toPx())
+            } else {
+                drawCircle(
+                    brush = Brush.linearGradient(
+                        listOf(c.gradient[1], c.gradient[2]),
+                        start = Offset.Zero,
+                        end = Offset(size.width, size.height),
+                    ),
+                    radius = size.minDimension / 2f,
+                    style = Stroke(width = stroke),
+                )
+            }
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = mode.label,
+                color = c.text,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = when (mode) {
+                    ThemeMode.System -> "跟随系统深色模式"
+                    ThemeMode.Dark -> "近黑底 + 色晕，夜里看着最舒服"
+                    ThemeMode.Light -> "雾白底 + 色晕，白天户外更清楚"
+                },
+                color = c.textDim,
+                fontSize = 11.sp,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        if (selected) {
+            Text(
+                text = "当前",
+                color = c.accent,
+                fontSize = 10.sp,
+                fontFamily = SpectrumMono,
+            )
+        }
+    }
+}

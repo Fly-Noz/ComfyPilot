@@ -15,6 +15,7 @@ import {
 } from '../bridge/ComfyBridge';
 import { PinnedNodeStore } from '../bridge/PinnedNodeStore';
 import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
+import { NodeNoteStore } from '../bridge/NodeNoteStore';
 import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/ArtifactDownloader';
 import { ImageUploader, PickedImage } from '../workflow/ImageUploader';
 import {
@@ -148,6 +149,13 @@ struct Index {
   @State uploadNoticeKey: string = '';
   @State uploadNotice: string = '';
 
+  @State nodeNotesVersion: number = 0;
+  @State previewVersion: number = 0;
+  @State noteEditorId: number = -1;
+  @State noteDraft: string = '';
+  @State nodeQuery: string = '';
+  @State traitFilter: number[] = [];
+
   @State artifactOpen: boolean = false;
   @State artifactTask: BridgeTask = emptyTask();
   @State previewOpen: boolean = false;
@@ -166,6 +174,9 @@ struct Index {
   private pinnedWorkflowStore: PinnedWorkflowStore = new PinnedWorkflowStore();
   private downloader: ArtifactDownloader = new ArtifactDownloader();
   private imageUploader: ImageUploader = new ImageUploader();
+  private noteStore: NodeNoteStore = new NodeNoteStore();
+  private notes: Map<number, string> = new Map();
+  private previewUris: Map<string, string> = new Map();
   private uiContext: common.UIAbilityContext | null = null;
   private edits: Map<string, string | number | boolean | null> = new Map();
   private editRefreshTimer: number = -1;
@@ -225,6 +236,7 @@ struct Index {
     this.uiContext = host as common.UIAbilityContext;
     const result: TaskRestoreResult = await this.bridge.init(context);
     const pinnedReady: boolean = await this.pinnedStore.open(context);
+    const notesReady: boolean = await this.noteStore.open(context);
     const workflowPinsReady: boolean = await this.pinnedWorkflowStore.open(context);
     if (workflowPinsReady) {
       this.pinnedWorkflowPaths = this.pinnedWorkflowStore.load();
@@ -240,6 +252,9 @@ struct Index {
     }
     if (!workflowPinsReady) {
       this.log(`工作流置顶存储不可用：${this.pinnedWorkflowStore.error}`);
+    }
+    if (!notesReady) {
+      this.log(`备注存储不可用：${this.noteStore.error}`);
     }
     this.bridge.prepare(this.baseUrl);
   }
@@ -512,6 +527,14 @@ struct Index {
     this.notice = '';
     this.resetUploadState();
     this.pinnedIds = this.pinnedStore.load(path);
+    this.notes = this.noteStore.load(path);
+    this.nodeNotesVersion++;
+    this.previewUris.clear();
+    this.previewVersion++;
+    this.nodeQuery = '';
+    this.traitFilter = [];
+    this.noteEditorId = -1;
+    this.noteDraft = '';
     this.log(`打开工作流：${name || path}`);
     this.bridge.openWorkflow(path);
     setTimeout(() => {
@@ -521,6 +544,13 @@ struct Index {
 
   private closeWorkflow(): void {
     this.cancelEditRefresh();
+    this.notes.clear();
+    this.nodeNotesVersion++;
+    this.previewUris.clear();
+    this.previewVersion++;
+    this.nodeQuery = '';
+    this.traitFilter = [];
+    this.noteEditorId = -1;
     this.resetUploadState();
     this.selectedPath = '';
     this.summaryKey = '';
@@ -682,6 +712,8 @@ struct Index {
         return;
       }
       this.setFieldText(field, result.reference);
+      this.previewUris.set(key, picked.uri);
+      this.previewVersion++;
       this.uploadNoticeKey = key;
       this.uploadNotice = result.message;
     } catch (err) {
@@ -851,8 +883,11 @@ struct Index {
     }
   }
 
+  /** 启用中的节点图排在前面，未启用的整组后移；组内顺序仍跟主机一致。 */
   private parentGraphs(): WorkflowGraphView[] {
-    return this.view.graphs.filter((graph: WorkflowGraphView) => graph.outputNodeIds.length > 0);
+    const parents = this.view.graphs.filter((graph: WorkflowGraphView) => graph.outputNodeIds.length > 0);
+    return parents.filter((graph: WorkflowGraphView) => graph.selected)
+      .concat(parents.filter((graph: WorkflowGraphView) => !graph.selected));
   }
 
   private childGraphs(parentId: string): WorkflowGraphView[] {
@@ -871,6 +906,117 @@ struct Index {
     }
     this.graphsInitialized = true;
     this.refreshView(true);
+  }
+
+  /** 节点备注覆盖显示名；副标题仍保留主机原名，避免认错节点。 */
+  private noteOf(nodeId: number): string {
+    const version = this.nodeNotesVersion;
+    if (version < 0) {
+      return '';
+    }
+    return this.notes.get(nodeId) ?? '';
+  }
+
+  private nodeTitle(node: WorkflowNodeView): string {
+    const note = this.noteOf(node.id);
+    return note.length > 0 ? note : node.displayName;
+  }
+
+  private openNoteEditor(node: WorkflowNodeView): void {
+    this.noteEditorId = node.id;
+    this.noteDraft = this.noteOf(node.id);
+  }
+
+  private persistNotes(): void {
+    this.nodeNotesVersion++;
+    this.noteStore.save(this.selectedPath, this.notes)
+      .catch((err: Error) => this.log(`保存备注失败：${err.message}`));
+  }
+
+  private previewUri(field: WorkflowFieldView): string {
+    const version = this.previewVersion;
+    if (version < 0) {
+      return '';
+    }
+    return this.previewUris.get(this.editKey(field.nodeId, field.inputName)) ?? '';
+  }
+
+  private saveNote(): void {
+    const id = this.noteEditorId;
+    if (id < 0) {
+      return;
+    }
+    const text = this.noteDraft.replace(/[\t\n\r]+/g, ' ').trim();
+    if (text.length === 0) {
+      this.notes.delete(id);
+    } else {
+      this.notes.set(id, text);
+    }
+    this.persistNotes();
+    this.noteEditorId = -1;
+    this.noteDraft = '';
+  }
+
+  private clearNote(): void {
+    const id = this.noteEditorId;
+    if (id < 0) {
+      return;
+    }
+    this.notes.delete(id);
+    this.persistNotes();
+    this.noteEditorId = -1;
+    this.noteDraft = '';
+  }
+
+  private matchesNode(node: WorkflowNodeView, query: string): boolean {
+    const q = query.trim().toLowerCase();
+    if (q.length === 0) {
+      return true;
+    }
+    const hay: string[] = [`#${node.id}`, node.displayName, node.type, this.noteOf(node.id)];
+    node.fields.forEach((field: WorkflowFieldView) => hay.push(field.type));
+    return hay.some((part: string) => part.toLowerCase().indexOf(q) >= 0);
+  }
+
+  private nodeHasTrait(node: WorkflowNodeView, trait: number): boolean {
+    if (trait === 3) {
+      return node.needsInput;
+    }
+    return node.fields.some((field: WorkflowFieldView) => {
+      const type = field.type.toUpperCase();
+      if (trait === 0) {
+        return node.type === 'LoadImage' || type.indexOf('IMAGE') >= 0;
+      }
+      if (trait === 1) {
+        return type === 'STRING';
+      }
+      return type === 'INT' || type === 'FLOAT';
+    });
+  }
+
+  private filteredNodes(): WorkflowNodeView[] {
+    const version = this.nodeNotesVersion;
+    if (version < 0) {
+      return [];
+    }
+    const traits = this.traitFilter;
+    return this.view.nodes.filter((node: WorkflowNodeView) => {
+      if (!this.matchesNode(node, this.nodeQuery)) {
+        return false;
+      }
+      if (traits.length === 0) {
+        return true;
+      }
+      return traits.some((trait: number) => this.nodeHasTrait(node, trait));
+    });
+  }
+
+  private toggleTrait(trait: number): void {
+    if (this.traitFilter.includes(trait)) {
+      this.traitFilter = this.traitFilter.filter((item: number) => item !== trait);
+    } else {
+      this.traitFilter = [...this.traitFilter, trait];
+    }
   }
 
   private submitWorkflow(): void {
@@ -1037,7 +1183,7 @@ struct Index {
     Column({ space: 6 }) {
       Row({ space: 8 }) {
         Column({ space: 2 }) {
-          Text(`#${node.id} ${node.displayName}`)
+          Text(`#${node.id} ${this.nodeTitle(node)}`)
             .fontSize(15)
             .fontWeight(FontWeight.Medium)
           Text(node.title !== null && node.title.length > 0 ? node.title : node.type)
@@ -1046,6 +1192,10 @@ struct Index {
         }
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
+        Button('备注')
+          .fontSize(12)
+          .height(30)
+          .onClick(() => this.openNoteEditor(node))
         Button(node.pinned ? '取消置顶' : '置顶')
           .fontSize(12)
           .height(30)
@@ -1124,6 +1274,13 @@ struct Index {
   @Builder
   ImageField(field: WorkflowFieldView) {
     Column({ space: 5 }) {
+      if (this.previewUri(field).length > 0) {
+        Image(this.previewUri(field))
+          .width(72)
+          .height(72)
+          .borderRadius(8)
+          .objectFit(ImageFit.Cover)
+      }
       Text(this.fieldText(field).length > 0 ? `当前：${this.fieldText(field)}` : '尚未选择图片')
         .fontSize(12)
         .fontColor(this.fieldText(field).length > 0 ? '#333333' : '#999999')
@@ -1160,6 +1317,46 @@ struct Index {
       .width('100%')
       .height(38)
       .onSelect((index: number, value: string) => this.setFieldText(field, value))
+  }
+
+  @Builder
+  NoteEditor() {
+    Column({ space: 6 }) {
+      Text(`备注 #${this.noteEditorId}`)
+        .fontSize(11)
+        .fontColor('#777777')
+      TextInput({ text: this.noteDraft, placeholder: '给这个节点起个好认的名字' })
+        .fontSize(13)
+        .height(38)
+        .width('100%')
+        .onChange((value: string) => {
+          this.noteDraft = value;
+        })
+      Row({ space: 8 }) {
+        Button('保存')
+          .fontSize(12)
+          .height(30)
+          .onClick(() => this.saveNote())
+        if (this.noteOf(this.noteEditorId).length > 0) {
+          Button('清除备注')
+            .fontSize(12)
+            .height(30)
+            .onClick(() => this.clearNote())
+        }
+        Button('取消')
+          .fontSize(12)
+          .height(30)
+          .onClick(() => {
+            this.noteEditorId = -1;
+            this.noteDraft = '';
+          })
+      }
+    }
+    .alignItems(HorizontalAlign.Start)
+    .padding(10)
+    .backgroundColor('#F6F7FB')
+    .borderRadius(8)
+    .width('100%')
   }
 
   @Builder
@@ -1365,6 +1562,10 @@ struct Index {
         .fontColor(this.submitNotice.startsWith('已提交') ? '#1B8A3A' : '#B00020')
     }
 
+    if (this.noteEditorId >= 0) {
+      this.NoteEditor()
+    }
+
     Row({ space: 8 }) {
       Button('输入')
         .fontSize(12)
@@ -1388,13 +1589,47 @@ struct Index {
     .width('100%')
 
     if (this.detailTab === 0) {
+      TextInput({ text: this.nodeQuery, placeholder: '搜索名称、类型、#id、备注' })
+        .fontSize(13)
+        .height(36)
+        .width('100%')
+        .onChange((value: string) => {
+          this.nodeQuery = value;
+        })
+      Row({ space: 6 }) {
+        Button('图像输入')
+          .fontSize(11)
+          .height(28)
+          .backgroundColor(this.traitFilter.includes(0) ? '#D7E8FF' : '#EEEEEE')
+          .onClick(() => this.toggleTrait(0))
+        Button('文本输入')
+          .fontSize(11)
+          .height(28)
+          .backgroundColor(this.traitFilter.includes(1) ? '#D7E8FF' : '#EEEEEE')
+          .onClick(() => this.toggleTrait(1))
+        Button('数值输入')
+          .fontSize(11)
+          .height(28)
+          .backgroundColor(this.traitFilter.includes(2) ? '#D7E8FF' : '#EEEEEE')
+          .onClick(() => this.toggleTrait(2))
+        Button('待填写')
+          .fontSize(11)
+          .height(28)
+          .backgroundColor(this.traitFilter.includes(3) ? '#D7E8FF' : '#EEEEEE')
+          .onClick(() => this.toggleTrait(3))
+      }
+      .width('100%')
+      Text(`${this.filteredNodes().length} / ${this.view.nodes.length} 个节点`)
+        .fontSize(10)
+        .fontColor('#777777')
+
       if (this.view.ok && this.view.nodes.length === 0) {
         Text('这是 API 格式工作流，没有网页字段可编辑；可以直接提交。')
           .fontSize(12)
           .fontColor('#666666')
       }
 
-      ForEach(this.view.nodes, (node: WorkflowNodeView) => {
+      ForEach(this.filteredNodes(), (node: WorkflowNodeView) => {
         this.NodeCard(node)
       }, (node: WorkflowNodeView) => `${node.id}:${node.pinned}:${node.reachable}:${node.needsInput}`)
     } else {

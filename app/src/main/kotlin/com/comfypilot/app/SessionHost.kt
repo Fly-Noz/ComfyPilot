@@ -97,6 +97,11 @@ object SessionHost {
         runtime?.reconnect()
     }
 
+
+    /** 回到前台时补一次对账，避免 WebSocket 半死导致任务一直停在排队中。 */
+    fun reconcile() {
+        runtime?.reconcile()
+    }
     fun submit(workflowJson: String, workflowName: String? = null, workflowPath: String? = null) {
         runtime?.submit(workflowJson, workflowName, workflowPath)
     }

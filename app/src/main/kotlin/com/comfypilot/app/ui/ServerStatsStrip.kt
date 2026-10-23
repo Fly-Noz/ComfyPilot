@@ -1,11 +1,19 @@
 package com.comfypilot.app.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -13,10 +21,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.comfypilot.android.transport.OkHttpHttpTransport
+import com.comfypilot.app.ui.theme.Spectrum
+import com.comfypilot.app.ui.theme.SpectrumMono
 import com.comfypilot.core.api.ApiCall
 import com.comfypilot.core.api.ApiCodec
 import com.comfypilot.core.api.ApiPaths
@@ -38,6 +51,7 @@ import kotlin.math.roundToInt
 fun ServerStatsStrip(
     baseUrl: String?,
 ) {
+    val c = Spectrum.colors
     var stats by remember(baseUrl) { mutableStateOf<SystemStats?>(null) }
     var queue by remember(baseUrl) { mutableStateOf<QueueSnapshot?>(null) }
     var error by remember(baseUrl) { mutableStateOf<String?>(null) }
@@ -59,54 +73,96 @@ fun ServerStatsStrip(
         }
     }
 
-    Surface(tonalElevation = 2.dp, modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+    val shape = RoundedCornerShape(16.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(c.card)
+            .border(1.dp, c.border, shape)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+    ) {
+        val current = stats
+        Row(
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("服务器状态", style = MaterialTheme.typography.labelSmall)
-            val current = stats
-            if (current == null) {
-                Text(
-                    when {
-                        baseUrl == null -> "未连接 ComfyUI"
-                        error != null -> error!!
-                        else -> "读取中…"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                Text(
-                    "RAM 可用 ${gb(current.system.ramFree)} / ${gb(current.system.ramTotal)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                )
-                val device = current.devices.firstOrNull()
-                Text(
-                    if (device == null) {
-                        "VRAM 不可用（服务器没有返回设备）"
-                    } else {
-                        "VRAM 可用 ${gb(device.vramFree)} / ${gb(device.vramTotal)}"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                )
-                Text(
-                    "队列 运行 ${queue?.running?.size ?: "—"} / 等待 ${queue?.pending?.size ?: "—"}",
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                )
-                error?.let {
-                    Text(
-                        "状态更新失败：$it",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
+            StatCell(
+                label = "内存",
+                value = current?.let { "${gb(it.system.ramFree)} / ${gb(it.system.ramTotal)}" } ?: "—",
+                modifier = Modifier.weight(1f),
+            )
+            CellDivider()
+            StatCell(
+                label = "显存",
+                value = current?.devices?.firstOrNull()?.let { device ->
+                    "${gb(device.vramFree)} / ${gb(device.vramTotal)}"
+                } ?: "—",
+                modifier = Modifier.weight(1f),
+            )
+            CellDivider()
+            StatCell(
+                label = "队列",
+                value = queue?.let { "${it.running.size} / ${it.pending.size}" } ?: "—",
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        val problem = when {
+            baseUrl == null -> "未连接 ComfyUI"
+            current == null && error != null -> error!!
+            current == null -> "读取中…"
+            current.devices.isEmpty() -> "服务器没有返回设备，显存不可用"
+            else -> error?.let { "状态更新失败：$it" }
+        }
+        if (problem != null) {
+            Text(
+                text = problem,
+                color = if (error != null && current != null) c.err else c.textDim,
+                fontSize = 9.5.sp,
+                fontFamily = SpectrumMono,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 6.dp),
+            )
         }
     }
+}
+
+@Composable
+private fun StatCell(label: String, value: String, modifier: Modifier = Modifier) {
+    val c = Spectrum.colors
+    Column(
+        modifier = modifier.padding(horizontal = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Text(
+            text = label,
+            color = c.textDim,
+            fontSize = 9.sp,
+            fontFamily = SpectrumMono,
+            letterSpacing = 0.9.sp,
+        )
+        Text(
+            text = value,
+            color = c.text,
+            fontSize = 11.sp,
+            fontFamily = SpectrumMono,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun CellDivider() {
+    val c = Spectrum.colors
+    Box(
+        modifier = Modifier
+            .width(1.dp)
+            .fillMaxHeight()
+            .background(c.border),
+    )
 }
 
 private suspend fun fetchStats(http: HttpTransport, baseUrl: String): SystemStats {

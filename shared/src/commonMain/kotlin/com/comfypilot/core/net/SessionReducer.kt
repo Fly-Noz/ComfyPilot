@@ -59,6 +59,7 @@ class SessionReducer(
         SessionInput.WorkflowCatalogRequested -> onCatalogRequested(state)
         is SessionInput.WorkflowOpenRequested -> onWorkflowOpenRequested(state, input)
         is SessionInput.UserReconnect -> onUserReconnect(state, input.nowMs)
+        is SessionInput.ReconcileRequested -> onReconcileRequested(state, input)
         is SessionInput.Tick -> onTick(state, input.nowMs)
     }
 
@@ -708,8 +709,51 @@ class SessionReducer(
         return ReduceResult(next, effects)
     }
 
+    /**
+     * 回到前台：把非终态任务全部丢回对账槽，走和断线重连一样的 `/history` 复核。
+     *
+     * 不关 socket、不递增 generation，避免因为"看起来没动静"打断正在跑的任务。
+     */
+    private fun onReconcileRequested(
+        state: SessionState,
+        input: SessionInput.ReconcileRequested,
+    ): ReduceResult {
+        if (state.lease == null) return ReduceResult(state)
+        val phase = state.phase
+        if (phase !is SessionPhase.Connected && phase !is SessionPhase.Recovering) {
+            return ReduceResult(state)
+        }
+        val ids = state.activeTasks.mapNotNull { it.promptId }
+        if (ids.isEmpty()) return ReduceResult(state)
+
+        var result = ReduceResult(state)
+        ids.forEach { id ->
+            val step = beginVerification(result.state, id, input.nowMs)
+            result = ReduceResult(step.state, result.effects + step.effects)
+        }
+        return result
+    }
+
     private fun tickWatchdog(state: SessionState, now: Long): ReduceResult {
         val overdue = state.tasks.values.filter { task ->
+        // 排队中的任务也可能因为 WebSocket 半死而永远等不到事件：
+        // 静默超过 QUEUED_SILENCE_MS 先拿 /history 复核一次，不直接判死。
+        val staleQueued = state.tasks.values
+            .filter { task ->
+                task.state is TaskState.Queued &&
+                    task.promptId != null &&
+                    now - task.updatedAtMs > QUEUED_SILENCE_MS
+            }
+            .mapNotNull { it.promptId }
+        if (staleQueued.isNotEmpty()) {
+            var result = ReduceResult(state)
+            staleQueued.forEach { id ->
+                val step = beginVerification(result.state, id, now)
+                result = ReduceResult(step.state, result.effects + step.effects)
+            }
+            if (result.effects.isNotEmpty()) return result
+        }
+
             task.state is TaskState.Running &&
                 now - (task.lastProgressAtMs ?: task.updatedAtMs) >
                 (task.silenceBudgetMs ?: config.progressSilenceMs)
@@ -996,6 +1040,9 @@ class SessionReducer(
 
     private companion object {
         const val QUEUE_RETRY_MS = 3_000L
+
+/** 排队中的任务静默多久就主动对账一次。 */
+const val QUEUED_SILENCE_MS = 10_000L
         const val MIN_RETRY_MS = 500L
         const val RECONCILE_HARD_TIMEOUT_MS = 60_000L
     }

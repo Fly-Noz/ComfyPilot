@@ -8,6 +8,8 @@ const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 export interface PickedImage {
   filename: string;
   bytes: Uint8Array;
+  /** 相册 URI，只用于本机缩略图；上传后会话内有效。 */
+  uri: string;
 }
 
 export interface ImageUploadResult {
@@ -62,6 +64,7 @@ export class ImageUploader {
       return {
         filename: this.filenameFromUri(uri),
         bytes: new Uint8Array(buffer),
+        uri: uri,
       };
     } finally {
       fileIo.closeSync(file);

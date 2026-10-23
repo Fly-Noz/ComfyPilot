@@ -1,25 +1,28 @@
 package com.comfypilot.app.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,15 +32,25 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.comfypilot.app.ui.theme.Dot
+import com.comfypilot.app.ui.theme.GhostButton
+import com.comfypilot.app.ui.theme.GlassCard
+import com.comfypilot.app.ui.theme.Spectrum
+import com.comfypilot.app.ui.theme.SpectrumMono
+import com.comfypilot.app.ui.theme.SpectrumScaffold
+import com.comfypilot.app.ui.theme.SpectrumTopBar
+import com.comfypilot.app.ui.theme.TopBarAction
 import com.comfypilot.core.net.SessionState
 import com.comfypilot.core.workflow.WorkflowCatalog
 import com.comfypilot.core.workflow.WorkflowEntry
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkflowCatalogScreen(
     state: SessionState,
@@ -46,7 +59,9 @@ fun WorkflowCatalogScreen(
     onTasks: () -> Unit,
     onBack: () -> Unit,
     onDisconnect: () -> Unit,
+    onSettings: () -> Unit,
 ) {
+    val c = Spectrum.colors
     val connected = state.lease != null
     val context = LocalContext.current
     val pinnedStore = remember(context) { PinnedWorkflowStore(context.applicationContext) }
@@ -59,21 +74,23 @@ fun WorkflowCatalogScreen(
         if (connected && state.catalog is WorkflowCatalog.Idle) onRefresh()
     }
 
-    Scaffold(
+    SpectrumScaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("选择工作流") },
-                navigationIcon = { TextButton(onClick = onBack) { Text("返回") } },
+            SpectrumTopBar(
+                title = "工作流",
+                onBack = onBack,
                 actions = {
-                    TextButton(onClick = onRefresh, enabled = connected) { Text("刷新") }
-                    TextButton(onClick = onTasks) { Text("任务") }
-                    TextButton(
+                    TopBarAction(text = "设置", onClick = onSettings)
+                    TopBarAction(text = "刷新", onClick = onRefresh, enabled = connected)
+                    TopBarAction(text = "任务", onClick = onTasks)
+                    TopBarAction(
+                        text = "断开",
                         onClick = {
                             onDisconnect()
                             onBack()
                         },
                         enabled = connected,
-                    ) { Text("断开") }
+                    )
                 },
             )
         },
@@ -81,47 +98,98 @@ fun WorkflowCatalogScreen(
         Column(
             modifier = Modifier
                 .padding(padding)
-                .padding(16.dp)
-                .fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .fillMaxSize()
+                .padding(horizontal = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(
-                "${state.connectionLabel} · ${state.network.transport.name} · 第 ${state.generation} 代",
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                Dot(color = if (connected) c.ok else c.textDim)
+                Text(
+                    text = state.connectionLabel,
+                    color = c.textMuted,
+                    fontSize = 11.5.sp,
+                )
+                Text(
+                    text = "· ${state.network.transport.name} · 第 ${state.generation} 代",
+                    color = c.textDim,
+                    fontSize = 10.sp,
+                    fontFamily = SpectrumMono,
+                )
+            }
 
             when (val catalog = state.catalog) {
-                is WorkflowCatalog.Idle -> {
+                is WorkflowCatalog.Idle -> HintCard(
+                    text = if (connected) "准备读取服务器工作流…" else "尚未连接 ComfyUI。",
+                )
+
+                is WorkflowCatalog.Loading -> GlassCard {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = c.accent,
+                            strokeWidth = 2.dp,
+                        )
+                        Text(
+                            text = "正在读取服务器 workflows 目录…",
+                            color = c.textMuted,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+
+                is WorkflowCatalog.Failed -> GlassCard {
                     Text(
-                        if (connected) "准备读取服务器工作流…" else "尚未连接 ComfyUI。",
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = "读取失败：${catalog.message}",
+                        color = c.err,
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp,
                     )
-                }
-
-                is WorkflowCatalog.Loading -> {
-                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    Text("正在读取服务器 workflows 目录…", style = MaterialTheme.typography.bodySmall)
-                }
-
-                is WorkflowCatalog.Failed -> {
-                    Text("读取失败：${catalog.message}", style = MaterialTheme.typography.bodyMedium)
-                    Button(onClick = onRefresh, enabled = connected) { Text("重试") }
+                    Spacer(Modifier.height(10.dp))
+                    GhostButton(
+                        text = "重试",
+                        onClick = onRefresh,
+                        enabled = connected,
+                        modifier = Modifier.width(96.dp),
+                    )
                 }
 
                 is WorkflowCatalog.Ready -> {
                     if (catalog.entries.isEmpty()) {
-                        Text("服务器 workflows 目录里没有 .json 工作流。", style = MaterialTheme.typography.bodyMedium)
-                        OutlinedButton(onClick = onRefresh) { Text("刷新") }
+                        GlassCard {
+                            Text(
+                                text = "服务器 workflows 目录里没有 .json 工作流。",
+                                color = c.textMuted,
+                                fontSize = 12.5.sp,
+                            )
+                            Spacer(Modifier.height(10.dp))
+                            GhostButton(
+                                text = "刷新",
+                                onClick = onRefresh,
+                                modifier = Modifier.width(96.dp),
+                            )
+                        }
                     } else {
-                        Text("共 ${catalog.entries.size} 个，点一个打开。", style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            text = "共 ${catalog.entries.size} 个，点一个打开。",
+                            color = c.textDim,
+                            fontSize = 10.5.sp,
+                            fontFamily = SpectrumMono,
+                        )
                         val orderedEntries = remember(catalog.entries, pinnedPaths) {
                             orderWorkflowEntries(catalog.entries, pinnedPaths)
                         }
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(9.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp),
                         ) {
                             items(orderedEntries, key = { it.path }) { entry ->
                                 EntryCard(
@@ -137,7 +205,7 @@ fun WorkflowCatalogScreen(
                                         }
                                         pinnedPaths = next
                                         pinnedStore.save(next)
-                                        // 置顶后条目会移到列表最前；把视口带回去，避免像“消失”了。
+                                        // 置顶后条目会移到列表最前；把视口带回去，避免像"消失"了。
                                         if (pinning) scope.launch { listState.animateScrollToItem(0) }
                                     },
                                 )
@@ -151,36 +219,108 @@ fun WorkflowCatalogScreen(
 }
 
 @Composable
+private fun HintCard(text: String) {
+    val c = Spectrum.colors
+    GlassCard {
+        Text(text = text, color = c.textMuted, fontSize = 12.5.sp)
+    }
+}
+
+@Composable
 private fun EntryCard(
     entry: WorkflowEntry,
     pinned: Boolean,
     onClick: () -> Unit,
     onTogglePin: () -> Unit,
 ) {
-    Card(
+    val c = Spectrum.colors
+    val shape = RoundedCornerShape(18.dp)
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
+            .clip(shape)
+            .background(c.card)
+            .border(1.dp, if (pinned) c.accentBorder else c.border, shape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
     ) {
-        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(entry.name, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
-                entry.sizeBytes?.let {
-                    Text(formatSize(it), style = MaterialTheme.typography.labelSmall)
-                }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    entry.path,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.weight(1f),
+        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+            if (pinned) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .fillMaxHeight()
+                        .background(c.gradientBrush()),
                 )
-                TextButton(onClick = onTogglePin) {
-                    Text(if (pinned) "取消置顶" else "置顶")
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = entry.name,
+                        color = c.text,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    entry.sizeBytes?.let {
+                        Text(
+                            text = formatSize(it),
+                            color = c.textDim,
+                            fontSize = 9.5.sp,
+                            fontFamily = SpectrumMono,
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = entry.path,
+                        color = c.textDim,
+                        fontSize = 10.sp,
+                        fontFamily = SpectrumMono,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (pinned) {
+                        Text(
+                            text = "已置顶",
+                            color = c.accent,
+                            fontSize = 9.5.sp,
+                            fontFamily = SpectrumMono,
+                        )
+                    }
+                    Text(
+                        text = if (pinned) "取消置顶" else "置顶",
+                        color = c.textMuted,
+                        fontSize = 10.sp,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(7.dp))
+                            .border(1.dp, c.borderStrong, RoundedCornerShape(7.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onTogglePin,
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
                 }
             }
         }
