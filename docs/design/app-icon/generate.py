@@ -85,43 +85,43 @@ def ring_image(size: int, scale: float = 1.0, ss: int = 4, white: bool = False) 
 
 
 def background_rgb(px: int) -> np.ndarray:
-    """深色底 + 极淡的极光与节点网格；保持小尺寸下只剩柔光。"""
+    """深色底 + 三色极光渐变；在 96/160px 下也能看出颜色层次。"""
     yy, xx = np.mgrid[0:px, 0:px].astype(np.float32)
     cx = cy = px / 2.0
     dx = (xx - cx) / (px / 2.0)
     dy = (yy - cy) / (px / 2.0)
     radius = np.sqrt(dx * dx + dy * dy)
 
-    image = np.empty((px, px, 3), dtype=np.float32)
-    image[:] = np.array(BG, dtype=np.float32)
-
-    # 中心轻微提亮，避免纯黑底显得像被挖空。
-    lift = np.clip(1.0 - radius, 0.0, 1.0) ** 2
-    image += lift[..., None] * np.array([5.0, 6.0, 10.0], dtype=np.float32)
+    # 沿左上到右下的暗色渐变，让背景不再是纯黑一片。
+    t = np.clip((dx * 0.55 + dy * 0.55 + 1.0) / 2.0, 0.0, 1.0)
+    stops = (
+        (0.0, (14, 42, 40)),
+        (0.5, (27, 18, 48)),
+        (1.0, (42, 18, 34)),
+    )
+    field = np.stack(
+        [
+            np.interp(t, [s[0] for s in stops], [s[1][i] for s in stops])
+            for i in range(3)
+        ],
+        axis=-1,
+    ).astype(np.float32)
+    image = np.array(BG, dtype=np.float32) + (field - np.array(BG, dtype=np.float32)) * 0.55
 
     glows = (
-        (0.72, 0.24, 0.40, (244, 114, 182), 0.13),
-        (0.27, 0.50, 0.48, (139, 92, 246), 0.12),
-        (0.66, 0.80, 0.38, (94, 234, 212), 0.12),
+        (0.73, 0.22, 0.55, (244, 114, 182), 0.34),
+        (0.25, 0.48, 0.60, (139, 92, 246), 0.32),
+        (0.60, 0.83, 0.52, (94, 234, 212), 0.30),
     )
     for gx, gy, spread, color, strength in glows:
         distance = np.sqrt((dx - (gx * 2 - 1)) ** 2 + (dy - (gy * 2 - 1)) ** 2)
-        weight = np.exp(-(distance / spread) ** 2 * 2.2)
+        weight = np.exp(-(distance / spread) ** 2 * 2.0)
         alpha = (weight * strength)[..., None]
         image = image * (1.0 - alpha) + np.array(color, dtype=np.float32) * alpha
 
-    # 节点网格：线 3.5% 透明度，节点 15%；缩到 24px 时只剩一点纹理。
-    step = px / 16.0
-    grid_x = np.abs((xx % step) - step / 2.0)
-    grid_y = np.abs((yy % step) - step / 2.0)
-    lines = (grid_x < px * 0.00055) | (grid_y < px * 0.00055)
-    nodes = (grid_x * grid_x + grid_y * grid_y) < (px * 0.0019) ** 2
-    image[lines] = image[lines] * 0.965 + np.array([150.0, 160.0, 210.0]) * 0.035
-    image[nodes] = image[nodes] * 0.85 + np.array([200.0, 210.0, 255.0]) * 0.15
-
     # 边缘压暗，保证圆角/裁切后仍有层次。
-    edge = np.clip((radius - 0.62) / 0.55, 0.0, 1.0)
-    image *= (1.0 - 0.38 * edge[..., None])
+    edge = np.clip((radius - 0.55) / 0.60, 0.0, 1.0)
+    image *= (1.0 - 0.42 * edge[..., None])
     return np.clip(image, 0.0, 255.0).astype(np.uint8)
 
 
