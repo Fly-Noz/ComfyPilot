@@ -1,7 +1,6 @@
 package com.comfypilot.app.ui
 
 import android.content.Context
-import com.comfypilot.core.workflow.WorkflowNodeView
 
 /**
  * 节点置顶是本机 UI 偏好，不进入工作流或任务协议。
@@ -41,19 +40,3 @@ internal fun decodePinnedNodeIds(raw: String?): Set<Int> =
         .split(',')
         .mapNotNull { it.trim().toIntOrNull() }
         .toSet()
-
-/**
- * 输入区排序：置顶且可达的节点最前；其余可达节点按“缺值优先”；
- * 未启用/旁路节点放最后。置顶的节点图未启用时不会被提前。
- */
-internal fun orderInputNodes(
-    nodes: List<WorkflowNodeView>,
-    pinnedNodeIds: Set<Int>,
-): List<WorkflowNodeView> =
-    nodes.sortedWith(
-        compareBy<WorkflowNodeView>(
-            { !(it.reachable && it.id in pinnedNodeIds) },
-            { !it.reachable },
-            { !it.needsInput },
-        ),
-    )

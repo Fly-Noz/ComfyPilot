@@ -35,6 +35,7 @@ class WorkflowUiTest {
             it.jsonPrimitive.content
         })
         assertTrue(response["canSubmit"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals("", response["blockReason"]!!.jsonPrimitive.content)
     }
 
     @Test
@@ -71,12 +72,40 @@ class WorkflowUiTest {
             listOf("Checkpoint", "SaveImage"),
             view["pendingNodeClasses"]!!.jsonArray.map { it.jsonPrimitive.content },
         )
+        assertEquals(
+            "不可提交：正在加载节点定义（还有 2 个类）",
+            view["blockReason"]!!.jsonPrimitive.content,
+        )
 
         val prompt = Json.parseToJsonElement(
             sessionWorkflowJson(pending, """{"op":"prompt"}"""),
         ).jsonObject
         assertEquals("waiting", prompt["state"]!!.jsonPrimitive.content)
         assertFalse(prompt["ok"]!!.jsonPrimitive.content.toBoolean())
+    }
+
+    @Test
+    fun `view and prompt report the same blocked graph reason`() {
+        val request = """{"op":"view","graphs":[]}"""
+        val view = Json.parseToJsonElement(sessionWorkflowJson(state(), request)).jsonObject
+        assertFalse(view["canSubmit"]!!.jsonPrimitive.content.toBoolean())
+        val blockReason = view["blockReason"]!!.jsonPrimitive.content
+        assertTrue(blockReason.startsWith("不可提交："))
+
+        val promptRequest = """{"op":"prompt","graphs":[]}"""
+        val prompt = Json.parseToJsonElement(sessionWorkflowJson(state(), promptRequest)).jsonObject
+        assertEquals("blocked", prompt["state"]!!.jsonPrimitive.content)
+        assertFalse(prompt["ok"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals(
+            view["problems"]!!.jsonArray.map { it.jsonObject["display"]!!.jsonPrimitive.content },
+            prompt["problems"]!!.jsonArray.map { it.jsonObject["display"]!!.jsonPrimitive.content },
+        )
+        val firstProblem = view["problems"]!!.jsonArray.first().jsonObject["display"]!!.jsonPrimitive.content
+        assertEquals("不可提交：$firstProblem", blockReason)
+        assertTrue(
+            prompt["message"]!!.jsonPrimitive.content.contains("不能提交"),
+            "转换失败时也要给出明确原因：${prompt["message"]}",
+        )
     }
 
     private fun state(

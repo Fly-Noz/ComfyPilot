@@ -51,6 +51,17 @@ class PreviewFlowTest {
     }
 
     @Test
+    fun `cancelling the previewed task clears the frame`() {
+        val state = connected(taskState = TaskState.Running).copy(
+            preview = PreviewFrame("p1", "3", byteArrayOf(1, 2), 100),
+        )
+
+        val result = reducer.reduce(state, SessionInput.CancelRequested("p1", nowMs = 200))
+
+        assertNull(result.state.preview)
+    }
+
+    @Test
     fun `preview for a finished task or stale lease is ignored`() {
         val done = connected(taskState = TaskState.Completed)
         val finished = reducer.reduce(

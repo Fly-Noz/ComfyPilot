@@ -311,7 +311,11 @@ class SessionReducer(
                         updatedAtMs = input.nowMs,
                     ),
                     effects,
-                )
+                ).let { failed ->
+                    failed.copy(
+                        preview = failed.preview?.takeIf { it.promptId != null && it.promptId != id },
+                    )
+                }
                 effects += SessionEffect.Notify(UserNotice.TaskFailed(id, event.message))
             }
 
@@ -319,6 +323,11 @@ class SessionReducer(
                 val id = event.promptId ?: return ReduceResult(state)
                 val task = findTask(next, id) ?: return ReduceResult(state)
                 next = touchTask(next, task.copy(state = TaskState.Cancelled, updatedAtMs = input.nowMs), effects)
+                    .let { cancelled ->
+                        cancelled.copy(
+                            preview = cancelled.preview?.takeIf { it.promptId != null && it.promptId != id },
+                        )
+                    }
             }
 
             // WebSocket 只是提示：status / cached / 预览帧不改变任务真相
@@ -607,7 +616,12 @@ class SessionReducer(
         val task = findTask(state, input.promptId) ?: return ReduceResult(state)
         val cancelled = task.copy(state = TaskState.Cancelled, updatedAtMs = input.nowMs)
         return ReduceResult(
-            state.copy(tasks = state.tasks + (task.id to cancelled)),
+            state.copy(
+                tasks = state.tasks + (task.id to cancelled),
+                preview = state.preview?.takeIf {
+                    it.promptId != null && it.promptId != input.promptId
+                },
+            ),
             listOf(
                 SessionEffect.Persist(cancelled),
                 SessionEffect.SendHttp(lease, ApiCall.Interrupt(input.promptId), RequestTag.Interrupt(input.promptId)),

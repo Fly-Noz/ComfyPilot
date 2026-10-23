@@ -84,6 +84,34 @@ object EventDecoder {
                 max = data?.doubleOrNull("max") ?: 0.0,
             )
 
+            // ComfyUI 新版只发 progress_state（节点级状态），不再发旧版 progress。
+            // 取正在运行的节点；没有运行节点时，用已完成的采样节点（max > 1）兜底。
+            "progress_state" -> {
+                val promptId = data?.stringOrNull("prompt_id")
+                val nodes = data?.get("nodes") as? JsonObject
+                val running = nodes?.entries?.firstOrNull { (_, element) ->
+                    (element as? JsonObject)?.stringOrNull("state") == "running"
+                }
+                val finished = running ?: nodes?.entries
+                    ?.filter { (_, element) ->
+                        val node = element as? JsonObject ?: return@filter false
+                        node.stringOrNull("state") == "finished" &&
+                            (node.doubleOrNull("max") ?: 0.0) > 1.0
+                    }
+                    ?.maxByOrNull { (_, element) ->
+                        (element as? JsonObject)?.doubleOrNull("max") ?: 0.0
+                    }
+                val node = finished?.value as? JsonObject
+                val nodeId = node?.stringOrNull("node_id") ?: finished?.key
+                val value = node?.doubleOrNull("value") ?: 0.0
+                val max = node?.doubleOrNull("max") ?: 0.0
+                if (promptId != null && nodeId != null && max > 0.0) {
+                    ComfyEvent.Progress(promptId, nodeId, value, max)
+                } else {
+                    ComfyEvent.Unknown(type)
+                }
+            }
+
             "executed" -> {
                 val id = data?.stringOrNull("prompt_id")
                 if (id == null) {

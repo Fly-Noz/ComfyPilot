@@ -3,15 +3,10 @@ package com.comfypilot.core.host
 import com.comfypilot.core.api.stringOrNull
 import com.comfypilot.core.net.SessionState
 import com.comfypilot.core.workflow.BuildProblem
-import com.comfypilot.core.workflow.NodeDefinition
 import com.comfypilot.core.workflow.PromptBuild
-import com.comfypilot.core.workflow.PromptBuilder
-import com.comfypilot.core.workflow.WorkflowDocument
+import com.comfypilot.core.workflow.WorkflowDecisions
 import com.comfypilot.core.workflow.WorkflowField
-import com.comfypilot.core.workflow.WorkflowFields
 import com.comfypilot.core.workflow.WorkflowFormat
-import com.comfypilot.core.workflow.WorkflowGraph
-import com.comfypilot.core.workflow.WorkflowGraphs
 import com.comfypilot.core.workflow.WorkflowNodeView
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -88,83 +83,37 @@ private data class WorkflowUiRequest(
     }
 }
 
-private data class SelectedGraphs(
-    val graphs: List<WorkflowGraph>,
-    val selectedIds: Set<String>,
-    val enabledOutputIds: Set<Int>?,
-    val forcedNormalNodeIds: Set<Int>,
-)
-
-private fun selectGraphs(
-    document: WorkflowDocument,
-    definitions: Map<String, NodeDefinition>,
-    requestedIds: Set<String>?,
-): SelectedGraphs {
-    val graphs = if (document.format == WorkflowFormat.UI) {
-        WorkflowGraphs.analyze(document, definitions)
-    } else {
-        emptyList()
-    }
-    val defaultIds = graphs.filter { it.enabled }.map { it.id }.toSet()
-    val selectedIds = if (requestedIds == null) {
-        defaultIds
-    } else {
-        requestedIds.intersect(graphs.map { it.id }.toSet())
-    }
-    val selected = graphs.filter { it.id in selectedIds }
-    return SelectedGraphs(
-        graphs = graphs,
-        selectedIds = selectedIds,
-        enabledOutputIds = if (graphs.isEmpty()) null else selected.flatMap { it.outputNodeIds }.toSet(),
-        forcedNormalNodeIds = if (graphs.isEmpty()) emptySet() else selected.flatMap { it.nodeIds }.toSet(),
-    )
-}
-
 private fun workflowViewJson(state: SessionState, request: WorkflowUiRequest): String {
     val document = state.workflow.document
         ?: return workflowError("还没有打开工作流", path = state.workflow.loadingPath.orEmpty())
-    val definitions = state.nodeInfo
-    val selection = selectGraphs(document, definitions, request.enabledGraphIds)
-    val fields = WorkflowFields.build(
+    val decision = WorkflowDecisions.evaluate(
         document = document,
-        definitions = definitions,
-        forcedNormalNodeIds = selection.forcedNormalNodeIds,
-        enabledOutputIds = selection.enabledOutputIds,
-    )
-    val ordered = orderWorkflowNodes(fields.nodes, request.pinnedNodeIds)
-    val build = PromptBuilder.build(
-        document = document,
-        definitions = definitions,
+        definitions = state.nodeInfo,
+        requestedGraphIds = request.enabledGraphIds,
+        pinnedNodeIds = request.pinnedNodeIds,
         overrides = request.overrides,
-        enabledOutputIds = selection.enabledOutputIds,
-        forcedNormalNodeIds = selection.forcedNormalNodeIds,
+        nodeInfoRequested = state.nodeInfoRequested,
+        // 视图永远不带提交 token；唯一后缀只在真正提交时追加。
+        runToken = null,
     )
-    val allClasses = document.nodeClasses.distinct()
-    val missingClasses = allClasses.filter { definitions[it]?.missing != false }
-    val pendingClasses = missingClasses.filter { it !in state.nodeInfoRequested }
-    val buildProblems = when (build) {
-        is PromptBuild.Blocked -> build.problems
-        is PromptBuild.Ready -> emptyList()
-    }
-    val problems = (fields.problems + buildProblems)
-        .distinctBy { Triple(it.nodeId, it.nodeType, it.message) }
 
     return buildJsonObject {
         put("ok", true)
         put("state", "ready")
-        put("path", document.path)
-        put("name", document.name)
-        put("format", document.format.name)
-        put("defaultGraphIds", stringArray(selection.graphs.filter { it.enabled }.map { it.id }))
-        put("selectedGraphIds", stringArray(selection.selectedIds.sorted()))
+        put("path", decision.path)
+        put("name", decision.name)
+        put("format", decision.format.name)
+        put("defaultGraphIds", stringArray(decision.defaultGraphIds))
+        put("selectedGraphIds", stringArray(decision.selectedGraphIds.sorted()))
         putJsonArray("graphs") {
-            selection.graphs.forEach { graph ->
+            decision.graphs.forEach { graph ->
                 add(
                     buildJsonObject {
                         put("id", graph.id)
                         put("title", graph.title)
                         put("enabled", graph.enabled)
-                        put("selected", graph.id in selection.selectedIds)
+                        put("selected", graph.id in decision.selectedGraphIds)
+                        put("parentId", graph.parentId ?: "")
                         putJsonArray("nodeIds") { graph.nodeIds.sorted().forEach { add(JsonPrimitive(it)) } }
                         putJsonArray("outputNodeIds") {
                             graph.outputNodeIds.sorted().forEach { add(JsonPrimitive(it)) }
@@ -174,54 +123,56 @@ private fun workflowViewJson(state: SessionState, request: WorkflowUiRequest): S
             }
         }
         putJsonArray("nodes") {
-            ordered.forEach { node -> add(nodeJson(node, request.pinnedNodeIds)) }
+            decision.nodes.forEach { node -> add(nodeJson(node, request.pinnedNodeIds)) }
         }
         putJsonArray("commonFields") {
-            fields.commonFields.forEach { add(fieldJson(it)) }
+            decision.commonFields.forEach { add(fieldJson(it)) }
         }
-        putJsonArray("problems") { problems.forEach { add(problemJson(it)) } }
-        putJsonArray("warnings") {
-            if (build is PromptBuild.Ready) build.warnings.forEach { add(JsonPrimitive(it)) }
+        putJsonArray("problems") { decision.problems.forEach { add(problemJson(it)) } }
+        putJsonArray("warnings") { decision.warnings.forEach { add(JsonPrimitive(it)) } }
+        putJsonArray("pendingNodeClasses") {
+            decision.pendingNodeClasses.forEach { add(JsonPrimitive(it)) }
         }
-        putJsonArray("pendingNodeClasses") { pendingClasses.forEach { add(JsonPrimitive(it)) } }
         putJsonArray("missingNodeClasses") {
-            missingClasses.filter { it !in pendingClasses }.forEach { add(JsonPrimitive(it)) }
+            decision.missingNodeClasses.forEach { add(JsonPrimitive(it)) }
         }
-        put("canSubmit", build is PromptBuild.Ready && pendingClasses.isEmpty())
+        put("canSubmit", decision.canSubmit)
+        put("blockReason", decision.blockReason ?: "")
     }.toString()
 }
 
 private fun workflowPromptJson(state: SessionState, request: WorkflowUiRequest): String {
     val document = state.workflow.document
         ?: return workflowError("还没有打开工作流", path = state.workflow.loadingPath.orEmpty())
-    val definitions = state.nodeInfo
-    val selection = selectGraphs(document, definitions, request.enabledGraphIds)
-    val allClasses = document.nodeClasses.distinct()
-    val pending = allClasses.filter {
-        definitions[it]?.missing != false && it !in state.nodeInfoRequested
-    }
-    if (document.format == WorkflowFormat.UI && pending.isNotEmpty()) {
+    val decision = WorkflowDecisions.evaluate(
+        document = document,
+        definitions = state.nodeInfo,
+        requestedGraphIds = request.enabledGraphIds,
+        pinnedNodeIds = request.pinnedNodeIds,
+        overrides = request.overrides,
+        nodeInfoRequested = state.nodeInfoRequested,
+        runToken = request.runToken,
+    )
+    if (decision.format == WorkflowFormat.UI && decision.pendingNodeClasses.isNotEmpty()) {
         return buildJsonObject {
             put("ok", false)
             put("state", "waiting")
             put("message", "节点定义还在加载，请稍后再提交")
             putJsonArray("warnings") {}
             putJsonArray("problems") {
-                add(problemJson(BuildProblem(message = "等待节点定义：${pending.joinToString("、")}")))
+                add(
+                    problemJson(
+                        BuildProblem(
+                            message = "等待节点定义：${decision.pendingNodeClasses.joinToString("、")}",
+                        ),
+                    ),
+                )
             }
             put("prompt", JsonNull)
         }.toString()
     }
 
-    val build = PromptBuilder.build(
-        document = document,
-        definitions = definitions,
-        overrides = request.overrides,
-        enabledOutputIds = selection.enabledOutputIds,
-        forcedNormalNodeIds = selection.forcedNormalNodeIds,
-        runToken = request.runToken,
-    )
-    return when (build) {
+    return when (val build = decision.build) {
         is PromptBuild.Ready -> buildJsonObject {
             put("ok", true)
             put("state", "ready")
@@ -259,6 +210,7 @@ private fun workflowError(message: String, path: String = ""): String = buildJso
     putJsonArray("pendingNodeClasses") {}
     putJsonArray("missingNodeClasses") {}
     put("canSubmit", false)
+    put("blockReason", "不可提交：还没有打开工作流")
     put("prompt", JsonNull)
 }.toString()
 
@@ -320,18 +272,3 @@ private fun WorkflowField.valueKind(): String = when (val value = value) {
 
     else -> "json"
 }
-
-/**
- * 与 Android 的 `orderInputNodes` 保持同一排序：
- * 置顶且可达最前，其余可达按“缺值优先”，未启用/旁路节点最后。
- */
-internal fun orderWorkflowNodes(
-    nodes: List<WorkflowNodeView>,
-    pinnedNodeIds: Set<Int>,
-): List<WorkflowNodeView> = nodes.sortedWith(
-    compareBy<WorkflowNodeView>(
-        { !(it.reachable && it.id in pinnedNodeIds) },
-        { !it.reachable },
-        { !it.needsInput },
-    ),
-)

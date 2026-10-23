@@ -8,6 +8,9 @@ package com.comfypilot.core.workflow
  * - 同一个分支里的 PreviewImage/Image Comparer 不会额外拆出一个重复的图；
  * - 文本输出（提示词增强器等）不算可执行图。
  *
+ * 连接到输出分支、但不在输出分组里的 LoadImage 图组（如 `image-2`）会作为
+ * 无输出图组追加进来：选中时只把组内节点强制为正常执行，不额外增加输出节点。
+ *
  * 启停时优先只强制该图所在分组内的节点，避免把旁边可选的 LoadImage/Lora 一起打开。
  */
 data class WorkflowGraph(
@@ -16,6 +19,8 @@ data class WorkflowGraph(
     val nodeIds: Set<Int>,
     val outputNodeIds: Set<Int>,
     val enabled: Boolean,
+    /** 辅助图组所属的输出图；输出图本身为 null。 */
+    val parentId: String? = null,
 )
 
 object WorkflowGraphs {
@@ -46,7 +51,8 @@ object WorkflowGraphs {
             remaining -= component
         }
 
-        return components.mapNotNull { component ->
+        val componentGraphIds = mutableMapOf<Set<Int>, String>()
+        val outputGraphs = components.mapNotNull { component ->
             val componentOutputs = outputs.intersect(component)
             if (componentOutputs.isEmpty()) return@mapNotNull null
             val outputGroups = graph.groups.filter { group ->
@@ -57,8 +63,10 @@ object WorkflowGraphs {
                 .toSet()
             val largestGroup = outputGroups.maxByOrNull { group -> graph.nodes.count(group::contains) }
             val primaryOutput = componentOutputs.minOrNull()?.let { graph.byId[it] }
+            val graphId = "c${component.minOrNull() ?: 0}"
+            componentGraphIds[component] = graphId
             WorkflowGraph(
-                id = "c${component.minOrNull() ?: 0}",
+                id = graphId,
                 title = largestGroup?.title
                     ?: primaryOutput?.title?.takeIf { it.isNotBlank() }
                     ?: "输出 #${componentOutputs.minOrNull()}",
@@ -66,7 +74,36 @@ object WorkflowGraphs {
                 outputNodeIds = componentOutputs,
                 enabled = componentOutputs.any { graph.byId[it]?.mode == UiWorkflowParser.MODE_NORMAL },
             )
-        }.sortedBy { it.id }
+        }
+
+        // 一个 LoadImage 图组可能是主输出分组的辅助输入（如 image-2..image-8）。
+        // 它本身没有输出节点，但选中后必须能把组内被旁路的节点强制回正常执行。
+        val represented = outputGraphs.flatMapTo(mutableSetOf()) { it.nodeIds }
+        val auxiliaryGraphs = graph.groups.mapNotNull { group ->
+            val nodes = graph.nodes.filter(group::contains).map { it.id }.toSet()
+            if (nodes.isEmpty()) return@mapNotNull null
+            if (nodes.any { it in represented || it in outputs }) return@mapNotNull null
+            if (nodes.none { graph.byId[it]?.type == "LoadImage" }) return@mapNotNull null
+            val parentComponent = components.firstOrNull { component ->
+                nodes.any { it in component }
+            } ?: return@mapNotNull null
+            val parentId = componentGraphIds[parentComponent] ?: return@mapNotNull null
+            WorkflowGraph(
+                id = "g${group.id}",
+                title = group.title.ifBlank { "图组 #${group.id}" },
+                nodeIds = nodes,
+                outputNodeIds = emptySet(),
+                enabled = nodes.all { graph.byId[it]?.mode == UiWorkflowParser.MODE_NORMAL },
+                parentId = parentId,
+            )
+        }
+
+        return (outputGraphs + auxiliaryGraphs).sortedWith(
+            compareBy(
+                { it.outputNodeIds.isEmpty() },
+                { it.id.drop(1).toIntOrNull() ?: Int.MAX_VALUE },
+            ),
+        )
     }
 
     private fun componentOf(graph: UiGraph, start: Int): Set<Int> {

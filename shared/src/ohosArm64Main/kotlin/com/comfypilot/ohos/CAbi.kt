@@ -17,9 +17,12 @@ import kotlin.native.CName
  * 这样跨语言边界没有内存所有权问题，也不需要 free 函数。
  */
 
-/** ABI 版本。2 起新增了会话级接口（cp_session_*）；3 起新增工作流按需视图。 */
+/**
+ * ABI 版本。2 起新增会话级接口（cp_session_*）；3 起新增工作流按需视图；
+ * 4 起新增采样预览按需接口（cp_session_preview）。
+ */
 @CName("cp_version")
-fun cpVersion(): Int = 3
+fun cpVersion(): Int = 4
 
 /**
  * 把自检 JSON 写入 [buffer]（容量 [capacity] 字节），返回完整 JSON 的字节数。

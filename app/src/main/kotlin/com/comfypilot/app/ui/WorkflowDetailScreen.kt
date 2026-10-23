@@ -68,14 +68,15 @@ import com.comfypilot.core.api.ViewRequest
 import com.comfypilot.core.net.PreviewFrame
 import com.comfypilot.core.net.SessionState
 import com.comfypilot.core.task.PromptTask
+import com.comfypilot.core.task.TaskProgress
 import com.comfypilot.core.task.TaskState
 import com.comfypilot.core.workflow.BuildProblem
 import com.comfypilot.core.workflow.PromptBuild
-import com.comfypilot.core.workflow.PromptBuilder
+import com.comfypilot.core.workflow.WorkflowDecision
+import com.comfypilot.core.workflow.WorkflowDecisions
 import com.comfypilot.core.workflow.WorkflowDocument
 import com.comfypilot.core.workflow.WorkflowField
-import com.comfypilot.core.workflow.WorkflowFields
-import com.comfypilot.core.workflow.WorkflowGraphs
+import com.comfypilot.core.workflow.WorkflowGraph
 import com.comfypilot.core.workflow.WorkflowNodeView
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
@@ -163,28 +164,7 @@ private fun DetailBody(
     onCancel: (String) -> Unit,
     onTasks: () -> Unit,
 ) {
-    val graphs = remember(document, state.nodeInfo) {
-        WorkflowGraphs.analyze(document, state.nodeInfo)
-    }
     var enabledGraphOverride by remember(document.path) { mutableStateOf<Set<String>?>(null) }
-    val selectedGraphIds = enabledGraphOverride ?: graphs.filter { it.enabled }.map { it.id }.toSet()
-    val selectedGraphs = graphs.filter { it.id in selectedGraphIds }
-    val enabledOutputIds = selectedGraphs.flatMap { it.outputNodeIds }.toSet()
-    val forcedNormalNodeIds = selectedGraphs.flatMap { it.nodeIds }.toSet()
-    val disabledNodeIds = graphs
-        .filter { it.id !in selectedGraphIds }
-        .flatMap { it.nodeIds }
-        .toSet()
-    val showGraphPicker = graphs.size > 1 || (graphs.size == 1 && !graphs[0].enabled)
-
-    val fields = remember(document, state.nodeInfo, enabledOutputIds, forcedNormalNodeIds) {
-        WorkflowFields.build(
-            document = document,
-            definitions = state.nodeInfo,
-            forcedNormalNodeIds = forcedNormalNodeIds,
-            enabledOutputIds = if (graphs.isEmpty()) null else enabledOutputIds,
-        )
-    }
     val context = LocalContext.current
     val pinnedNodeStore = remember(context) { PinnedNodeStore(context.applicationContext) }
     var pinnedNodeIds by remember(document.path) {
@@ -193,10 +173,25 @@ private fun DetailBody(
     var overrides by remember(document.path) {
         mutableStateOf<Map<Int, Map<String, JsonElement>>>(emptyMap())
     }
+
+    // 节点图、字段和待加载定义都由共享层决定；这里只缓存与字段值无关的部分。
+    val analysis = remember(document, state.nodeInfo, enabledGraphOverride, state.nodeInfoRequested) {
+        WorkflowDecisions.analyze(
+            document = document,
+            definitions = state.nodeInfo,
+            requestedGraphIds = enabledGraphOverride,
+            nodeInfoRequested = state.nodeInfoRequested,
+        )
+    }
+    val graphs = analysis.graphs
+    val selectedGraphIds = analysis.selectedGraphIds
+    val fields = analysis.fields
+    val disabledNodeIds = analysis.disabledNodeIds
+    val showGraphPicker = graphs.size > 1 || (graphs.size == 1 && !graphs[0].enabled)
     // 置顶且会提交的节点最前；节点图未启用时保留置顶，但不会优先显示。
     // 其余节点仍按“可达优先、可达且缺值更优先”排序，未启用/旁路的节点放最后。
-    val orderedNodes = remember(fields, pinnedNodeIds) {
-        orderInputNodes(fields.nodes, pinnedNodeIds)
+    val orderedNodes = remember(analysis, pinnedNodeIds) {
+        WorkflowDecisions.orderNodes(analysis.fields.nodes, pinnedNodeIds)
     }
     var tab by remember(document.path) { mutableStateOf(0) }
     var expandedOverride by remember(document.path) { mutableStateOf<Set<Int>?>(null) }
@@ -230,34 +225,24 @@ private fun DetailBody(
         if (orderedNodes.isNotEmpty()) listState.scrollToItem(0)
     }
 
-    val pendingClasses = document.nodeClasses.count { it !in state.nodeInfo }
+    val pendingClasses = analysis.pendingNodeClassCount
 
     // 与鸿蒙侧一致：输入变化后短暂延迟再重算，避免每敲一个字就重建整张 prompt。
     // 这里只用于按钮可用性和按钮上方的阻断原因；真正提交时 submit() 会再算一次，
     // 防止用户在 120ms 窗口内抢点导致提交旧值。
-    var liveBuild by remember(document.path) { mutableStateOf<PromptBuild?>(null) }
-    LaunchedEffect(document, state.nodeInfo, overrides, enabledOutputIds, forcedNormalNodeIds) {
+    var liveDecision by remember(document.path) { mutableStateOf<WorkflowDecision?>(null) }
+    LaunchedEffect(analysis, overrides) {
         delay(120)
-        liveBuild = withContext(Dispatchers.Default) {
-            PromptBuilder.build(
-                document = document,
-                definitions = state.nodeInfo,
-                overrides = overrides,
-                enabledOutputIds = if (graphs.isEmpty()) null else enabledOutputIds,
-                forcedNormalNodeIds = forcedNormalNodeIds,
-            )
+        liveDecision = withContext(Dispatchers.Default) {
+            WorkflowDecisions.decide(analysis, overrides = overrides)
         }
     }
-    val readyBuild = liveBuild
-    val canSubmit = readyBuild is PromptBuild.Ready && pendingClasses == 0
-    val blockReason = when {
-        pendingClasses > 0 -> "不可提交：正在加载节点定义（还有 $pendingClasses 个类）"
-        readyBuild == null -> "正在校验工作流…"
-        readyBuild is PromptBuild.Blocked -> {
-            val first = readyBuild.problems.firstOrNull()
-            if (first == null) "不可提交：工作流还没有就绪" else "不可提交：${first.format()}"
-        }
-        else -> null
+    // 节点图或节点定义变化后，旧决策不能继续代表当前工作流。
+    val live = liveDecision?.takeIf { it.analysis === analysis }
+    val canSubmit = pendingClasses == 0 && live?.canSubmit == true
+    val blockReason = analysis.pendingBlockReason ?: when {
+        live == null -> "正在校验工作流…"
+        else -> live.blockReason
     }
 
     fun applyOverride(nodeId: Int, inputName: String, value: JsonElement) {
@@ -283,6 +268,17 @@ private fun DetailBody(
             }
             scope.launch { listState.animateScrollToItem(0) }
         }
+    }
+
+    fun toggleGraph(graph: WorkflowGraph) {
+        val next = selectedGraphIds.toMutableSet()
+        if (!next.add(graph.id)) {
+            next.remove(graph.id)
+            // 关闭父图时一起关掉它的辅助图组，避免隐藏的选择继续影响提交。
+            graphs.filter { it.parentId == graph.id }.forEach { next.remove(it.id) }
+        }
+        enabledGraphOverride = next
+        expandedOverride = null
     }
 
     // 上传只服务 LoadImage 的 image 控件：先传服务器，再用返回的文件名覆盖控件值。
@@ -358,28 +354,30 @@ private fun DetailBody(
     }
 
     fun submit() {
-        when (
-            val result = PromptBuilder.build(
-                document = document,
-                definitions = state.nodeInfo,
-                overrides = overrides,
-                enabledOutputIds = if (graphs.isEmpty()) null else enabledOutputIds,
-                forcedNormalNodeIds = forcedNormalNodeIds,
-                // 和鸿蒙侧一致：每次提交给保存节点追加唯一后缀，避免工作流前缀不唯一时
-                // （例如 ComfyUI 不支持的 %date:...%）后一次产物覆盖前一次。
-                runToken = UUID.randomUUID().toString().replace("-", "").take(10),
-            )
-        ) {
+        // 和鸿蒙侧一致：每次提交给保存节点追加唯一后缀，避免工作流前缀不唯一时
+        // （例如 ComfyUI 不支持的 %date:...%）后一次产物覆盖前一次。
+        val decision = WorkflowDecisions.decide(
+            analysis = analysis,
+            overrides = overrides,
+            runToken = UUID.randomUUID().toString().replace("-", "").take(10),
+        )
+        if (!decision.canSubmit) {
+            blockedProblems = decision.problems.ifEmpty {
+                listOf(BuildProblem(message = decision.blockReason ?: "工作流还没有就绪"))
+            }
+            return
+        }
+        when (val result = decision.build) {
             is PromptBuild.Ready -> {
-                if (result.warnings.isEmpty()) {
-                    onSubmit(result.prompt.toString(), document.name, document.path)
+                if (decision.warnings.isEmpty()) {
+                    onSubmit(result.prompt.toString(), decision.name, decision.path)
                     tab = 1
                 } else {
                     pendingReady = result
                 }
             }
 
-            is PromptBuild.Blocked -> blockedProblems = result.problems
+            is PromptBuild.Blocked -> blockedProblems = decision.problems
         }
     }
 
@@ -412,30 +410,50 @@ private fun DetailBody(
         }
 
         if (showGraphPicker) {
-            Row(
+            val parents = graphs.filter { it.outputNodeIds.isNotEmpty() }
+            val childrenByParent = graphs
+                .filter { it.parentId != null }
+                .groupBy { it.parentId }
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                graphs.forEach { graph ->
-                    FilterChip(
-                        selected = graph.id in selectedGraphIds,
-                        onClick = {
-                            val next = selectedGraphIds.toMutableSet()
-                            if (!next.add(graph.id)) next.remove(graph.id)
-                            enabledGraphOverride = next
-                            expandedOverride = null
-                        },
-                        label = {
-                            Text(
-                                graph.title,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                    )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    parents.forEach { graph ->
+                        GraphChip(
+                            graph = graph,
+                            selected = graph.id in selectedGraphIds,
+                            onClick = { toggleGraph(graph) },
+                        )
+                    }
+                }
+                parents.filter { it.id in selectedGraphIds }.forEach { parent ->
+                    val children = childrenByParent[parent.id].orEmpty()
+                    if (children.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(start = 20.dp)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            children.forEach { child ->
+                                GraphChip(
+                                    graph = child,
+                                    selected = child.id in selectedGraphIds,
+                                    child = true,
+                                    onClick = { toggleGraph(child) },
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -515,6 +533,7 @@ private fun DetailBody(
             } else {
                 PreviewPane(
                     state = state,
+                    workflowPath = document.path,
                     onCancel = onCancel,
                     onTasks = onTasks,
                 )
@@ -807,16 +826,21 @@ private fun NodeInputCard(
 @Composable
 private fun PreviewPane(
     state: SessionState,
+    workflowPath: String,
     onCancel: (String) -> Unit,
     onTasks: () -> Unit,
 ) {
-    val active = state.tasks.values.filter { it.isActive }.maxByOrNull { it.createdAtMs }
+    val active = state.tasks.values
+        .filter { it.isActive && it.workflowPath == workflowPath }
+        .maxByOrNull { it.createdAtMs }
     if (active != null) {
         ActivePreview(task = active, preview = state.preview, onCancel = onCancel)
         return
     }
 
-    val latest = state.tasks.values.maxByOrNull { it.updatedAtMs }
+    val latest = state.tasks.values
+        .filter { it.workflowPath == workflowPath }
+        .maxByOrNull { it.updatedAtMs }
     if (latest == null) {
         EmptyPreview()
         return
@@ -883,27 +907,55 @@ private fun ActivePreview(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        val progress = task.progress
         Text(
-            "${taskStateLabel(task.state)} · ${task.progress?.percent ?: 0}%",
+            "${taskStateLabel(task.state)} · ${progress?.percent ?: 0}%",
             style = MaterialTheme.typography.titleMedium,
         )
-        val percent = task.progress?.percent ?: 0
+        if (progress != null && progress.max > 0) {
+            Text(
+                progressStepLabel(progress),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        val percent = progress?.percent ?: 0
         if (task.state is TaskState.Running) {
             LinearProgressIndicator(progress = { percent / 100f }, modifier = Modifier.fillMaxWidth())
         }
         if (frame != null) {
             LivePreviewImage(bytes = frame.image)
         } else {
-            Text(
-                if (task.state is TaskState.Queued) "排队中，开始后显示采样画面" else "等待采样画面…",
-                style = MaterialTheme.typography.bodySmall,
+            Column(
                 modifier = Modifier.padding(top = 24.dp),
-            )
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    if (task.state is TaskState.Queued) "排队中，开始后显示采样画面" else "等待采样画面…",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (task.state is TaskState.Running) {
+                    Text(
+                        "若一直不出现，确认 ComfyUI 以 --preview-method auto 启动",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
         task.promptId?.let { promptId ->
             OutlinedButton(onClick = { onCancel(promptId) }) { Text("取消任务") }
         }
     }
+}
+
+private fun progressStepLabel(progress: TaskProgress): String {
+    fun number(value: Double): String {
+        val whole = value.toLong()
+        return if (value == whole.toDouble()) whole.toString() else value.toString()
+    }
+    val node = progress.node?.let { "#$it · " } ?: ""
+    return "$node${number(progress.value)}/${number(progress.max)}"
 }
 
 @Composable
@@ -913,7 +965,7 @@ private fun EmptyPreview() {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("还没有任务。", style = MaterialTheme.typography.bodyMedium)
+        Text("这个工作流还没有任务。", style = MaterialTheme.typography.bodyMedium)
         Text("提交后在这里显示采样画面和结果。", style = MaterialTheme.typography.bodySmall)
     }
 }
@@ -1063,4 +1115,25 @@ private fun valueText(value: JsonElement?): String = when (value) {
     null -> ""
     is JsonPrimitive -> value.content
     else -> value.toString()
+}
+
+@Composable
+private fun GraphChip(
+    graph: WorkflowGraph,
+    selected: Boolean,
+    child: Boolean = false,
+    onClick: () -> Unit,
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        modifier = if (child) Modifier.padding(start = 8.dp) else Modifier,
+        label = {
+            Text(
+                if (child) "└ ${graph.title}" else graph.title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+    )
 }

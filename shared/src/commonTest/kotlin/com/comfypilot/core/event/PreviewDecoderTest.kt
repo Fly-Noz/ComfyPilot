@@ -8,12 +8,28 @@ import kotlin.test.assertNull
 class PreviewDecoderTest {
 
     @Test
-    fun `type 1 carries raw image bytes without metadata`() {
-        val image = byteArrayOf(1, 2, 3, 4)
+    fun `type 1 legacy frame without format header keeps image bytes`() {
+        val image = jpegBytes() + byteArrayOf(1, 2)
         val preview = PreviewDecoder.decode(frame(type = 1, image = image))
 
         assertEquals(null, preview?.promptId)
         assertEquals(null, preview?.nodeId)
+        assertContentEquals(image, preview?.image)
+    }
+
+    @Test
+    fun `type 1 skips the JPEG format header`() {
+        val image = jpegBytes() + byteArrayOf(1, 2)
+        val preview = PreviewDecoder.decode(intBytes(1) + intBytes(1) + image)
+
+        assertContentEquals(image, preview?.image)
+    }
+
+    @Test
+    fun `type 1 skips the PNG format header`() {
+        val image = pngBytes() + byteArrayOf(3, 4)
+        val preview = PreviewDecoder.decode(intBytes(1) + intBytes(2) + image)
+
         assertContentEquals(image, preview?.image)
     }
 
@@ -37,12 +53,27 @@ class PreviewDecoderTest {
     fun `unknown or malformed frames are ignored`() {
         assertNull(PreviewDecoder.decode(byteArrayOf()))
         assertNull(PreviewDecoder.decode(byteArrayOf(0, 0, 0, 1)))
+        assertNull(PreviewDecoder.decode(intBytes(1) + intBytes(1)))
         assertNull(PreviewDecoder.decode(frame(type = 9, image = byteArrayOf(1))))
 
         // metadata 长度超出实际缓冲区
         val broken = intBytes(4) + intBytes(100) + "{}".encodeToByteArray() + byteArrayOf(1)
         assertNull(PreviewDecoder.decode(broken))
     }
+
+    private fun jpegBytes(): ByteArray = byteArrayOf(
+        0xFF.toByte(),
+        0xD8.toByte(),
+        0xFF.toByte(),
+        0xE0.toByte(),
+    )
+
+    private fun pngBytes(): ByteArray = byteArrayOf(
+        0x89.toByte(),
+        0x50,
+        0x4E,
+        0x47,
+    )
 
     private fun frame(type: Int, metadata: String? = null, image: ByteArray): ByteArray {
         val head = intBytes(type)

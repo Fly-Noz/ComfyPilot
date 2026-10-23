@@ -13,12 +13,15 @@ import com.comfypilot.core.task.PromptTask
 import com.comfypilot.core.task.TaskState
 import com.comfypilot.core.workflow.WorkflowCatalog
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 
 /**
  * Kotlin 与宿主之间的唯一契约：一行一个 JSON 对象，字段都是扁平的基本类型。
@@ -51,8 +54,21 @@ fun SessionState.toBridgeJson(): JsonObject = buildJsonObject {
     put("queueRunning", queue?.running?.size ?: 0)
     put("queuePending", queue?.pending?.size ?: 0)
     putJsonArray("tasks") {
-        tasks.values.sortedBy { it.createdAtMs }.forEach { add(it.toBridgeJson()) }
+        // 两端任务列表都按提交时间从新到旧；鸿蒙直接按这个数组渲染。
+        tasks.values.sortedByDescending { it.createdAtMs }.forEach { add(it.toBridgeJson()) }
     }
+    // 预览只放元数据；图片字节走按需的 cp_session_preview，避免每帧 JSON 变大。
+    put(
+        "preview",
+        preview?.let { frame ->
+            buildJsonObject {
+                put("promptId", frame.promptId)
+                put("nodeId", frame.nodeId)
+                put("receivedAtMs", frame.receivedAtMs)
+                put("bytes", frame.image.size)
+            }
+        } ?: JsonNull,
+    )
 
     // 只放轻量元数据：工作流原文可能有几百 KB，每帧序列化一次不现实。
     // 参数模型/节点定义由宿主在需要时单独拉取（后续 ABI），这里只告诉它"有没有、叫什么"。
@@ -101,6 +117,9 @@ fun PromptTask.toBridgeJson(): JsonObject = buildJsonObject {
     put("workflowPath", jsonString(workflowPath))
     put("state", stateName(state))
     put("percent", progress?.percent ?: 0)
+    put("progressValue", progress?.value ?: 0.0)
+    put("progressMax", progress?.max ?: 0.0)
+    put("progressNode", jsonString(progress?.node))
     put("outputs", outputs.size)
     put("error", jsonString(error ?: (state as? TaskState.Failed)?.message))
     put("updatedAtMs", updatedAtMs)
@@ -207,6 +226,9 @@ sealed interface HostMessage {
 
     data class SocketText(val id: Long, val text: String) : HostMessage
 
+    /** WebSocket 二进制消息；鸿蒙宿主用 base64 透传预览图。 */
+    data class SocketBinary(val id: Long, val bytes: ByteArray) : HostMessage
+
     data class SocketClosed(val id: Long, val code: Int, val reason: String) : HostMessage
 
     data class SocketFailed(val id: Long, val message: String) : HostMessage
@@ -239,6 +261,7 @@ sealed interface HostMessage {
          * 无法识别或字段不全时返回 null：宿主送来的可能是它自己版本的扩展字段，
          * 静默丢弃比让整个会话崩掉好。
          */
+        @OptIn(ExperimentalEncodingApi::class)
         fun parse(raw: String): HostMessage? {
             val obj = runCatching { bridgeJson.parseToJsonElement(raw) as? JsonObject }.getOrNull() ?: return null
             return when (obj.stringOrNull("t")) {
@@ -255,6 +278,14 @@ sealed interface HostMessage {
                     id = obj.longOrNull("id") ?: return null,
                     text = obj.stringOrNull("text") ?: return null,
                 )
+
+                "ws.binary" -> {
+                    val encoded = obj.stringOrNull("base64") ?: return null
+                    SocketBinary(
+                        id = obj.longOrNull("id") ?: return null,
+                        bytes = runCatching { Base64.decode(encoded) }.getOrNull() ?: return null,
+                    )
+                }
 
                 "ws.closed" -> SocketClosed(
                     id = obj.longOrNull("id") ?: return null,

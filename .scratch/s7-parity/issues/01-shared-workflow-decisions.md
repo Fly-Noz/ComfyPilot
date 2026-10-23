@@ -1,6 +1,6 @@
 # 01 · 收敛共享工作流决策层
 
-Status: needs-triage
+Status: ready-for-human
 Type: task
 
 ## 问题
@@ -25,3 +25,14 @@ Type: task
 - 安卓/鸿蒙不再各自实现排序或可提交判断；
 - 共享层测试覆盖上述决策；
 - 两端真机回归：提交、阻断提示、置顶、图启停、产物文件名。
+
+## Comments
+
+- 2026-10-23：实现完成，等待真机回归。新增
+  `shared/.../workflow/WorkflowDecision.kt`，提供 `analyze` / `decide` / `orderNodes`
+  和完整的 `WorkflowDecision`；安卓详情页、鸿蒙 `cp_session_workflow` 都改为消费同一份结果。
+  鸿蒙 `view` 新增共享 `blockReason`，ArkTS 删除本地阻断原因拼接。
+- 验证：`:shared:jvmTest` 203 / 0 / 0；`:app:testDebugUnitTest` 11 / 0 / 0；
+  `:app:assembleDebug` 成功并安装到 `1575924193008T5`；`harmony/build.ps1` 成功生成
+  `entry-default-signed.hap`。当前 `hdc list targets` 为空，鸿蒙安装/回归待设备连上。
+- 记录：`docs/verification/stageS7-shared-workflow-decisions.md`。

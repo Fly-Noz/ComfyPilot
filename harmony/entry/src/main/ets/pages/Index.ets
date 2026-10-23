@@ -1,8 +1,11 @@
 import { nativeVersion } from 'libentry.so';
 import { common } from '@kit.AbilityKit';
+import { image } from '@kit.ImageKit';
+import { util } from '@kit.ArkTS';
 import {
   BridgeCatalog,
   BridgeOutput,
+  BridgePreview,
   BridgeState,
   BridgeTask,
   BridgeWorkflow,
@@ -11,6 +14,7 @@ import {
   TaskRestoreResult,
 } from '../bridge/ComfyBridge';
 import { PinnedNodeStore } from '../bridge/PinnedNodeStore';
+import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
 import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/ArtifactDownloader';
 import { ImageUploader, PickedImage } from '../workflow/ImageUploader';
 import {
@@ -30,6 +34,9 @@ function emptyTask(): BridgeTask {
     workflowPath: null,
     state: '',
     percent: 0,
+    progressValue: 0,
+    progressMax: 0,
+    progressNode: null,
     outputs: 0,
     outputRefs: [],
     error: null,
@@ -87,8 +94,19 @@ function emptyView(): WorkflowViewResponse {
     pendingNodeClasses: [],
     missingNodeClasses: [],
     canSubmit: false,
+    blockReason: '不可提交：还没有打开工作流',
     prompt: null,
   };
+}
+
+interface PreviewPayload {
+  ok: boolean;
+  promptId?: string | null;
+  nodeId?: string | null;
+  receivedAtMs?: number;
+  bytes?: number;
+  image?: string;
+  message?: string;
 }
 
 @Entry
@@ -106,6 +124,7 @@ struct Index {
   @State storageLabel: string = '存储初始化中…';
 
   @State tab: number = 0;
+  @State detailTab: number = 0;
   @State catalog: BridgeCatalog = emptyCatalog();
   @State workflow: BridgeWorkflow = emptyWorkflow();
   @State selectedPath: string = '';
@@ -115,6 +134,7 @@ struct Index {
   @State graphIds: string[] = [];
   @State graphsInitialized: boolean = false;
   @State pinnedIds: number[] = [];
+  @State pinnedWorkflowPaths: string[] = [];
   @State editTick: number = 0;
   @State submitting: boolean = false;
   @State submitNotice: string = '';
@@ -136,9 +156,14 @@ struct Index {
   @State downloadingKey: string = '';
   @State downloadNotice: string = '';
 
+  @State livePreview: image.PixelMap | null = null;
+  @State livePreviewMeta: BridgePreview | null = null;
+  @State livePreviewFailed: boolean = false;
+
   private bridge: ComfyBridge = new ComfyBridge();
   private abi: number = 0;
   private pinnedStore: PinnedNodeStore = new PinnedNodeStore();
+  private pinnedWorkflowStore: PinnedWorkflowStore = new PinnedWorkflowStore();
   private downloader: ArtifactDownloader = new ArtifactDownloader();
   private imageUploader: ImageUploader = new ImageUploader();
   private uiContext: common.UIAbilityContext | null = null;
@@ -152,6 +177,10 @@ struct Index {
   private catalogRequested: boolean = false;
   private reopenRequested: boolean = false;
   private scroller: Scroller = new Scroller();
+  private catalogScroller: Scroller = new Scroller();
+  private previewRequestSeq: number = 0;
+  private previewFrameKey: string = '';
+  private previewBase64: util.Base64Helper = new util.Base64Helper();
 
   aboutToAppear(): void {
     // 相册选择器会把页面短暂切到后台；回来时不要重建会话，否则正在进行的上传
@@ -180,6 +209,7 @@ struct Index {
       return;
     }
     this.cancelEditRefresh();
+    this.clearLivePreview();
     this.bridge.stop();
     this.running = false;
   }
@@ -195,6 +225,10 @@ struct Index {
     this.uiContext = host as common.UIAbilityContext;
     const result: TaskRestoreResult = await this.bridge.init(context);
     const pinnedReady: boolean = await this.pinnedStore.open(context);
+    const workflowPinsReady: boolean = await this.pinnedWorkflowStore.open(context);
+    if (workflowPinsReady) {
+      this.pinnedWorkflowPaths = this.pinnedWorkflowStore.load();
+    }
     this.storageReady = true;
     if (!result.storage) {
       this.storageLabel = `本地存储不可用（${result.error}），任务只在内存里`;
@@ -203,6 +237,9 @@ struct Index {
     }
     if (!pinnedReady) {
       this.log(`置顶存储不可用：${this.pinnedStore.error}`);
+    }
+    if (!workflowPinsReady) {
+      this.log(`工作流置顶存储不可用：${this.pinnedWorkflowStore.error}`);
     }
     this.bridge.prepare(this.baseUrl);
   }
@@ -219,6 +256,8 @@ struct Index {
     this.tasks = state.tasks;
     this.catalog = state.catalog;
     this.workflow = state.workflow;
+    this.livePreviewMeta = state.preview ?? null;
+    this.updateLivePreview(this.livePreviewMeta);
     if (this.artifactOpen && this.artifactTask.id.length > 0) {
       const current = state.tasks.find((task: BridgeTask) => task.id === this.artifactTask.id);
       if (current !== undefined) {
@@ -249,6 +288,161 @@ struct Index {
     }
   }
 
+  private activeTask(): BridgeTask | null {
+    let active: BridgeTask | null = null;
+    for (let i = 0; i < this.tasks.length; i++) {
+      const task = this.tasks[i];
+      if (task.state === 'Submitting' || task.state === 'Queued' || task.state === 'Running') {
+        if (active === null || task.updatedAtMs > active.updatedAtMs) {
+          active = task;
+        }
+      }
+    }
+    return active;
+  }
+
+  private previewTask(): BridgeTask | null {
+    const meta = this.livePreviewMeta;
+    if (meta !== null && meta.promptId !== null) {
+      const match = this.tasks.find((task: BridgeTask) => task.promptId === meta.promptId);
+      if (match !== undefined &&
+        (match.state === 'Submitting' || match.state === 'Queued' || match.state === 'Running')) {
+        return match;
+      }
+    }
+    return this.activeTask();
+  }
+
+  /** 当前工作流自己的任务；详情页不能显示别的工作流的采样图。 */
+  private workflowTask(activeOnly: boolean): BridgeTask | null {
+    let found: BridgeTask | null = null;
+    for (let i = 0; i < this.tasks.length; i++) {
+      const task = this.tasks[i];
+      if (task.workflowPath !== this.selectedPath) {
+        continue;
+      }
+      if (activeOnly &&
+        task.state !== 'Submitting' && task.state !== 'Queued' && task.state !== 'Running') {
+        continue;
+      }
+      if (found === null || task.updatedAtMs > found.updatedAtMs) {
+        found = task;
+      }
+    }
+    return found;
+  }
+
+  private activeWorkflowTask(): BridgeTask | null {
+    return this.workflowTask(true);
+  }
+
+  private latestWorkflowTask(): BridgeTask | null {
+    return this.workflowTask(false);
+  }
+
+  private openActiveWorkflowArtifacts(): void {
+    const task = this.activeWorkflowTask();
+    if (task !== null) {
+      this.openArtifacts(task);
+    }
+  }
+
+  private livePreviewMatches(task: BridgeTask | null): boolean {
+    if (task === null) {
+      return false;
+    }
+    const meta = this.livePreviewMeta;
+    if (meta === null) {
+      return false;
+    }
+    if (meta.promptId !== null) {
+      return meta.promptId === task.promptId;
+    }
+    const active = this.previewTask();
+    return active !== null && active.id === task.id;
+  }
+
+  private firstImageUrl(task: BridgeTask): string {
+    for (let i = 0; i < task.outputRefs.length; i++) {
+      const output = task.outputRefs[i];
+      if (output.image) {
+        return this.artifactUrl(output);
+      }
+    }
+    return '';
+  }
+
+  private previewStepLabel(task: BridgeTask | null): string {
+    if (task === null || task.progressMax <= 0) {
+      return '';
+    }
+    const node = task.progressNode !== null && task.progressNode.length > 0
+      ? `#${task.progressNode} · `
+      : '';
+    return `${node}${Math.round(task.progressValue)}/${Math.round(task.progressMax)}`;
+  }
+
+  private updateLivePreview(meta: BridgePreview | null): void {
+    if (meta === null) {
+      this.clearLivePreview();
+      return;
+    }
+    const key = `${meta.promptId ?? ''}:${meta.receivedAtMs}`;
+    if (key === this.previewFrameKey) {
+      return;
+    }
+    this.previewFrameKey = key;
+    this.loadLivePreview(++this.previewRequestSeq);
+  }
+
+  private async loadLivePreview(seq: number): Promise<void> {
+    try {
+      const raw = this.bridge.preview();
+      const payload = JSON.parse(raw) as PreviewPayload;
+      if (seq !== this.previewRequestSeq) {
+        return;
+      }
+      if (!payload.ok || payload.image === undefined || payload.image.length === 0) {
+        this.livePreviewFailed = true;
+        return;
+      }
+      const bytes = this.previewBase64.decodeSync(payload.image);
+      const source = image.createImageSource(bytes.buffer);
+      try {
+        const pixel = await source.createPixelMap();
+        if (seq !== this.previewRequestSeq) {
+          await pixel.release();
+          return;
+        }
+        const old = this.livePreview;
+        this.livePreview = pixel;
+        this.livePreviewFailed = false;
+        if (old !== null) {
+          old.release().catch(() => {});
+        }
+      } finally {
+        source.release();
+      }
+    } catch (err) {
+      if (seq === this.previewRequestSeq) {
+        this.livePreviewFailed = true;
+        this.log(`预览帧解码失败：${this.errorText(err)}`);
+      }
+    }
+  }
+
+  private clearLivePreview(): void {
+    this.previewRequestSeq++;
+    this.previewFrameKey = '';
+    this.livePreviewMeta = null;
+    this.livePreviewFailed = false;
+    const old = this.livePreview;
+    this.livePreview = null;
+    if (old !== null) {
+      old.release().catch(() => {});
+    }
+  }
+
   private normalizedBaseUrl(): string {
     let url = this.baseUrl.trim();
     while (url.endsWith('/')) {
@@ -271,6 +465,7 @@ struct Index {
     this.catalogRequested = false;
     this.reopenRequested = false;
     this.summaryKey = '';
+    this.clearLivePreview();
     this.log(`开始连接 ${url}`);
     this.running = true;
     const started = this.bridge.start(url);
@@ -283,6 +478,7 @@ struct Index {
 
   private disconnect(): void {
     this.cancelEditRefresh();
+    this.clearLivePreview();
     this.bridge.stop();
     this.running = false;
     this.label = '未连接';
@@ -304,6 +500,7 @@ struct Index {
     this.cancelEditRefresh();
     this.selectedPath = path;
     this.summaryKey = '';
+    this.detailTab = 0;
     this.graphsInitialized = false;
     this.graphIds = [];
     this.edits.clear();
@@ -327,6 +524,7 @@ struct Index {
     this.resetUploadState();
     this.selectedPath = '';
     this.summaryKey = '';
+    this.detailTab = 0;
     this.graphsInitialized = false;
     this.graphIds = [];
     this.edits.clear();
@@ -619,10 +817,55 @@ struct Index {
     this.refreshView(true);
   }
 
+  private isWorkflowPinned(path: string): boolean {
+    return this.pinnedWorkflowPaths.includes(path);
+  }
+
+  private orderedCatalogEntries(): CatalogEntry[] {
+    const entries: CatalogEntry[] = (this.catalog.entries ?? []).slice();
+    entries.sort((a: CatalogEntry, b: CatalogEntry) => {
+      const aPinned = this.isWorkflowPinned(a.path);
+      const bPinned = this.isWorkflowPinned(b.path);
+      if (aPinned !== bPinned) {
+        return aPinned ? -1 : 1;
+      }
+      return a.path.toLowerCase().localeCompare(b.path.toLowerCase());
+    });
+    return entries;
+  }
+
+  private toggleWorkflowPin(path: string): void {
+    const wasPinned = this.isWorkflowPinned(path);
+    const next = this.pinnedWorkflowPaths.filter((item: string) => item !== path);
+    if (!wasPinned) {
+      next.push(path);
+    }
+    this.pinnedWorkflowPaths = next;
+    this.pinnedWorkflowStore.save(next).catch((err: Error) => {
+      this.log(`工作流置顶保存失败：${err.message}`);
+    });
+    if (!wasPinned) {
+      setTimeout((): void => {
+        this.catalogScroller.scrollEdge(Edge.Top);
+      }, 0);
+    }
+  }
+
+  private parentGraphs(): WorkflowGraphView[] {
+    return this.view.graphs.filter((graph: WorkflowGraphView) => graph.outputNodeIds.length > 0);
+  }
+
+  private childGraphs(parentId: string): WorkflowGraphView[] {
+    return this.view.graphs.filter((graph: WorkflowGraphView) => graph.parentId === parentId);
+  }
+
   private toggleGraph(graph: WorkflowGraphView): void {
     const index = this.graphIds.indexOf(graph.id);
     if (index >= 0) {
-      this.graphIds = this.graphIds.filter((id: string) => id !== graph.id);
+      let next = this.graphIds.filter((id: string) => id !== graph.id);
+      const childIds = this.childGraphs(graph.id).map((child: WorkflowGraphView) => child.id);
+      next = next.filter((id: string) => !childIds.includes(id));
+      this.graphIds = next;
     } else {
       this.graphIds = [...this.graphIds, graph.id];
     }
@@ -663,8 +906,8 @@ struct Index {
       this.submitNotice = warnings.length > 0
         ? `正在提交，等待服务器接受…（${warnings.join('；')}）`
         : '正在提交，等待服务器接受…';
-      this.bridge.submit(JSON.stringify(response.prompt), this.view.name, this.view.path);
-      this.tab = 1;
+      this.bridge.submit(JSON.stringify(response.prompt), this.view.name, this.selectedPath);
+      this.detailTab = 1;
     } catch (err) {
       this.submitNotice = `提交失败：${(err as Error).message}`;
     } finally {
@@ -681,8 +924,8 @@ struct Index {
       return;
     }
     this.submitNotice = '正在提交，等待服务器接受…';
-    this.bridge.submit(prompt, this.view.name, this.view.path);
-    this.tab = 1;
+    this.bridge.submit(prompt, this.view.name, this.selectedPath);
+    this.detailTab = 1;
   }
 
   private cancelSubmitConfirm(): void {
@@ -704,19 +947,10 @@ struct Index {
 
   /** 按钮禁用时，把“为什么不能提交”放在按钮正上方，避免只看到灰按钮没有提示。 */
   private blockReason(): string {
-    if (this.view.pendingNodeClasses.length > 0) {
-      return `不可提交：正在加载节点定义（${this.view.pendingNodeClasses.join('、')}）`;
-    }
-    if (this.view.problems.length > 0) {
-      const first = this.view.problems[0];
-      if (first !== undefined) {
-        return `不可提交：${first.display}`;
-      }
-    }
-    if (this.view.missingNodeClasses.length > 0) {
-      return `不可提交：服务端缺少节点 ${this.view.missingNodeClasses.join('、')}`;
-    }
-    return '不可提交：工作流还没有就绪';
+    // 原因由共享决策层生成，ArkTS 只负责渲染。
+    return this.view.blockReason.length > 0
+      ? this.view.blockReason
+      : '不可提交：工作流还没有就绪';
   }
 
   private openArtifacts(task: BridgeTask): void {
@@ -965,9 +1199,9 @@ struct Index {
         .fontColor('#666666')
     }
 
-    Scroll() {
+    Scroll(this.catalogScroller) {
       Column({ space: 6 }) {
-        ForEach(this.catalog.entries ?? [], (entry: CatalogEntry) => {
+        ForEach(this.orderedCatalogEntries(), (entry: CatalogEntry) => {
           Row({ space: 8 }) {
             Column({ space: 2 }) {
               Text(entry.name)
@@ -982,6 +1216,10 @@ struct Index {
             }
             .alignItems(HorizontalAlign.Start)
             .layoutWeight(1)
+            Button(this.isWorkflowPinned(entry.path) ? '取消置顶' : '置顶')
+              .fontSize(11)
+              .height(30)
+              .onClick(() => this.toggleWorkflowPin(entry.path))
             Button('打开')
               .fontSize(12)
               .height(30)
@@ -992,7 +1230,7 @@ struct Index {
           .padding(10)
           .backgroundColor('#FFFFFF')
           .borderRadius(8)
-        }, (entry: CatalogEntry) => entry.path)
+        }, (entry: CatalogEntry) => `${entry.path}:${this.isWorkflowPinned(entry.path)}`)
       }
       .width('100%')
     }
@@ -1053,14 +1291,29 @@ struct Index {
       Text('节点图')
         .fontSize(13)
         .fontWeight(FontWeight.Medium)
-      ForEach(this.view.graphs, (graph: WorkflowGraphView) => {
-        Button(`${graph.selected ? '●' : '○'} ${graph.title}（${graph.nodeIds.length} 节点）`)
-          .fontSize(12)
-          .height(34)
-          .width('100%')
-          .backgroundColor(graph.selected ? '#D7E8FF' : '#EEEEEE')
-          .fontColor('#222222')
-          .onClick(() => this.toggleGraph(graph))
+      ForEach(this.parentGraphs(), (graph: WorkflowGraphView) => {
+        Column({ space: 4 }) {
+          Button(`${graph.selected ? '●' : '○'} ${graph.title}（${graph.nodeIds.length} 节点）`)
+            .fontSize(12)
+            .height(34)
+            .width('100%')
+            .backgroundColor(graph.selected ? '#D7E8FF' : '#EEEEEE')
+            .fontColor('#222222')
+            .onClick(() => this.toggleGraph(graph))
+          if (graph.selected && this.childGraphs(graph.id).length > 0) {
+            ForEach(this.childGraphs(graph.id), (child: WorkflowGraphView) => {
+              Button(`└ ${child.selected ? '●' : '○'} ${child.title}（${child.nodeIds.length} 节点）`)
+                .fontSize(11)
+                .height(30)
+                .width('92%')
+                .margin({ left: 16 })
+                .backgroundColor(child.selected ? '#E8F1FF' : '#F5F5F5')
+                .fontColor('#333333')
+                .onClick(() => this.toggleGraph(child))
+            }, (child: WorkflowGraphView) => `${child.id}:${child.selected}`)
+          }
+        }
+        .width('100%')
       }, (graph: WorkflowGraphView) => `${graph.id}:${graph.selected}`)
     }
 
@@ -1112,15 +1365,129 @@ struct Index {
         .fontColor(this.submitNotice.startsWith('已提交') ? '#1B8A3A' : '#B00020')
     }
 
-    if (this.view.ok && this.view.nodes.length === 0) {
-      Text('这是 API 格式工作流，没有网页字段可编辑；可以直接提交。')
+    Row({ space: 8 }) {
+      Button('输入')
         .fontSize(12)
-        .fontColor('#666666')
+        .height(32)
+        .layoutWeight(1)
+        .backgroundColor(this.detailTab === 0 ? '#D7E8FF' : '#EEEEEE')
+        .fontColor('#222222')
+        .onClick(() => {
+          this.detailTab = 0;
+        })
+      Button('预览')
+        .fontSize(12)
+        .height(32)
+        .layoutWeight(1)
+        .backgroundColor(this.detailTab === 1 ? '#D7E8FF' : '#EEEEEE')
+        .fontColor('#222222')
+        .onClick(() => {
+          this.detailTab = 1;
+        })
     }
+    .width('100%')
 
-    ForEach(this.view.nodes, (node: WorkflowNodeView) => {
-      this.NodeCard(node)
-    }, (node: WorkflowNodeView) => `${node.id}:${node.pinned}:${node.reachable}:${node.needsInput}`)
+    if (this.detailTab === 0) {
+      if (this.view.ok && this.view.nodes.length === 0) {
+        Text('这是 API 格式工作流，没有网页字段可编辑；可以直接提交。')
+          .fontSize(12)
+          .fontColor('#666666')
+      }
+
+      ForEach(this.view.nodes, (node: WorkflowNodeView) => {
+        this.NodeCard(node)
+      }, (node: WorkflowNodeView) => `${node.id}:${node.pinned}:${node.reachable}:${node.needsInput}`)
+    } else {
+      this.DetailPreview()
+    }
+  }
+
+  @Builder
+  DetailPreview() {
+    Column({ space: 8 }) {
+      if (this.liveCardTask() !== null) {
+        this.LivePreviewCard()
+        Row({ space: 8 }) {
+          Button('查看产物')
+            .fontSize(12)
+            .height(30)
+            .enabled(this.activeWorkflowTask() !== null &&
+              (this.activeWorkflowTask() as BridgeTask).outputRefs.length > 0)
+            .onClick(() => this.openActiveWorkflowArtifacts())
+          Button('查看全部任务')
+            .fontSize(12)
+            .height(30)
+            .onClick(() => {
+              this.tab = 1;
+            })
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.End)
+      } else {
+        this.LatestTaskPreview(this.latestWorkflowTask())
+      }
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  LatestTaskPreview(task: BridgeTask | null) {
+    if (task === null) {
+      Text(this.submitNotice.length > 0
+        ? this.submitNotice
+        : '这个工作流还没有提交过任务。')
+        .fontSize(12)
+        .fontColor(this.submitNotice.startsWith('已提交') ? '#1B8A3A' : '#666666')
+      Button('查看全部任务')
+        .fontSize(12)
+        .height(30)
+        .onClick(() => {
+          this.tab = 1;
+        })
+    } else {
+      Column({ space: 6 }) {
+        Text(this.taskLabel(task))
+          .fontSize(13)
+          .fontWeight(FontWeight.Medium)
+          .width('100%')
+        if (task.error !== null && task.error.length > 0) {
+          Text(task.error)
+            .fontSize(11)
+            .fontColor('#B00020')
+            .width('100%')
+        }
+        if (this.firstImageUrl(task).length > 0) {
+          Image(this.firstImageUrl(task))
+            .width('100%')
+            .height(200)
+            .objectFit(ImageFit.Contain)
+            .backgroundColor('#111111')
+            .borderRadius(8)
+        } else if (task.outputRefs.length > 0) {
+          Text(`产物 ${task.outputRefs.length} 个；该类型暂不内置预览。`)
+            .fontSize(11)
+            .fontColor('#666666')
+        }
+        Row({ space: 8 }) {
+          Button('查看产物')
+            .fontSize(12)
+            .height(30)
+            .enabled(task.outputRefs.length > 0)
+            .onClick(() => this.openArtifacts(task))
+          Button('查看全部任务')
+            .fontSize(12)
+            .height(30)
+            .onClick(() => {
+              this.tab = 1;
+            })
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.End)
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+    }
   }
 
   @Builder
@@ -1181,8 +1548,104 @@ struct Index {
     .width('100%')
   }
 
+  /** 预览卡当前使用的任务：任务页看全局，工作流详情看当前工作流。 */
+  private liveCardTask(): BridgeTask | null {
+    return this.tab === 1 ? this.previewTask() : this.activeWorkflowTask();
+  }
+
+  private liveCardPercent(): number {
+    const task = this.liveCardTask();
+    return task !== null ? task.percent : 0;
+  }
+
+  private liveCardState(): string {
+    const task = this.liveCardTask();
+    return task !== null ? task.state : '';
+  }
+
+  private liveCardStep(): string {
+    return this.previewStepLabel(this.liveCardTask());
+  }
+
+  /**
+   * 预览卡不接收 task 对象参数：@Builder 的对象参数在 ArkUI 里不会随任务快照刷新，
+   * 进度和采样图会停在首次渲染的值。这里每次都直接读 @State tasks。
+   */
+  @Builder
+  LivePreviewCard() {
+    Column({ space: 6 }) {
+      Row({ space: 8 }) {
+        Text('采样预览')
+          .fontSize(13)
+          .fontWeight(FontWeight.Medium)
+          .layoutWeight(1)
+        if (this.livePreviewMeta !== null && this.livePreviewMatches(this.liveCardTask())) {
+          Text(`${this.livePreviewMeta.bytes} B`)
+            .fontSize(10)
+            .fontColor('#777777')
+        }
+      }
+      .width('100%')
+
+      if (this.liveCardTask() !== null) {
+        Row({ space: 8 }) {
+          Text(`${this.liveCardPercent()}%`)
+            .fontSize(10)
+            .fontColor('#777777')
+          Text(this.liveCardState())
+            .fontSize(10)
+            .fontColor('#777777')
+            .layoutWeight(1)
+        }
+        .width('100%')
+        Progress({ value: this.liveCardPercent(), total: 100, type: ProgressType.Linear })
+          .width('100%')
+      }
+
+      if (this.liveCardStep().length > 0) {
+        Text(this.liveCardStep())
+          .fontSize(10)
+          .fontColor('#777777')
+          .width('100%')
+      }
+
+      if (this.livePreview !== null && this.livePreviewMatches(this.liveCardTask())) {
+        Image(this.livePreview as image.PixelMap)
+          .width('100%')
+          .height(180)
+          .objectFit(ImageFit.Contain)
+          .backgroundColor('#111111')
+          .borderRadius(8)
+      } else if (this.livePreviewFailed && this.livePreviewMatches(this.liveCardTask())) {
+        Text('预览帧解码失败')
+          .fontSize(11)
+          .fontColor('#B00020')
+      } else {
+        Column({ space: 2 }) {
+          Row({ space: 8 }) {
+            LoadingProgress().width(18).height(18)
+            Text('等待采样画面…')
+              .fontSize(11)
+              .fontColor('#666666')
+          }
+          Text('若持续没有画面，确认 ComfyUI 启动参数包含 --preview-method auto')
+            .fontSize(10)
+            .fontColor('#888888')
+        }
+        .alignItems(HorizontalAlign.Start)
+      }
+    }
+    .width('100%')
+    .padding(10)
+    .backgroundColor('#FFFFFF')
+    .borderRadius(8)
+  }
+
   @Builder
   TasksTab() {
+    if (this.liveCardTask() !== null) {
+      this.LivePreviewCard()
+    }
     if (this.tasks.length === 0) {
       Text('还没有任务。').fontSize(12).fontColor('#666666')
     } else {

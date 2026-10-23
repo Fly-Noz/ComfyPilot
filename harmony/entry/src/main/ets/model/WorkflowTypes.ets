@@ -12,6 +12,8 @@ export interface WorkflowGraphView {
   selected: boolean;
   nodeIds: number[];
   outputNodeIds: number[];
+  /** 辅助图组所属的输出图 ID；输出图自身为空字符串。 */
+  parentId: string;
 }
 
 export interface WorkflowFieldView {
@@ -69,6 +71,8 @@ export interface WorkflowViewResponse {
   pendingNodeClasses: string[];
   missingNodeClasses: string[];
   canSubmit: boolean;
+  /** 共享层给出的阻断原因；可提交时为空字符串。 */
+  blockReason: string;
   prompt: null;
 }
 

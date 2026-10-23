@@ -14,6 +14,8 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.native.CName
 
 /**
@@ -112,6 +114,31 @@ fun cpSessionWorkflow(requestJson: CPointer<ByteVar>?, buffer: CPointer<ByteVar>
         sessionWorkflowJson(host.state, raw)
     } catch (error: Throwable) {
         """{"ok":false,"state":"error","message":"${escapeJson(error.message ?: "工作流请求失败")}","graphs":[],"nodes":[],"commonFields":[],"problems":[],"warnings":[],"pendingNodeClasses":[],"missingNodeClasses":[],"prompt":null}"""
+    }
+    return writeUtf8(result, buffer, capacity)
+}
+
+/**
+ * 按需取最新一帧采样预览：图片字节以 base64 放在专用响应里，
+ * 不进入 500ms 状态帧。返回值约定与 [cpSessionPump] 相同。
+ */
+@OptIn(ExperimentalForeignApi::class, ExperimentalEncodingApi::class)
+@CName("cp_session_preview")
+fun cpSessionPreview(buffer: CPointer<ByteVar>?, capacity: Int): Int {
+    val host = session
+        ?: return writeUtf8("""{"ok":false,"message":"会话尚未创建"}""", buffer, capacity)
+    val preview = host.state.preview
+    val result = if (preview == null || preview.image.isEmpty()) {
+        """{"ok":false,"message":"没有预览帧"}"""
+    } else {
+        buildJsonObject {
+            put("ok", true)
+            put("promptId", preview.promptId)
+            put("nodeId", preview.nodeId)
+            put("receivedAtMs", preview.receivedAtMs)
+            put("bytes", preview.image.size)
+            put("image", Base64.encode(preview.image))
+        }.toString()
     }
     return writeUtf8(result, buffer, capacity)
 }

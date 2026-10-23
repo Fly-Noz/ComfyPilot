@@ -32,6 +32,28 @@ class EventDecoderTest {
     }
 
     @Test
+    fun progressStateUsesRunningNode() {
+        val event = EventDecoder.decode(
+            """{"type":"progress_state","data":{"prompt_id":"p1","nodes":{"475":{"value":1,"max":1,"state":"finished","node_id":"475"},"481":{"value":8,"max":20,"state":"running","node_id":"481"}}}}""",
+        )
+        val progress = assertIs<ComfyEvent.Progress>(event)
+        assertEquals("p1", progress.promptId)
+        assertEquals("481", progress.node)
+        assertEquals(8.0, progress.value)
+        assertEquals(20.0, progress.max)
+    }
+
+    @Test
+    fun progressStateFallsBackToFinishedSampler() {
+        val event = EventDecoder.decode(
+            """{"type":"progress_state","data":{"prompt_id":"p1","nodes":{"475":{"value":1,"max":1,"state":"finished","node_id":"475"},"481":{"value":20,"max":20,"state":"finished","node_id":"481"}}}}""",
+        )
+        val progress = assertIs<ComfyEvent.Progress>(event)
+        assertEquals("481", progress.node)
+        assertEquals(20.0, progress.value)
+    }
+
+    @Test
     fun executedCarriesNodeOutput() {
         val event = EventDecoder.decode(
             """{"type":"executed","data":{"prompt_id":"p1","node":"9","output":{"images":[{"filename":"a.png"}]}}}""",

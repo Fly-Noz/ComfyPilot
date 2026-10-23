@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -21,12 +22,20 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.comfypilot.core.net.SessionState
 import com.comfypilot.core.workflow.WorkflowCatalog
 import com.comfypilot.core.workflow.WorkflowEntry
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,6 +48,11 @@ fun WorkflowCatalogScreen(
     onDisconnect: () -> Unit,
 ) {
     val connected = state.lease != null
+    val context = LocalContext.current
+    val pinnedStore = remember(context) { PinnedWorkflowStore(context.applicationContext) }
+    var pinnedPaths by remember(context) { mutableStateOf(pinnedStore.load()) }
+    val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     // 进入页面时如果还没拉过列表，自动拉一次；失败后不自动重试，交给用户点"刷新"。
     LaunchedEffect(connected, state.catalog) {
@@ -101,12 +115,32 @@ fun WorkflowCatalogScreen(
                         OutlinedButton(onClick = onRefresh) { Text("刷新") }
                     } else {
                         Text("共 ${catalog.entries.size} 个，点一个打开。", style = MaterialTheme.typography.bodySmall)
+                        val orderedEntries = remember(catalog.entries, pinnedPaths) {
+                            orderWorkflowEntries(catalog.entries, pinnedPaths)
+                        }
                         LazyColumn(
+                            state = listState,
                             modifier = Modifier.weight(1f),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            items(catalog.entries, key = { it.path }) { entry ->
-                                EntryCard(entry = entry, onClick = { onOpen(entry.path) })
+                            items(orderedEntries, key = { it.path }) { entry ->
+                                EntryCard(
+                                    entry = entry,
+                                    pinned = entry.path in pinnedPaths,
+                                    onClick = { onOpen(entry.path) },
+                                    onTogglePin = {
+                                        val pinning = entry.path !in pinnedPaths
+                                        val next = if (pinning) {
+                                            pinnedPaths + entry.path
+                                        } else {
+                                            pinnedPaths - entry.path
+                                        }
+                                        pinnedPaths = next
+                                        pinnedStore.save(next)
+                                        // 置顶后条目会移到列表最前；把视口带回去，避免像“消失”了。
+                                        if (pinning) scope.launch { listState.animateScrollToItem(0) }
+                                    },
+                                )
                             }
                         }
                     }
@@ -117,7 +151,12 @@ fun WorkflowCatalogScreen(
 }
 
 @Composable
-private fun EntryCard(entry: WorkflowEntry, onClick: () -> Unit) {
+private fun EntryCard(
+    entry: WorkflowEntry,
+    pinned: Boolean,
+    onClick: () -> Unit,
+    onTogglePin: () -> Unit,
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -130,11 +169,20 @@ private fun EntryCard(entry: WorkflowEntry, onClick: () -> Unit) {
                     Text(formatSize(it), style = MaterialTheme.typography.labelSmall)
                 }
             }
-            Text(
-                entry.path,
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = FontFamily.Monospace,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    entry.path,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onTogglePin) {
+                    Text(if (pinned) "取消置顶" else "置顶")
+                }
+            }
         }
     }
 }

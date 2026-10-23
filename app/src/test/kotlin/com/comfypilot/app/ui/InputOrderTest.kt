@@ -1,5 +1,6 @@
 package com.comfypilot.app.ui
 
+import com.comfypilot.core.workflow.WorkflowDecisions
 import com.comfypilot.core.workflow.WorkflowField
 import com.comfypilot.core.workflow.WorkflowNodeView
 import org.junit.Assert.assertEquals
@@ -18,7 +19,7 @@ class InputOrderTest {
             node(id = 6, reachable = false, needsInput = true),
         )
 
-        val ordered = orderInputNodes(nodes, pinnedNodeIds = setOf(1, 3, 4, 6))
+        val ordered = WorkflowDecisions.orderNodes(nodes, pinnedNodeIds = setOf(1, 3, 4, 6))
             .map { it.id }
 
         // 4/3 置顶且可达；2/5 为其余可达节点；1/6 所在图未启用，即使置顶也留在最后。

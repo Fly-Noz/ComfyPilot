@@ -1,4 +1,11 @@
-import { nativeSessionCreate, nativeSessionDestroy, nativeSessionPump, nativeSessionSend, nativeSessionWorkflow } from 'libentry.so';
+import {
+  nativeSessionCreate,
+  nativeSessionDestroy,
+  nativeSessionPreview,
+  nativeSessionPump,
+  nativeSessionSend,
+  nativeSessionWorkflow,
+} from 'libentry.so';
 import { connection, http, webSocket } from '@kit.NetworkKit';
 import { common } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
@@ -33,6 +40,9 @@ export interface BridgeTask {
   workflowPath: string | null;
   state: string;
   percent: number;
+  progressValue: number;
+  progressMax: number;
+  progressNode: string | null;
   outputs: number;
   outputRefs: BridgeOutput[];
   error: string | null;
@@ -62,6 +72,13 @@ export interface BridgeWorkflow {
   nodeInfo: number;
 }
 
+export interface BridgePreview {
+  promptId: string | null;
+  nodeId: string | null;
+  receivedAtMs: number;
+  bytes: number;
+}
+
 export interface BridgeState {
   phase: string;
   label: string;
@@ -75,6 +92,7 @@ export interface BridgeState {
   tasks: BridgeTask[];
   catalog: BridgeCatalog;
   workflow: BridgeWorkflow;
+  preview: BridgePreview | null;
 }
 
 /**
@@ -111,6 +129,8 @@ interface BridgeCommand {
   contentType?: string;
   headers?: Record<string, string>;
   body?: string;
+  /** WebSocket 二进制帧的 base64；只用于 `ws.binary`。 */
+  base64?: string;
   workflow?: string;
   workflowName?: string;
   workflowPath?: string;
@@ -307,6 +327,11 @@ export class ComfyBridge {
    */
   workflow(requestJson: string): string {
     return nativeSessionWorkflow(requestJson);
+  }
+
+  /** 按需取最新采样预览；返回带 base64 图片的 JSON，不进状态帧。 */
+  preview(): string {
+    return nativeSessionPreview();
   }
 
   reconnect(): void {
@@ -529,8 +554,15 @@ export class ComfyBridge {
         trace(`ws text len=${data.length} ${head}`);
         this.send({ t: 'ws.text', id: id, text: data });
       } else {
-        // 预览图走二进制帧，阶段二暂不显示；不把它当文本塞给状态机。
-        this.onLog('忽略二进制 WebSocket 帧');
+        // 预览图是二进制帧；共享层需要它来生成 type=1/4 采样图。
+        // JSON 通道只能传字符串，这里用 base64 透传；每帧约 20-30KB。
+        try {
+          const bytes: Uint8Array = new Uint8Array(data);
+          const encoded: string = this.base64.encodeToStringSync(bytes);
+          this.send({ t: 'ws.binary', id: id, base64: encoded });
+        } catch (err) {
+          this.onLog(`二进制预览帧处理失败：${(err as Error).message}`);
+        }
       }
     });
     socket.on('close', (err: BusinessError, info: webSocket.CloseResult) => {

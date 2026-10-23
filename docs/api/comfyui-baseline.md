@@ -115,7 +115,7 @@
 | `execution_start` | `data.prompt_id` | 任务进入执行中 |
 | `execution_cached` | `data.nodes[]` | 忽略 |
 | `executing` | `data.prompt_id`, `data.node` | 存活信号；`node=null` 表示空闲 |
-| `progress` | `data.prompt_id`, `node`, `value`, `max` | 进度 + 重置静默计时 |
+| `progress` / `progress_state` | 旧版读 `prompt_id/node/value/max`；新版从 `data.nodes` 取 `state=running` 的节点（无运行节点时取已完成的采样节点） | 进度 + 重置静默计时；新版 ComfyUI 只发 `progress_state` |
 | `executed` | `data.prompt_id`, `node`, `output` | 累积产物引用 |
 | `execution_error` | `data.prompt_id`, `node_id`, `exception_message` | 立即置失败（随后仍会被 /history 复核） |
 | `execution_interrupted` | `data.prompt_id` | 置取消 |
@@ -199,10 +199,14 @@
 - `GET /system_stats` 返回 `system.ram_total/ram_free` 与 `devices[].vram_total/vram_free`
   等；客户端每 2s 轮询一次。官方路由**没有 CPU/GPU 利用率**，界面不伪造。
 - 采样预览是 WebSocket **二进制帧**：前 4 字节是大端事件类型；
-  `type=1` 后面直接是图片字节；`type=4` 再跟 4 字节大端 metadata 长度、
-  JSON metadata（`prompt_id` / `node_id`）和图片字节。客户端只解这两类。
+  `type=1` 再跟 4 字节大端图片格式（`1=JPEG`、`2=PNG`），然后才是图片字节；
+  `type=4` 再跟 4 字节大端 metadata 长度、JSON metadata（`prompt_id` / `node_id`）
+  和图片字节。客户端只解这两类，并兼容没有格式头的早期 mock 帧。
 - 预览帧只进内存状态，不落库、不进 C ABI 状态帧；任务结束或换租约时清空，
   完成后改从 `/view` 取最终产物。
+- **服务端前提**：ComfyUI 必须以 `--preview-method auto`（或 `latent2rgb` / `taesd`）
+  启动；该版本默认是 `--preview-method none`，不会发送任何二进制预览帧。
+  客户端只能显示服务端发来的帧，无法在服务端关闭预览时自行生成。
 
 ### 5.6 多个独立节点图
 

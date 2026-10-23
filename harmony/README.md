@@ -7,9 +7,9 @@
 
 | 层级 | 状态 |
 |---|---|
-| 构建级 | 通过：共享层自检、会话桥、S6 工作流/产物、HAP 都能编出来；JVM 测试 **192 通过 / 0 跳过 / 0 失败** |
+| 构建级 | 通过：共享层自检、会话桥、S6/S7 工作流/产物、HAP 都能编出来；共享层 JVM 测试 **213 通过 / 4 跳过 / 0 失败** |
 | 真机级（阶段二） | 通过：自检、ArkTS 宿主循环、HTTP/WebSocket、四个连接场景（`normal` / `history_error` / `silent` / `lost`）、RDB 落库与重启恢复 |
-| 真机级（S6） | **待验证**：工作流目录、字段/节点图、置顶、图片预览与下载已接入，等待连接鸿蒙真机 |
+| 真机级（S6/S7） | 通过：工作流目录、字段/节点图、置顶、提交、任务恢复；S7 详情页预览/进度/采样图已通过。图片上传取消/断网、下载边界仍待回归 |
 
 四个场景与重启恢复的真机证据（hilog + mock 计数器）见 `../docs/verification/stage2-harmony-build.md`。
 仍未真机验证的是：切前后台的冻结检测、WiFi↔蜂窝切换的 `generation` 递增。
@@ -136,7 +136,7 @@ C ABI（`ohosArm64Main/.../SessionAbi.kt`）：
 
 | C ABI | 说明 |
 |---|---|
-| `cp_version()` | ABI 版本，3 起新增工作流按需视图 |
+| `cp_version()` | ABI 版本，4 起新增采样预览按需接口 |
 | `cp_self_test_json(buffer, capacity)` | 纯逻辑自检，UTF-8 JSON 写入调用方缓冲区 |
 | `cp_session_create(configJson)` | 建会话（配置：`baseUrl` 等；`tasks` 数组可带上次落盘的任务），1 成功 |
 | `cp_session_pump(nowMs, buffer, capacity)` | **推进到 nowMs**，返回一帧 JSON |

@@ -180,6 +180,11 @@ class SessionHost(
                 true
             }
 
+            is HostMessage.SocketBinary -> {
+                socketListeners[message.id]?.onBinary(message.bytes)
+                true
+            }
+
             is HostMessage.SocketClosed -> {
                 socketListeners.remove(message.id)?.onClosed(message.code, message.reason)
                 socketWaiters.remove(message.id)?.cancel()
