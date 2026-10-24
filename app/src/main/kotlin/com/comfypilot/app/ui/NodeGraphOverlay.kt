@@ -666,8 +666,8 @@ private fun DrawScope.drawScene(
         )
 
         // 标题栏：高度固定 28px（不随缩放变），标题字号也固定 10sp。
-        // 标题栏与字号都按卡片自身尺寸取比例，任何缩放下都能完整装下文字。
-        val headerH = (size.height * 0.26f).coerceIn(6f, 34f)
+        // 标题栏与字号严格按卡片高度取比例（无上下限）：文字始终占卡片的同一比例。
+        val headerH = size.height * 0.26f
         val headerColor = (if (active) c.accent else c.textDim).copy(alpha = 0.85f * alpha)
         drawRoundRect(
             color = headerColor,
@@ -688,18 +688,20 @@ private fun DrawScope.drawScene(
             style = Stroke(width = if (node.id == selected) 2.5f else 1f),
         )
 
-        if (headerH >= 7f && size.width >= 40f) {
+        if (headerH >= 4f) {
             val title = node.title?.takeIf { it.isNotBlank() } ?: node.type
-            val label = labels.getOrPut(node.id) {
+            val titlePx = headerH * 0.62f
+            val titleBucket = titlePx.roundToInt().coerceAtLeast(1)
+            val label = labels.getOrPut(node.id * 1000 + titleBucket) {
                 measurer.measure(
                     text = title,
                     style = TextStyle(
                         color = c.accentInk.copy(alpha = alpha),
-                        fontSize = ((headerH * 0.62f) / density).sp,
+                        fontSize = (titleBucket / density).sp,
                     ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    constraints = Constraints(maxWidth = max(16, size.width.roundToInt() - 8)),
+                    constraints = Constraints(maxWidth = max(8, size.width.roundToInt() - 8)),
                 )
             }
             clipRect(
@@ -719,7 +721,8 @@ private fun DrawScope.drawScene(
         val slots = max(node.inputs.size, node.outputs.size).coerceAtLeast(1)
         val slotSpacingPx = ((node.height - headerWorld(node)) / slots * scale).toFloat()
         // 名字之间至少留 11px，否则一列参数名会互相压叠，只留圆点更清爽。
-        val showNames = size.width >= 132f && scale >= 0.4f && slotSpacingPx >= 16f
+        // 参数名按行高比例缩放：缩小时跟着变小（不叠字），放大时跟着变大，永远和卡片同比例。
+        val showNames = slotSpacingPx >= 4f
         val dotR = 2.6f
         fun drawSlot(nodeId: Int, index: Int, input: Boolean, slotName: String) {
             val y = sy(slotYWorld(node, index))
@@ -732,7 +735,7 @@ private fun DrawScope.drawScene(
             )
             if (!showNames || slotName.isBlank()) return
             // 字号跟着槽位间距缩，并在两槽之间裁切：参数名永远不会压到标题或下一行。
-            val namePx = min(7f * density, slotSpacingPx * 0.62f).coerceAtLeast(9f)
+            val namePx = (slotSpacingPx * 0.58f).coerceAtLeast(3f)
             val nameBucket = namePx.roundToInt()
             val key = nodeId * 1000 + index * 2 + (if (input) 0 else 1) + (if (input) 0 else 500_000) + nameBucket * 7
             val label = labels.getOrPut(key) {
