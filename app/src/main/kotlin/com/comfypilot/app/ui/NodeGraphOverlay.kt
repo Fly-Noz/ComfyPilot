@@ -454,10 +454,22 @@ fun NodeGraphDialog(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
+                                val graphActive = current.id !in disabledNodeIds
                                 ActionChip(
-                                    text = if (enabled) "关闭节点" else "启用节点",
-                                    tone = if (enabled) c.warn else c.ok,
-                                    onClick = { onToggleNode(current.id, !enabled) },
+                                    text = when {
+                                        !graphActive -> "节点图未启用"
+                                        enabled -> "关闭节点"
+                                        else -> "启用节点"
+                                    },
+                                    tone = when {
+                                        !graphActive -> c.textDim
+                                        enabled -> c.warn
+                                        else -> c.ok
+                                    },
+                                    onClick = {
+                                        // 节点图整体关闭时，单节点开关没有意义，按钮只做提示。
+                                        if (graphActive) onToggleNode(current.id, !enabled)
+                                    },
                                 )
                                 ActionChip(
                                     text = if (cardExpanded) "收起参数" else "展开参数",
@@ -711,8 +723,10 @@ private fun DrawScope.drawScene(
         )
 
         // 标题栏：高度固定 28px（不随缩放变），标题字号也固定 10sp。
-        // 标题栏与字号严格按卡片高度取比例（无上下限）：文字始终占卡片的同一比例。
+        // 标题栏固定占卡片高的 26%；字号跟卡片宽度走，但不超过标题栏高度：
+        // 同宽卡片标题一样大，标题也永远不会溢出到参数名那一行。
         val headerH = size.height * 0.26f
+        val titlePx = (size.width * 0.11f).coerceAtMost(headerH * 0.62f)
         val headerColor = (if (active) c.accent else c.textDim).copy(alpha = 0.85f * alpha)
         drawRoundRect(
             color = headerColor,
@@ -739,7 +753,7 @@ private fun DrawScope.drawScene(
             val label = fitLabel(
                 text = title,
                 maxWidth = size.width - 10f,
-                propPx = headerH * 0.62f,
+                propPx = titlePx,
                 color = c.accentInk.copy(alpha = alpha),
                 cacheKey = node.id,
             )
@@ -777,7 +791,7 @@ private fun DrawScope.drawScene(
             val label = fitLabel(
                 text = slotName,
                 maxWidth = size.width / 2f - 12f,
-                propPx = slotSpacingPx * 0.58f,
+                propPx = (size.width * 0.055f).coerceAtMost(slotSpacingPx * 0.8f).coerceAtLeast(5f),
                 color = c.textMuted.copy(alpha = alpha),
                 cacheKey = 100_000 + nodeId * 100 + index * 2 + (if (input) 0 else 1),
             )
