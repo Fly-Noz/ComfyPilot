@@ -147,11 +147,15 @@ export struct WorkflowGraphOverlay {
     if (w <= 0 || h <= 0 || this.graph.nodes.length === 0) {
       return;
     }
+    // 优先以「启用节点」为中心：整图全显会把主图压成一小团。
+    const focus = this.graph.nodes.filter((node: GraphNodeView) =>
+      this.graph.activeNodeIds.includes(node.id) && node.outputs.length > 0);
+    const framed = focus.length > 0 ? focus : this.graph.nodes;
     let minX = Number.MAX_VALUE;
     let minY = Number.MAX_VALUE;
     let maxX = -Number.MAX_VALUE;
     let maxY = -Number.MAX_VALUE;
-    this.graph.nodes.forEach((node: GraphNodeView) => {
+    framed.forEach((node: GraphNodeView) => {
       minX = Math.min(minX, node.x);
       minY = Math.min(minY, node.y);
       maxX = Math.max(maxX, node.x + node.w);
@@ -252,7 +256,7 @@ export struct WorkflowGraphOverlay {
       // 标题：按宽度定字号，超宽时缩放
       if (headerH >= 6) {
         const title = node.title.length > 0 ? node.title : node.type;
-        let px = Math.min(nw * 0.11, headerH * 0.62);
+        let px = Math.max(10, Math.min(nw * 0.16, headerH * 0.72));
         ctx.font = `${px}px sans-serif`;
         const measured = ctx.measureText(title).width;
         const maxWidth = Math.max(8, nw - 10);
@@ -365,10 +369,19 @@ export struct WorkflowGraphOverlay {
     const x = input ? left : left + nw;
     const key = slotKey({ nodeId: node.id, index: index, input: input });
     const highlighted = key === this.selectedSlot || key === this.linkStart || this.pendingLink.includes(key);
+    // 圆点半径跟节点宽度走：缩小时一起变小，不会显得越来越大
+    const baseRadius = Math.max(1.1, Math.min(3.2, nw * 0.018));
     ctx.beginPath();
     ctx.fillStyle = highlighted ? this.c().accent : 'rgba(124,92,255,0.8)';
-    ctx.arc(x, y, highlighted ? 4 : 2.6, 0, Math.PI * 2);
+    ctx.arc(x, y, highlighted ? baseRadius + 1.4 : baseRadius, 0, Math.PI * 2);
     ctx.fill();
+    if (highlighted) {
+      ctx.strokeStyle = 'rgba(124,92,255,0.45)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(x, y, baseRadius + 5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     if (highlighted) {
       ctx.strokeStyle = 'rgba(124,92,255,0.45)';
       ctx.lineWidth = 1.6;
@@ -379,7 +392,7 @@ export struct WorkflowGraphOverlay {
     if (name.length === 0 || stepPx < 6) {
       return;
     }
-    let px = Math.min(nw * 0.055, stepPx * 0.8);
+    let px = Math.max(7, Math.min(nw * 0.075, stepPx * 0.85));
     if (px < 5) {
       return;
     }
@@ -808,7 +821,7 @@ export struct WorkflowGraphOverlay {
         .width('100%');
       }
     }
-    .width('100%')
+    .width('calc(100% - 28vp)')
     .borderRadius(18)
     .padding(14)
     .backgroundColor(this.c().isDark ? 'rgba(28,30,40,0.55)' : 'rgba(255,255,255,0.52)')
@@ -888,7 +901,7 @@ export struct WorkflowGraphOverlay {
         }
       }
     }
-    .width('100%')
+    .width('calc(100% - 28vp)')
     .borderRadius(18)
     .padding(14)
     .backgroundColor(this.c().isDark ? 'rgba(28,30,40,0.55)' : 'rgba(255,255,255,0.52)')
@@ -935,7 +948,7 @@ export struct WorkflowGraphOverlay {
       }
       .width('100%');
     }
-    .width('100%')
+    .width('calc(100% - 28vp)')
     .borderRadius(18)
     .padding(14)
     .backgroundColor(this.c().isDark ? 'rgba(28,30,40,0.55)' : 'rgba(255,255,255,0.52)')
@@ -982,7 +995,20 @@ export struct WorkflowGraphOverlay {
   }
 
   private nodeEnabled(): boolean {
-    return !this.bypassedIds.includes(this.selectedNode);
+    const node = this.selectedNodeData();
+    if (node === null) {
+      return false;
+    }
+    if (this.bypassedIds.includes(node.id)) {
+      return false;
+    }
+    if (node.outputs.length === 0) {
+      return true;
+    }
+    if (this.graph.disabledNodeIds.includes(node.id)) {
+      return false;
+    }
+    return this.graph.activeNodeIds.includes(node.id);
   }
 
   private nodeSubtitle(): string {

@@ -1853,7 +1853,29 @@ struct Index {
       });
     });
     return rows;
-  }  private applyNodeBypass(nodeId: number, bypassed: boolean): void {
+  }  private cardHeights: Map<number, number> = new Map<number, number>();
+
+  /** 跳到某个节点卡片：按已测高度累加出偏移，再让 Scroll 滚过去。 */
+  private jumpToNode(nodeId: number): void {
+    let offset = 6;
+    for (let i = 0; i < this.view.nodes.length; i++) {
+      const node = this.view.nodes[i];
+      if (node.id === nodeId) {
+        break;
+      }
+      offset += (this.cardHeights.get(node.id) ?? 150) + 9;
+      if (this.isSectionStart(i)) {
+        offset += 30;
+      }
+    }
+    this.scroller.scrollTo({
+      xOffset: 0,
+      yOffset: Math.max(0, offset),
+      animation: { duration: 280, curve: Curve.EaseOut },
+    });
+  }
+
+  private applyNodeBypass(nodeId: number, bypassed: boolean): void {
     if (bypassed) {
       if (!this.bypassedIds.includes(nodeId)) {
         this.bypassedIds = [...this.bypassedIds, nodeId];
@@ -2676,6 +2698,10 @@ struct Index {
     .borderRadius(18)
     .border({ width: 1, color: node.pinned ? this.c().accentBorder : this.c().border })
     .clip(true)
+    .onAreaChange((oldValue: Area, newValue: Area) => {
+      // 记录卡片高度，供「跳转」按偏移滚动时累加
+      this.cardHeights.set(node.id, Number(newValue.height));
+    })
   }
 
   /**
@@ -6852,11 +6878,13 @@ struct Index {
           onOpenNode: (id: number) => {
             this.graphOpen = false;
             this.tab = 0;
+            this.detailTab = 0;
             this.expandedSeed = true;
             if (!this.expandedIds.includes(id)) {
               this.expandedIds = [...this.expandedIds, id];
             }
-            this.scroller.scrollEdge(Edge.Top);
+            // 等这一帧布局完成后再滚，避免内容高度还没更新
+            setTimeout(() => this.jumpToNode(id), 60);
           },
           onToggleNode: (id: number) => {
             this.applyNodeBypass(id, !this.bypassedIds.includes(id));
