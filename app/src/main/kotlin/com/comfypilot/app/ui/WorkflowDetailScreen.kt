@@ -1620,7 +1620,6 @@ private fun NodeInputCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            BypassIconButton(enabled = enabled, onToggle = onToggleBypass)
             if (node.needsInput) {
                 SpectrumPill(text = "待填写", tone = PillTone.Err)
             }
@@ -1678,6 +1677,20 @@ private fun NodeInputCard(
                 }
                 if (node.fields.isEmpty()) {
                     Text("没有可调参数。", color = c.textDim, fontSize = 11.sp)
+                }
+                // 启停放在展开内容的最下方：属于该节点的操作，不挤占标题行。
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = if (enabled) "关闭该节点" else "启用该节点",
+                        color = c.textDim,
+                        fontSize = 10.5.sp,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    BypassIconButton(enabled = enabled, onToggle = onToggleBypass)
                 }
             }
         }
