@@ -6816,6 +6816,7 @@ struct Index {
         WorkflowGraphOverlay({
           graph: this.view.graph,
           isDark: this.c().isDark,
+          topInset: px2vp(this.statusBarPx),
           bypassedIds: this.bypassedIds,
           enabledIds: this.enabledIds,
           removedLinkIds: this.removedLinkIds,

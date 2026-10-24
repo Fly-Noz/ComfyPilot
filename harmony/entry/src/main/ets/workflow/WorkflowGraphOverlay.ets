@@ -49,6 +49,8 @@ function parseSlotKey(key: string): SlotRef | null {
 export struct WorkflowGraphOverlay {
   @Prop graph: WorkflowGraphData;
   @Prop isDark: boolean;
+  /** 状态栏高度（vp）：顶栏要避开系统通知栏。 */
+  @Prop topInset: number;
   @Prop bypassedIds: number[];
   @Prop enabledIds: number[];
   @Prop removedLinkIds: number[];
@@ -75,6 +77,10 @@ export struct WorkflowGraphOverlay {
   private panBaseX: number = 0;
   private panBaseY: number = 0;
   private pinchBase: number = 1;
+  private pinchAnchorX: number = 0;
+  private pinchAnchorY: number = 0;
+  private pinchOriginX: number = 0;
+  private pinchOriginY: number = 0;
 
   private c(): Palette {
     return Spectrum.palette(this.isDark);
@@ -483,11 +489,29 @@ export struct WorkflowGraphOverlay {
                 this.draw();
               }),
             PinchGesture({ fingers: 2 })
-              .onActionStart(() => {
+              .onActionStart((event: GestureEvent) => {
                 this.pinchBase = this.zoom;
+                this.pinchOriginX = this.originX;
+                this.pinchOriginY = this.originY;
+                // 双指中心（组件局部坐标）：缩放时让这个点下面的内容保持不动
+                const fingers = event.fingerList;
+                if (fingers.length >= 2) {
+                  this.pinchAnchorX = (fingers[0].localX + fingers[1].localX) / 2;
+                  this.pinchAnchorY = (fingers[0].localY + fingers[1].localY) / 2;
+                } else if (fingers.length === 1) {
+                  this.pinchAnchorX = fingers[0].localX;
+                  this.pinchAnchorY = fingers[0].localY;
+                } else {
+                  this.pinchAnchorX = this.ctx.width / 2;
+                  this.pinchAnchorY = this.ctx.height / 2;
+                }
               })
               .onActionUpdate((event: GestureEvent) => {
-                this.zoom = Math.min(3, Math.max(0.02, this.pinchBase * event.scale));
+                const next = Math.min(3, Math.max(0.02, this.pinchBase * event.scale));
+                const ratio = next / this.pinchBase;
+                this.zoom = next;
+                this.originX = this.pinchAnchorX - (this.pinchAnchorX - this.pinchOriginX) * ratio;
+                this.originY = this.pinchAnchorY - (this.pinchAnchorY - this.pinchOriginY) * ratio;
                 this.draw();
               })
           )
@@ -527,7 +551,7 @@ export struct WorkflowGraphOverlay {
         this.actionChip('关闭', this.c().textMuted, () => this.onClose());
       }
       .width('100%')
-      .padding({ left: 14, right: 14, top: 12, bottom: 10 })
+      .padding({ left: 14, right: 14, top: 12 + this.topInset, bottom: 10 })
       .backgroundColor(this.c().background)
       .position({ x: 0, y: 0 });
 
