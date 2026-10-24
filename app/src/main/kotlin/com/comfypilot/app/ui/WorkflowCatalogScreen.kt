@@ -1,5 +1,10 @@
 package com.comfypilot.app.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -122,8 +127,21 @@ fun WorkflowCatalogScreen(
                 )
             }
 
-            when (val catalog = state.catalog) {
-                is WorkflowCatalog.Idle -> HintCard(
+            // 加载态 → 内容态交叉淡化：骨架屏不是"啪"地消失，内容也不是突然冒出来。
+            val catalogKind = when (state.catalog) {
+                is WorkflowCatalog.Idle -> "idle"
+                is WorkflowCatalog.Loading -> "loading"
+                is WorkflowCatalog.Failed -> "failed"
+                is WorkflowCatalog.Ready -> "ready"
+            }
+            AnimatedContent(
+                targetState = catalogKind,
+                transitionSpec = {
+                    fadeIn(tween(260)).togetherWith(fadeOut(tween(160)))
+                },
+                label = "catalog-state",
+            ) { _ ->
+            when (val catalog = state.catalog) {                is WorkflowCatalog.Idle -> HintCard(
                     text = if (connected) "准备读取服务器工作流…" else "尚未连接 ComfyUI。",
                 )
 
@@ -232,6 +250,7 @@ fun WorkflowCatalogScreen(
                         }
                     }
                 }
+            }
             }
         }
     }

@@ -320,6 +320,14 @@ private fun DetailBody(
     var blockedProblems by remember { mutableStateOf<List<BuildProblem>?>(null) }
     var pendingReady by remember { mutableStateOf<PromptBuild.Ready?>(null) }
     var dismissedFailureAt by remember(document.path) { mutableStateOf(Long.MIN_VALUE) }
+    // 提交成功后按钮短暂显示「已提交 ✓」，比 toast 更贴近操作位置。
+    var submitFlash by remember { mutableStateOf(false) }
+    LaunchedEffect(submitFlash) {
+        if (submitFlash) {
+            kotlinx.coroutines.delay(1_200)
+            submitFlash = false
+        }
+    }
 
     // 只显示当前工作流的失败；旧任务没有 workflowPath，宁可不在详情页提示，
     // 也不要把它当成"这个工作流"的错误。
@@ -524,6 +532,7 @@ private fun DetailBody(
             is PromptBuild.Ready -> {
                 if (decision.warnings.isEmpty()) {
                     onSubmit(result.prompt.toString(), decision.name, decision.path)
+                    submitFlash = true
                     tab = 1
                 } else {
                     pendingReady = result
@@ -729,7 +738,7 @@ private fun DetailBody(
                         textAlign = TextAlign.End,
                     )
                     GradientButton(
-                        text = "提交任务",
+                        text = if (submitFlash) "已提交 ✓" else "提交任务",
                         onClick = ::submit,
                         enabled = canSubmit,
                         height = 44.dp,
@@ -959,6 +968,7 @@ private fun DetailBody(
                 val json = ready.prompt.toString()
                 pendingReady = null
                 onSubmit(json, document.name, document.path)
+                submitFlash = true
                 tab = 1
             },
             dismissText = "取消",
@@ -1669,7 +1679,8 @@ private fun NodeInputCard(
                 modifier = Modifier.padding(start = 13.dp, end = 13.dp, bottom = 13.dp, top = 2.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                node.fields.forEach { field ->
+                node.fields.forEachIndexed { index, field ->
+                    StaggeredIn(index = index) {
                     FieldEditor(
                         field = field,
                         value = overrides[field.inputName] ?: field.value,
@@ -1685,6 +1696,7 @@ private fun NodeInputCard(
                         },
                         onChange = { value -> onChange(node.id, field.inputName, value) },
                     )
+                    }
                 }
                 if (node.fields.isEmpty()) {
                     Text("没有可调参数。", color = c.textDim, fontSize = 11.sp)
@@ -2411,5 +2423,27 @@ private fun NodeIconButton(
                 }
             }
         }
+    }
+}
+/** 展开时字段依次淡入上移：每个字段延迟 22ms，最多叠 10 层，避免长列表等太久。 */
+@Composable
+private fun StaggeredIn(index: Int, content: @Composable () -> Unit) {
+    val appear = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        appear.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = 200,
+                delayMillis = index.coerceAtMost(10) * 22,
+            ),
+        )
+    }
+    Box(
+        modifier = Modifier.graphicsLayer {
+            alpha = appear.value
+            translationY = (1f - appear.value) * 8.dp.toPx()
+        },
+    ) {
+        content()
     }
 }

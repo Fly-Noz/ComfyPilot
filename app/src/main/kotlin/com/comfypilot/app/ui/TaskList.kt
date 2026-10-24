@@ -1,5 +1,8 @@
 package com.comfypilot.app.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -92,13 +96,24 @@ private fun TaskCard(
         TaskState.Cancelled -> PillTone.Neutral
         is TaskState.Unknown -> PillTone.Neutral
     }
-    val rail = when (tone) {
+    val targetRail = when (tone) {
         PillTone.Ok -> c.ok
         PillTone.Warn -> c.warn
         PillTone.Err -> c.err
         PillTone.Neutral -> c.textDim
     }
+    // 状态色平滑过渡：排队(黄)→执行(绿)→完成(灰)不再是硬切。
+    val rail by animateColorAsState(targetValue = targetRail, animationSpec = tween(280), label = "task-rail")
+    // 刚完成时给一圈短暂的绿色脉冲，作为"跑完了"的正反馈。
+    val donePulse = remember { Animatable(0f) }
+    LaunchedEffect(task.state) {
+        if (task.state is TaskState.Completed) {
+            donePulse.snapTo(1f)
+            donePulse.animateTo(0f, tween(durationMillis = 900))
+        }
+    }
 
+    Box(modifier = Modifier.fillMaxWidth()) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -195,6 +210,16 @@ private fun TaskCard(
                     }
                 }
             }
+        }
+    }
+        // 完成脉冲只叠一层描边，避免改动内部布局。
+        if (donePulse.value > 0.01f) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(shape)
+                    .border(1.5.dp, c.ok.copy(alpha = donePulse.value * 0.75f), shape),
+            )
         }
     }
 }
