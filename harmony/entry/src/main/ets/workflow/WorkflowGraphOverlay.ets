@@ -48,7 +48,7 @@ function parseSlotKey(key: string): SlotRef | null {
  */
 @Component
 export struct WorkflowGraphOverlay {
-  @Prop graph: WorkflowGraphData;
+  @Prop @Watch('onGraphDataChanged') graph: WorkflowGraphData;
   @Prop isDark: boolean;
   /** 状态栏高度（vp）：顶栏要避开系统通知栏。 */
   @Prop topInset: number;
@@ -102,6 +102,15 @@ export struct WorkflowGraphOverlay {
     this.fitted = false;
   }
 
+  /** 共享层回填新视图后重新适配一次：onReady 早于数据到达时也能拿到正确视野。 */
+  onGraphDataChanged(): void {
+    this.fitted = false;
+    setTimeout(() => {
+      this.fitToScreen();
+      this.draw();
+    }, 0);
+  }
+
   private nodesById(): Map<number, GraphNodeView> {
     const map: Map<number, GraphNodeView> = new Map();
     this.graph.nodes.forEach((node: GraphNodeView) => map.set(node.id, node));
@@ -109,6 +118,9 @@ export struct WorkflowGraphOverlay {
   }
 
   private isActive(node: GraphNodeView): boolean {
+    if (this.bypassedIds.includes(node.id)) {
+      return false;
+    }
     if (!this.graph.activeNodeIds.includes(node.id)) {
       return false;
     }
@@ -256,7 +268,7 @@ export struct WorkflowGraphOverlay {
       // 标题：按宽度定字号，超宽时缩放
       if (headerH >= 6) {
         const title = node.title.length > 0 ? node.title : node.type;
-        let px = Math.max(10, Math.min(nw * 0.16, headerH * 0.72));
+        let px = Math.max(9, Math.min(nw * 0.2, headerH * 0.82));
         ctx.font = `${px}px sans-serif`;
         const measured = ctx.measureText(title).width;
         const maxWidth = Math.max(8, nw - 10);
@@ -392,7 +404,7 @@ export struct WorkflowGraphOverlay {
     if (name.length === 0 || stepPx < 6) {
       return;
     }
-    let px = Math.max(7, Math.min(nw * 0.075, stepPx * 0.85));
+    let px = Math.max(8, Math.min(nw * 0.095, stepPx * 0.9));
     if (px < 5) {
       return;
     }
@@ -862,18 +874,45 @@ export struct WorkflowGraphOverlay {
           .fontColor(this.c().textDim)
           .width('100%');
 
+        // 注意：@Builder 的参数不是响应式的，动态文案必须直接写在 Text 里，
+        // 否则点「关闭节点」后按钮文字不会跟着状态变。
         Row({ space: 8 }) {
-          this.actionChip(this.nodeEnabled() ? '关闭节点' : '启用节点', this.nodeEnabled() ? this.c().warn : this.c().ok, () => {
-            this.onToggleNode(this.selectedNode);
-          });
-          this.actionChip(this.cardExpanded ? '收起参数' : '展开参数', this.c().accent, () => {
-            this.cardExpanded = !this.cardExpanded;
-          });
-          this.actionChip('跳转', this.c().textMuted, () => {
-            const id = this.selectedNode;
-            this.selectedNode = -1;
-            this.onOpenNode(id);
-          });
+          Text(this.nodeBypassBlocked() ? '节点图未启用' : (this.nodeEnabled() ? '关闭节点' : '启用节点'))
+            .fontSize(12)
+            .fontColor(this.nodeBypassBlocked()
+              ? this.c().textDim
+              : (this.nodeEnabled() ? this.c().warn : this.c().ok))
+            .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+            .borderRadius(9)
+            .backgroundColor(this.c().card)
+            .border({ width: 1, color: this.c().border })
+            .onClick(() => {
+              if (!this.nodeBypassBlocked()) {
+                this.onToggleNode(this.selectedNode);
+              }
+            });
+          Text(this.cardExpanded ? '收起参数' : '展开参数')
+            .fontSize(12)
+            .fontColor(this.c().accent)
+            .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+            .borderRadius(9)
+            .backgroundColor(this.c().card)
+            .border({ width: 1, color: this.c().border })
+            .onClick(() => {
+              this.cardExpanded = !this.cardExpanded;
+            });
+          Text('跳转')
+            .fontSize(12)
+            .fontColor(this.c().textMuted)
+            .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+            .borderRadius(9)
+            .backgroundColor(this.c().card)
+            .border({ width: 1, color: this.c().border })
+            .onClick(() => {
+              const id = this.selectedNode;
+              this.selectedNode = -1;
+              this.onOpenNode(id);
+            });
           Blank();
         }
         .width('100%');
@@ -1021,7 +1060,11 @@ export struct WorkflowGraphOverlay {
     return `${node.type} · ${state}${graphState} · 输入 ${node.inputs.length} / 输出 ${node.outputs.length}`;
   }
 
-  private nodeFields(): NodeFieldRow[] {
+
+  private nodeBypassBlocked(): boolean {
+    const node = this.selectedNodeData();
+    return node === null ? false : this.graph.disabledNodeIds.includes(node.id);
+  }  private nodeFields(): NodeFieldRow[] {
     return this.fieldRows.filter((row: NodeFieldRow) => row.nodeId === this.selectedNode);
   }
 
