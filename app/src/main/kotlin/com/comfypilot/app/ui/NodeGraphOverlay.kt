@@ -114,17 +114,18 @@ fun NodeGraphDialog(
     // 文本布局只跟节点宽度、字号有关，与缩放无关；跨帧缓存，避免每帧重排上百段文字。
     val labels = remember(graph) { mutableMapOf<Int, TextLayoutResult>() }
 
-    var scale by remember(graph) { mutableStateOf(1f) }
-    var offset by remember(graph) { mutableStateOf(Offset.Zero) }
+    // 视图状态只在浮层生命周期内保存：改连线后不重置缩放/平移。
+    var scale by remember { mutableStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
-    var selected by remember(graph) { mutableStateOf<Int?>(null) }
+    var selected by remember { mutableStateOf<Int?>(null) }
     // 参数卡片默认只显示标题行，用户点「展开」才列出参数。
-    var cardExpanded by remember(graph) { mutableStateOf(false) }
-    var selectedLink by remember(graph) { mutableStateOf<Int?>(null) }
+    var cardExpanded by remember { mutableStateOf(false) }
+    var selectedLink by remember { mutableStateOf<Int?>(null) }
     // 参数级连线：选中的槽位、连线起点、待确认的一对槽位
-    var selectedSlot by remember(graph) { mutableStateOf<SlotRef?>(null) }
-    var linkStart by remember(graph) { mutableStateOf<SlotRef?>(null) }
-    var pendingLink by remember(graph) { mutableStateOf<Pair<SlotRef, SlotRef>?>(null) }
+    var selectedSlot by remember { mutableStateOf<SlotRef?>(null) }
+    var linkStart by remember { mutableStateOf<SlotRef?>(null) }
+    var pendingLink by remember { mutableStateOf<Pair<SlotRef, SlotRef>?>(null) }
     val highlightSlots: Set<Int> = remember(selectedSlot, linkStart, pendingLink) {
         buildSet {
             selectedSlot?.let { add(it.key) }
@@ -206,7 +207,7 @@ fun NodeGraphDialog(
     }
 
     // viewport 是 state，onSizeChanged 同一帧里读到的仍是旧值，用 Effect 在尺寸落定后做一次初始适配。
-    LaunchedEffect(viewport, graph) {
+    LaunchedEffect(viewport) {
         if (!fitted && viewport.width > 0 && viewport.height > 0) {
             fitToScreen()
         }
@@ -1359,7 +1360,10 @@ private fun slotScreenPoint(
     return Offset(worldX.toFloat() * scale + offset.x, worldY.toFloat() * scale + offset.y)
 }
 
-/** 找到离点击位置最近的参数圆点；22px 以内算命中。 */
+/**
+ * 命中参数：点在节点内部时按"行 + 左/右半边"判定（点参数文字也能选中），
+ * 节点很小或点在节点外时退回圆点 22px 邻近判定。
+ */
 private fun hitSlot(
     graph: UiGraph,
     tap: Offset,
@@ -1367,6 +1371,31 @@ private fun hitSlot(
     offset: Offset,
     threshold: Float = 22f,
 ): SlotRef? {
+    val worldX = (tap.x - offset.x) / scale
+    val worldY = (tap.y - offset.y) / scale
+    graph.nodes.forEach { node ->
+        val inside = worldX >= node.x && worldX <= node.x + node.width &&
+            worldY >= node.y && worldY <= node.y + node.height
+        if (inside) {
+            val header = node.height * 0.26
+            val slots = max(node.inputs.size, node.outputs.size)
+            if (slots > 0) {
+                val usable = (node.height - header).coerceAtLeast(1.0)
+                val step = (usable / slots).coerceIn(4.0, 22.0)
+                val relative = worldY - (node.y + header)
+                if (relative >= 0 && relative < step * slots) {
+                    val index = (relative / step).toInt().coerceIn(0, slots - 1)
+                    val inputSide = worldX < node.x + node.width / 2
+                    if (inputSide && index < node.inputs.size) return SlotRef(node.id, index, true)
+                    if (!inputSide && index < node.outputs.size) return SlotRef(node.id, index, false)
+                    // 该侧数量少时，落回另一侧的同编号参数
+                    if (index < node.inputs.size) return SlotRef(node.id, index, true)
+                    if (index < node.outputs.size) return SlotRef(node.id, index, false)
+                }
+            }
+        }
+    }
+    // 圆点邻近兜底
     var best: SlotRef? = null
     var bestDistance = threshold
     graph.nodes.forEach { node ->
