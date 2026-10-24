@@ -323,6 +323,8 @@ private fun DetailBody(
     var dismissedFailureAt by remember(document.path) { mutableStateOf(Long.MIN_VALUE) }
     // 提交成功后按钮短暂显示「已提交 ✓」，比 toast 更贴近操作位置。
     var submitFlash by remember { mutableStateOf(false) }
+    // 节点图预览：只读浮层，从底栏入口打开。
+    var graphOpen by remember(document.path) { mutableStateOf(false) }
     LaunchedEffect(submitFlash) {
         if (submitFlash) {
             kotlinx.coroutines.delay(1_200)
@@ -726,6 +728,11 @@ private fun DetailBody(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     GhostButton(
+                        text = "节点图",
+                        onClick = { graphOpen = true },
+                        height = 42.dp,
+                    )
+                    GhostButton(
                         text = "全部节点",
                         onClick = { sheetVisible = true },
                         height = 42.dp,
@@ -747,6 +754,13 @@ private fun DetailBody(
                 }
             }
         }
+    }
+
+    if (graphOpen) {
+        NodeGraphDialog(
+            raw = document.raw,
+            onDismiss = { graphOpen = false },
+        )
     }
 
     noteTarget?.let { target ->
