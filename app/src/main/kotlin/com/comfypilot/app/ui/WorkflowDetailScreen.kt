@@ -1930,8 +1930,18 @@ private fun FieldEditor(
                 fontSize = 11.sp,
             )
 
-            field.options.isNotEmpty() -> OptionPicker(
-                options = field.options,
+            // 图片控件只允许自己上传：不再列出服务器 input 目录里的图片，
+            // 这里只回显当前文件名（可能来自刚上传的图片）。
+            onPickImage != null -> Text(
+                text = valueText(value).ifEmpty { "未选择图片" },
+                color = if (valueText(value).isEmpty()) c.textDim else c.text,
+                fontSize = 12.sp,
+                fontFamily = SpectrumMono,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+
+            field.options.isNotEmpty() -> OptionPicker(                options = field.options,
                 current = valueText(value),
                 onSelect = { onChange(JsonPrimitive(it)) },
             )
