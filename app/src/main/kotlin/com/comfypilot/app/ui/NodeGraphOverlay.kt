@@ -593,6 +593,40 @@ private fun DrawScope.drawScene(
         return node.y + headerWorld(node) + step * (index + 0.5)
     }
 
+    /** 先按比例量一次，超出可用宽度就等比缩小后重量；用 Clip 保证不会出现省略号。 */
+    fun fitLabel(
+        text: String,
+        maxWidth: Float,
+        propPx: Float,
+        color: androidx.compose.ui.graphics.Color,
+        cacheKey: Int,
+    ): TextLayoutResult {
+        val widthBucket = (maxWidth / 8f).toInt()
+        val propBucket = propPx.roundToInt().coerceAtLeast(1)
+        val key = cacheKey * 1_000_000 + widthBucket * 1000 + propBucket
+        return labels.getOrPut(key) {
+            val probe = measurer.measure(
+                text = text,
+                style = TextStyle(color = color, fontSize = (propBucket / density).sp),
+                maxLines = 1,
+            )
+            val fitted = if (probe.size.width > maxWidth && probe.size.width > 0) {
+                (propBucket * maxWidth / probe.size.width).coerceAtLeast(1f)
+            } else {
+                propBucket.toFloat()
+            }
+            measurer.measure(
+                text = text,
+                style = TextStyle(
+                    color = color,
+                    fontSize = (fitted.roundToInt().coerceAtLeast(1) / density).sp,
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Clip,
+            )
+        }
+    }
+
     // 分组框
     graph.groups.forEach { group ->
         val topLeft = Offset(sx(group.x), sy(group.y))
@@ -701,20 +735,14 @@ private fun DrawScope.drawScene(
 
         if (headerH >= 4f) {
             val title = node.title?.takeIf { it.isNotBlank() } ?: node.type
-            val titlePx = headerH * 0.62f
-            val titleBucket = titlePx.roundToInt().coerceAtLeast(1)
-            val label = labels.getOrPut(node.id * 1000 + titleBucket) {
-                measurer.measure(
-                    text = title,
-                    style = TextStyle(
-                        color = c.accentInk.copy(alpha = alpha),
-                        fontSize = (titleBucket / density).sp,
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    constraints = Constraints(maxWidth = max(8, size.width.roundToInt() - 8)),
-                )
-            }
+            // 按比例给出目标字号，再按实际测量宽度收缩：任何缩放下标题都完整显示。
+            val label = fitLabel(
+                text = title,
+                maxWidth = size.width - 10f,
+                propPx = headerH * 0.62f,
+                color = c.accentInk.copy(alpha = alpha),
+                cacheKey = node.id,
+            )
             clipRect(
                 left = topLeft.x,
                 top = topLeft.y,
@@ -745,22 +773,14 @@ private fun DrawScope.drawScene(
                 center = Offset(x, y),
             )
             if (!showNames || slotName.isBlank()) return
-            // 字号跟着槽位间距缩，并在两槽之间裁切：参数名永远不会压到标题或下一行。
-            val namePx = (slotSpacingPx * 0.58f).coerceAtLeast(3f)
-            val nameBucket = namePx.roundToInt()
-            val key = nodeId * 1000 + index * 2 + (if (input) 0 else 1) + (if (input) 0 else 500_000) + nameBucket * 7
-            val label = labels.getOrPut(key) {
-                measurer.measure(
-                    text = slotName,
-                    style = TextStyle(
-                        color = c.textMuted.copy(alpha = alpha),
-                        fontSize = (nameBucket / density).sp,
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    constraints = Constraints(maxWidth = max(24, size.width.roundToInt() / 2 - 10)),
-                )
-            }
+            // 参数名只占半张卡片宽，按实际测量收缩，不省略。
+            val label = fitLabel(
+                text = slotName,
+                maxWidth = size.width / 2f - 12f,
+                propPx = slotSpacingPx * 0.58f,
+                color = c.textMuted.copy(alpha = alpha),
+                cacheKey = 100_000 + nodeId * 100 + index * 2 + (if (input) 0 else 1),
+            )
             val textTop = y - label.size.height / 2f
             // 裁在「本槽位那一行」内：既不会盖住标题，也不会压到相邻槽位。
             val rowTop = max(topLeft.y + headerH, y - slotSpacingPx / 2f)
