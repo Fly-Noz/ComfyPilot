@@ -79,7 +79,7 @@ fun SpectrumBackdrop(modifier: Modifier = Modifier) {
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 7_000),
+            animation = tween(durationMillis = 4_200),
             repeatMode = RepeatMode.Reverse,
         ),
         label = "backdrop-breathe",
@@ -101,11 +101,29 @@ fun SpectrumBackdrop(modifier: Modifier = Modifier) {
             )
         }
 
-        val scale = 0.96f + 0.08f * breathe
-        val pulse = 0.92f + 0.08f * breathe
-        glow(c.glowTop.copy(alpha = c.glowTop.alpha * pulse), cx = w * 0.86f, cy = -h * 0.01f, radius = w * 1.05f * scale)
-        glow(c.glowSide.copy(alpha = c.glowSide.alpha * (1.84f - pulse)), cx = w * 0.02f, cy = h * 0.13f, radius = w * 0.95f * (1.92f - scale))
-        glow(c.glowBottom, cx = w * 0.55f, cy = h * 1.02f, radius = w * 1.1f * (0.96f + 0.04f * breathe))
+        // 三层各自不同的相位与幅度：最亮的两层涨缩明显，底层只轻微起伏。
+        // 参数是照着"静置 3 秒能看出在动、但不会觉得闪"调出来的。
+        val t1 = breathe
+        val t2 = (1f - breathe) * (1f - breathe)
+        val t3 = breathe * breathe
+        glow(
+            color = c.glowTop.copy(alpha = (c.glowTop.alpha * (0.55f + 0.75f * t1)).coerceIn(0f, 1f)),
+            cx = w * (0.86f - 0.10f * (1f - t1)),
+            cy = -h * 0.01f + h * 0.06f * t1,
+            radius = w * (0.95f + 0.45f * t1),
+        )
+        glow(
+            color = c.glowSide.copy(alpha = (c.glowSide.alpha * (0.45f + 0.85f * t2)).coerceIn(0f, 1f)),
+            cx = w * (0.02f + 0.08f * t2),
+            cy = h * (0.13f + 0.05f * t2),
+            radius = w * (0.85f + 0.40f * t2),
+        )
+        glow(
+            color = c.glowBottom.copy(alpha = (c.glowBottom.alpha * (0.6f + 0.6f * t3)).coerceIn(0f, 1f)),
+            cx = w * (0.55f + 0.06f * t3),
+            cy = h * (1.02f - 0.05f * t3),
+            radius = w * (1.0f + 0.25f * t3),
+        )
     }
 }
 
