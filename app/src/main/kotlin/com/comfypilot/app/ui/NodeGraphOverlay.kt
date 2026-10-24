@@ -410,7 +410,13 @@ fun NodeGraphDialog(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
-                                        "${current.type} · ${if (enabled) "启用" else "已关闭"} · 输入 ${current.inputs.size} / 输出 ${current.outputs.size}",
+                                        buildString {
+                                            append(current.type)
+                                            append(" · ")
+                                            append(if (enabled) "启用" else "已关闭")
+                                            if (current.id in disabledNodeIds) append(" · 所在节点图未启用")
+                                            append(" · 输入 ${current.inputs.size} / 输出 ${current.outputs.size}")
+                                        },
                                         color = c.textDim,
                                         fontSize = 9.5.sp,
                                         fontFamily = SpectrumMono,
@@ -565,7 +571,8 @@ private fun DrawScope.drawScene(
     }
 
     // 标题栏在世界坐标里的高度：与 ComfyUI 的 30 单位保持一致，小节点按比例收。
-    fun headerWorld(node: UiNode): Double = min(30.0, node.height * 0.4)
+    // 与绘制时 26% 的标题栏保持一致：槽位从标题栏下沿开始，标题不会被参数名压住。
+    fun headerWorld(node: UiNode): Double = node.height * 0.26
 
     /** 第 index 个槽位在世界坐标里的纵向中心。 */
     fun slotYWorld(node: UiNode, index: Int): Double {
@@ -709,7 +716,10 @@ private fun DrawScope.drawScene(
         }
 
         // 真实槽位：输入在左边缘、输出在右边缘；缩小时只画圆点，放大后补参数名。
-        val showNames = size.width >= 132f && scale >= 0.45f
+        val slots = max(node.inputs.size, node.outputs.size).coerceAtLeast(1)
+        val slotSpacingPx = ((node.height - headerWorld(node)) / slots * scale).toFloat()
+        // 名字之间至少留 11px，否则一列参数名会互相压叠，只留圆点更清爽。
+        val showNames = size.width >= 132f && scale >= 0.4f && slotSpacingPx >= 16f
         val dotR = 2.6f
         fun drawSlot(nodeId: Int, index: Int, input: Boolean, slotName: String) {
             val y = sy(slotYWorld(node, index))
@@ -721,23 +731,31 @@ private fun DrawScope.drawScene(
                 center = Offset(x, y),
             )
             if (!showNames || slotName.isBlank()) return
-            val key = nodeId * 100 + index * 2 + (if (input) 0 else 1) + if (input) 0 else 500_000
+            // 字号跟着槽位间距缩，并在两槽之间裁切：参数名永远不会压到标题或下一行。
+            val namePx = min(7f * density, slotSpacingPx * 0.62f).coerceAtLeast(9f)
+            val nameBucket = namePx.roundToInt()
+            val key = nodeId * 1000 + index * 2 + (if (input) 0 else 1) + (if (input) 0 else 500_000) + nameBucket * 7
             val label = labels.getOrPut(key) {
                 measurer.measure(
                     text = slotName,
-                    style = TextStyle(color = c.textMuted.copy(alpha = alpha), fontSize = 7.sp),
+                    style = TextStyle(
+                        color = c.textMuted.copy(alpha = alpha),
+                        fontSize = (nameBucket / density).sp,
+                    ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     constraints = Constraints(maxWidth = max(24, size.width.roundToInt() / 2 - 10)),
                 )
             }
             val textTop = y - label.size.height / 2f
-            // 裁在节点内部：节点挨得近时，参数名不会溢出到隔壁节点上。
+            // 裁在「本槽位那一行」内：既不会盖住标题，也不会压到相邻槽位。
+            val rowTop = max(topLeft.y + headerH, y - slotSpacingPx / 2f)
+            val rowBottom = min(topLeft.y + size.height, y + slotSpacingPx / 2f)
             clipRect(
                 left = topLeft.x,
-                top = topLeft.y,
+                top = rowTop,
                 right = topLeft.x + size.width,
-                bottom = topLeft.y + size.height,
+                bottom = rowBottom,
             ) {
                 if (input) {
                     drawText(label, topLeft = Offset(topLeft.x + 9f, textTop))
