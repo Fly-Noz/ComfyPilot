@@ -35,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -87,6 +88,12 @@ fun NodeGraphDialog(
     disabledNodeIds: Set<Int>,
     /** 节点 id → 输入区里的节点视图：选中节点时在浮层内展开它的参数卡片。 */
     nodeViews: Map<Int, com.comfypilot.core.workflow.WorkflowNodeView>,
+    /** 节点 id → 当前是否启用（用于卡片上的启用/关闭按钮）。 */
+    nodeEnabled: Map<Int, Boolean>,
+    /** 切换节点启用状态；第二个参数为要设置的新状态（true=启用）。 */
+    onToggleNode: (Int, Boolean) -> Unit,
+    /** 跳到输入页并定位到该节点卡片。 */
+    onJumpToNode: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val c = Spectrum.colors
@@ -100,6 +107,9 @@ fun NodeGraphDialog(
     var offset by remember(graph) { mutableStateOf(Offset.Zero) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var selected by remember(graph) { mutableStateOf<Int?>(null) }
+    // 参数卡片默认只显示标题行，用户点「展开」才列出参数。
+    var cardExpanded by remember(graph) { mutableStateOf(false) }
+    LaunchedEffect(selected) { cardExpanded = false }
     var query by remember(graph) { mutableStateOf("") }
     var fitted by remember(graph) { mutableStateOf(false) }
 
@@ -374,7 +384,7 @@ fun NodeGraphDialog(
                     val current = nodes.firstOrNull { it.id == selected }
                     val detail = current?.let { nodeViews[it.id] }
                     if (current != null) {
-                        // 选中节点后直接在浮层里展开参数卡片，不跳回列表页。
+                        val enabled = nodeEnabled[current.id] ?: (current.mode == UiWorkflowParser.MODE_NORMAL)
                         Column(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
@@ -387,9 +397,9 @@ fun NodeGraphDialog(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                                    .padding(start = 12.dp, end = 8.dp, top = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
@@ -400,7 +410,7 @@ fun NodeGraphDialog(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
-                                        "${current.type} · ${modeLabel(current.mode)} · 输入 ${current.inputs.size} / 输出 ${current.outputs.size}",
+                                        "${current.type} · ${if (enabled) "启用" else "已关闭"} · 输入 ${current.inputs.size} / 输出 ${current.outputs.size}",
                                         color = c.textDim,
                                         fontSize = 9.5.sp,
                                         fontFamily = SpectrumMono,
@@ -409,54 +419,84 @@ fun NodeGraphDialog(
                                     )
                                 }
                                 Text(
-                                    "收起",
+                                    "✕",
                                     color = c.textMuted,
-                                    fontSize = 11.sp,
-                                    modifier = Modifier.clickable { selected = null },
+                                    fontSize = 12.sp,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { selected = null }
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
                                 )
                             }
 
-                            val fields = detail?.fields.orEmpty()
-                            if (fields.isEmpty()) {
-                                Text(
-                                    "这个节点没有可调参数。",
-                                    color = c.textMuted,
-                                    fontSize = 11.sp,
-                                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
+                            // 操作行：启用/关闭、展开参数、跳转到输入页
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = if (cardExpanded) 6.dp else 10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                ActionChip(
+                                    text = if (enabled) "关闭节点" else "启用节点",
+                                    tone = if (enabled) c.warn else c.ok,
+                                    onClick = { onToggleNode(current.id, !enabled) },
                                 )
-                            } else {
-                                LazyColumn(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(max = 300.dp)
-                                        .padding(horizontal = 12.dp),
-                                ) {
-                                    items(fields, key = { it.inputName }) { field ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 5.dp),
-                                            verticalAlignment = Alignment.Top,
-                                        ) {
-                                            Text(
-                                                field.label ?: field.inputName,
-                                                color = c.textMuted,
-                                                fontSize = 11.sp,
-                                                modifier = Modifier.weight(1f),
-                                            )
-                                            Text(
-                                                fieldValueText(field),
-                                                color = c.text,
-                                                fontSize = 11.sp,
-                                                fontFamily = SpectrumMono,
-                                                maxLines = 2,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1.4f),
-                                            )
+                                ActionChip(
+                                    text = if (cardExpanded) "收起参数" else "展开参数",
+                                    tone = c.accent,
+                                    onClick = { cardExpanded = !cardExpanded },
+                                )
+                                ActionChip(
+                                    text = "跳转",
+                                    tone = c.textMuted,
+                                    onClick = { onJumpToNode(current.id) },
+                                )
+                            }
+
+                            if (cardExpanded) {
+                                val fields = detail?.fields.orEmpty()
+                                if (fields.isEmpty()) {
+                                    Text(
+                                        "这个节点没有可调参数。",
+                                        color = c.textMuted,
+                                        fontSize = 11.sp,
+                                        modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
+                                    )
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 300.dp)
+                                            .padding(horizontal = 12.dp),
+                                    ) {
+                                        items(fields, key = { it.inputName }) { field ->
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 5.dp),
+                                                verticalAlignment = Alignment.Top,
+                                            ) {
+                                                Text(
+                                                    field.label ?: field.inputName,
+                                                    color = c.textMuted,
+                                                    fontSize = 11.sp,
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                                Text(
+                                                    fieldValueText(field),
+                                                    color = c.text,
+                                                    fontSize = 11.sp,
+                                                    fontFamily = SpectrumMono,
+                                                    maxLines = 2,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.weight(1.4f),
+                                                )
+                                            }
                                         }
                                     }
+                                    Spacer(Modifier.height(10.dp))
                                 }
-                                Spacer(Modifier.height(8.dp))
                             }
                         }
                     }
@@ -816,4 +856,22 @@ private fun fieldValueText(field: WorkflowField): String = when {
     field.linked -> "由连线提供"
     field.value == null -> "—"
     else -> field.value.toString().trim('"')
+}
+
+/** 参数卡片上的一枚操作按钮：圆角小胶囊，按语义着色。 */
+@Composable
+private fun ActionChip(text: String, tone: Color, onClick: () -> Unit) {
+    val c = Spectrum.colors
+    Text(
+        text = text,
+        color = tone,
+        fontSize = 11.sp,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(9.dp))
+            .background(c.card)
+            .border(1.dp, c.border, RoundedCornerShape(9.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    )
 }
