@@ -307,8 +307,8 @@ export struct WorkflowGraphOverlay {
       // 标题：按宽度定字号，超宽时缩放
       if (headerH >= 6) {
         const title = node.title.length > 0 ? node.title : node.type;
-        // 只跟卡片高度成比例：同尺寸卡片标题一样大，缩放时等比变化
-        const px = headerH * 0.62;
+        // 全屏统一字号：跟缩放走但夹在可读区间，同一界面里所有标题一样大
+        const px = Math.min(15, Math.max(10, 30 * this.zoom));
         ctx.font = `${px}px sans-serif`;
         ctx.fillStyle = '#FFFFFF';
         ctx.textBaseline = 'middle';
@@ -444,9 +444,9 @@ export struct WorkflowGraphOverlay {
     if (name.length === 0 || stepPx < 6) {
       return;
     }
-    // 参数名字号同样只跟行高成比例
-    const px = stepPx * 0.55;
-    if (px < 3) {
+    // 参数名与标题同一套规则：全屏一致，缩放时整体变化
+    const px = Math.min(11, Math.max(7, 22 * this.zoom));
+    if (stepPx < 5) {
       return;
     }
     ctx.font = `${px}px sans-serif`;
@@ -495,11 +495,12 @@ export struct WorkflowGraphOverlay {
           result = { nodeId: node.id, index: index, input: true };
           return;
         }
-        if (stepPx >= 6) {
-          const px = Math.min(nw * 0.055, stepPx * 0.8);
+        if (stepPx >= 5) {
+          const px = Math.min(11, Math.max(7, 22 * this.zoom));
           this.ctx.font = `${px}px sans-serif`;
           const width = this.ctx.measureText(input.name).width;
-          if (x >= left + 9 && x <= left + 9 + width && Math.abs(y - cy) <= px * 0.7) {
+          // 文字整行都算命中（左右留 8px），不用精确点在字上
+          if (x >= left + 4 && x <= left + 9 + width + 8 && Math.abs(y - cy) <= Math.max(9, stepPx / 2)) {
             result = { nodeId: node.id, index: index, input: true };
           }
         }
@@ -514,11 +515,11 @@ export struct WorkflowGraphOverlay {
           result = { nodeId: node.id, index: index, input: false };
           return;
         }
-        if (stepPx >= 6) {
-          const px = Math.min(nw * 0.055, stepPx * 0.8);
+        if (stepPx >= 5) {
+          const px = Math.min(11, Math.max(7, 22 * this.zoom));
           this.ctx.font = `${px}px sans-serif`;
           const width = this.ctx.measureText(output.name).width;
-          if (x >= left + nw - 9 - width && x <= left + nw - 9 && Math.abs(y - cy) <= px * 0.7) {
+          if (x >= left + nw - 9 - width - 8 && x <= left + nw - 4 && Math.abs(y - cy) <= Math.max(9, stepPx / 2)) {
             result = { nodeId: node.id, index: index, input: false };
           }
         }
@@ -613,7 +614,15 @@ export struct WorkflowGraphOverlay {
       if (input === undefined) {
         return null;
       }
-      const info: SlotInfo = { node: node, name: input.name, type: input.type, linkId: input.linkId, input: true };
+      // 有些工作流只在 links 里记录连接、节点 inputs 的 link 字段为空：
+      // 以 links 为准反查，避免明明有线却显示未连接。
+      let linkId = input.linkId;
+      this.graph.links.forEach((link: GraphLinkView) => {
+        if (link.targetId === node.id && link.targetSlot === slot.index && link.id !== 0) {
+          linkId = link.id;
+        }
+      });
+      const info: SlotInfo = { node: node, name: input.name, type: input.type, linkId: linkId, input: true };
       return info;
     }
     const output = node.outputs[slot.index];
