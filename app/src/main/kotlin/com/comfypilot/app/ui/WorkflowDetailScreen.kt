@@ -76,6 +76,7 @@ import androidx.compose.foundation.Image
 import android.graphics.BitmapFactory
 import android.graphics.Bitmap
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.semantics.contentDescription
@@ -727,11 +728,7 @@ private fun DetailBody(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    GhostButton(
-                        text = "节点图",
-                        onClick = { graphOpen = true },
-                        height = 42.dp,
-                    )
+                    GraphIconButton(onClick = { graphOpen = true })
                     GhostButton(
                         text = "全部节点",
                         onClick = { sheetVisible = true },
@@ -2484,5 +2481,45 @@ private fun StaggeredIn(index: Int, content: @Composable () -> Unit) {
         },
     ) {
         content()
+    }
+}
+
+/** 底栏的节点图入口：42dp 方块按钮，画一个三节点连线的示意图标。 */
+@Composable
+private fun GraphIconButton(onClick: () -> Unit) {
+    val c = Spectrum.colors
+    val shape = RoundedCornerShape(14.dp)
+    val interaction = remember { MutableInteractionSource() }
+    Box(
+        modifier = Modifier
+            .height(42.dp)
+            .width(42.dp)
+            .pressFeedback(interaction)
+            .clip(shape)
+            .background(c.card)
+            .border(1.dp, c.borderStrong, shape)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(modifier = Modifier.size(20.dp)) {
+            val w = size.width
+            val h = size.height
+            val box = w * 0.26f
+            val stroke = 1.4f
+            fun boxAt(x: Float, y: Float) {
+                drawRoundRect(
+                    color = c.textMuted,
+                    topLeft = Offset(x, y),
+                    size = Size(box, box * 0.8f),
+                    cornerRadius = CornerRadius(2f),
+                    style = Stroke(width = stroke),
+                )
+            }
+            boxAt(w * 0.02f, h * 0.10f)
+            boxAt(w * 0.70f, h * 0.10f)
+            boxAt(w * 0.36f, h * 0.62f)
+            drawLine(c.textDim, Offset(w * 0.28f, h * 0.20f), Offset(w * 0.36f, h * 0.62f), stroke)
+            drawLine(c.textDim, Offset(w * 0.70f, h * 0.20f), Offset(w * 0.62f, h * 0.62f), stroke)
+        }
     }
 }

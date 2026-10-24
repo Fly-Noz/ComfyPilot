@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -92,7 +94,10 @@ fun NodeGraphDialog(
     var query by remember(graph) { mutableStateOf("") }
     var fitted by remember(graph) { mutableStateOf(false) }
 
+    // 完整包围盒用于边界约束与小地图；初始适配用去掉离群 Node 后的聚焦范围，
+    // 否则一个远处的备注节点就能把整张图缩成一小团。
     val bounds = remember(graph) { graphBounds(graph) }
+    val focusBounds = remember(graph) { graphFocusBounds(graph) }
     val nodes = graph?.nodes.orEmpty()
     val groups = graph?.groups.orEmpty()
     val linkCount = graph?.links?.size ?: 0
@@ -120,12 +125,13 @@ fun NodeGraphDialog(
     }
 
     fun fitToScreen() {
-        val b = bounds ?: return
+        val b = focusBounds ?: bounds ?: return
         if (viewport.width == 0 || viewport.height == 0) return
         val pad = 28f
         val sx = (viewport.width - pad * 2) / max(1f, b.width)
         val sy = (viewport.height - pad * 2) / max(1f, b.height)
-        scale = min(sx, sy).coerceIn(0.02f, 2.2f)
+        // 小图不要放大到 1:1 以上，否则十几个节点会撑满屏幕、显得很糙。
+        scale = min(sx, sy).coerceIn(0.02f, 1.0f)
         offset = Offset(
             viewport.width / 2f - (b.left + b.width / 2f) * scale,
             viewport.height / 2f - (b.top + b.height / 2f) * scale,
@@ -144,6 +150,13 @@ fun NodeGraphDialog(
         offset = clamp(next, nextScale)
         selected = node.id
         fitted = true
+    }
+
+    // viewport 是 state，onSizeChanged 同一帧里读到的仍是旧值，用 Effect 在尺寸落定后做一次初始适配。
+    LaunchedEffect(viewport, graph) {
+        if (!fitted && viewport.width > 0 && viewport.height > 0) {
+            fitToScreen()
+        }
     }
 
     val results = remember(query, nodes) {
@@ -182,10 +195,12 @@ fun NodeGraphDialog(
                     Column(modifier = Modifier.weight(1f)) {
                         Text("节点图", color = c.text, fontSize = 16.sp)
                         Text(
-                            "${nodes.size} 个节点 · ${groups.size} 个分组 · $linkCount 条连线",
+                            "${nodes.size} 节点 · ${groups.size} 分组 · $linkCount 连线",
                             color = c.textDim,
                             fontSize = 9.5.sp,
                             fontFamily = SpectrumMono,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                     GhostButton(text = "适配全图", onClick = { fitToScreen() }, height = 34.dp)
@@ -203,16 +218,19 @@ fun NodeGraphDialog(
                         .padding(horizontal = 11.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    BasicTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        singleLine = true,
-                        textStyle = TextStyle(color = c.text, fontSize = 12.sp),
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (query.isEmpty()) {
-                        Text("搜索节点名 / 类型 / 编号", color = c.textDim, fontSize = 11.sp)
-                    } else {
+                    Box(modifier = Modifier.weight(1f)) {
+                        if (query.isEmpty()) {
+                            Text("搜索节点名 / 类型 / 编号", color = c.textDim, fontSize = 11.sp)
+                        }
+                        BasicTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            singleLine = true,
+                            textStyle = TextStyle(color = c.text, fontSize = 12.sp),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (query.isNotEmpty()) {
                         Text(
                             "清除",
                             color = c.textMuted,
@@ -273,7 +291,6 @@ fun NodeGraphDialog(
                         .border(1.dp, c.border, RoundedCornerShape(16.dp))
                         .onSizeChanged { size ->
                             viewport = size
-                            if (!fitted) fitToScreen()
                         }
                         .pointerInput(graph) {
                             detectTransformGestures { centroid, pan, zoom, _ ->
@@ -288,20 +305,7 @@ fun NodeGraphDialog(
                         .pointerInput(graph, nodes, bounds) {
                             detectTapGestures(
                                 onTap = { tap ->
-                                    val mapRect = minimapRect(viewport, bounds, density)
-                                    if (mapRect != null && mapRect.contains(tap) && bounds != null) {
-                                        // 点小地图：换算成世界坐标并居中过去（保持当前缩放）
-                                        val worldX = bounds.left +
-                                            ((tap.x - mapRect.left) / mapRect.width) * bounds.width
-                                        val worldY = bounds.top +
-                                            ((tap.y - mapRect.top) / mapRect.height) * bounds.height
-                                        val next = Offset(
-                                            viewport.width / 2f - worldX * scale,
-                                            viewport.height / 2f - worldY * scale,
-                                        )
-                                        offset = clamp(next, scale)
-                                        return@detectTapGestures
-                                    }
+
                                     val world = (tap - offset) / scale
                                     val hit = nodes.firstOrNull { node ->
                                         world.x >= node.x &&
@@ -315,6 +319,7 @@ fun NodeGraphDialog(
                             )
                         },
                 ) {
+
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         drawScene(
                             graph = graph,
@@ -323,17 +328,36 @@ fun NodeGraphDialog(
                             selected = selected,
                             measurer = measurer,
                             labels = labels,
-                            c = c,
-                        )
-                        drawMinimap(
-                            graph = graph,
-                            bounds = bounds,
-                            viewport = viewport,
-                            scale = scale,
-                            offset = offset,
                             density = density,
                             c = c,
                         )
+
+                    }
+
+                    if (graph != null && bounds != null) {
+                        Canvas(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 12.dp, bottom = 12.dp)
+                                .size(width = 92.dp, height = 118.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(c.dialog.copy(alpha = 0.92f))
+                                .border(1.dp, c.borderStrong, RoundedCornerShape(10.dp))
+                                .pointerInput(bounds, scale, offset) {
+                                    detectTapGestures { tap ->
+                                        val projection = mapProjection(bounds, Size(size.width.toFloat(), size.height.toFloat()))
+                                        val worldX = bounds.left + (tap.x - projection.ox) / projection.s
+                                        val worldY = bounds.top + (tap.y - projection.oy) / projection.s
+                                        val next = Offset(
+                                            viewport.width / 2f - worldX * scale,
+                                            viewport.height / 2f - worldY * scale,
+                                        )
+                                        offset = clamp(next, scale)
+                                    }
+                                },
+                        ) {
+                            drawMinimapLocal(graph, bounds, scale, offset, viewport, c)
+                        }
                     }
 
                     val current = nodes.firstOrNull { it.id == selected }
@@ -409,20 +433,6 @@ internal fun graphBounds(graph: UiGraph?): Rect? {
     return Rect(left, top, right, bottom)
 }
 
-/** 小地图在屏幕上的矩形；尺寸与 [drawMinimap] 共用，保证点击命中一致。 */
-internal fun minimapRect(viewport: IntSize, bounds: Rect?, density: Float): Rect? {
-    if (bounds == null || bounds.width <= 0f || bounds.height <= 0f) return null
-    if (viewport.width == 0 || viewport.height == 0) return null
-    val pad = 12f * density
-    val mapW = 104f * density
-    val mapH = min(150f * density, mapW * (bounds.height / bounds.width).coerceIn(0.5f, 1.9f))
-    return Rect(
-        left = viewport.width - mapW - pad,
-        top = viewport.height - mapH - pad,
-        right = viewport.width - pad,
-        bottom = viewport.height - pad,
-    )
-}
 
 /**
  * 画布：分组 → 连线 → 节点。
@@ -435,6 +445,7 @@ private fun DrawScope.drawScene(
     selected: Int?,
     measurer: TextMeasurer,
     labels: MutableMap<Int, TextLayoutResult>,
+    density: Float,
     c: SpectrumColors,
 ) {
     if (graph == null) return
@@ -461,18 +472,29 @@ private fun DrawScope.drawScene(
             cornerRadius = radius,
             style = Stroke(width = 1f),
         )
-        if (scale > 0.16f && group.title.isNotBlank()) {
-            val key = -group.id - 1
+        if (group.title.isNotBlank() && size.width >= 160f) {
+            val groupPx = (size.height * 0.05f).coerceIn(9f, 20f)
+            val b = groupPx.roundToInt()
+            val key = -group.id - 1 - b * 100000
             val label = labels.getOrPut(key) {
                 measurer.measure(
                     text = group.title,
-                    style = TextStyle(color = c.textDim, fontSize = 10.sp),
+                    style = TextStyle(color = c.textMuted, fontSize = (b / density).sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    constraints = Constraints(maxWidth = max(40, size.width.roundToInt() - 8)),
+                    constraints = Constraints(maxWidth = max(48, size.width.roundToInt() - 24)),
                 )
             }
-            drawText(label, topLeft = topLeft + Offset(5f, 3f))
+            // 标题给一块底衬，压在节点上方时仍然可读
+            val pillW = (label.size.width + 10).toFloat().coerceAtMost(size.width)
+            val pillH = label.size.height + 4f
+            drawRoundRect(
+                color = c.background.copy(alpha = 0.82f),
+                topLeft = topLeft + Offset(3f, 3f),
+                size = Size(pillW, pillH),
+                cornerRadius = CornerRadius(5f),
+            )
+            drawText(label, topLeft = topLeft + Offset(8f, 5f))
         }
     }
 
@@ -491,11 +513,12 @@ private fun DrawScope.drawScene(
         drawPath(
             path = path,
             color = if (from.mode == UiWorkflowParser.MODE_NORMAL && to.mode == UiWorkflowParser.MODE_NORMAL) {
-                c.accent.copy(alpha = 0.40f)
+                c.accent.copy(alpha = 0.55f)
             } else {
-                c.textDim.copy(alpha = 0.20f)
+                c.textDim.copy(alpha = 0.28f)
             },
-            style = Stroke(width = 1.4f * scale.coerceIn(0.6f, 1.8f)),
+            // 线宽不随缩放无限变细：缩到再小也保持 1.6px，看得见拓扑
+            style = Stroke(width = (1.8f * scale.coerceIn(0.8f, 1.4f))),
         )
     }
 
@@ -505,111 +528,194 @@ private fun DrawScope.drawScene(
         val size = Size(node.width.toFloat() * scale, node.height.toFloat() * scale)
         if (size.width < 1.5f || size.height < 1.5f) return@forEach
         val active = node.mode == UiWorkflowParser.MODE_NORMAL
-        val alpha = if (active) 1f else 0.45f
-        val radius = CornerRadius((8f * scale).coerceIn(2f, 12f))
+        val alpha = if (active) 1f else 0.42f
+        val radius = CornerRadius(6f.coerceAtLeast(min(10f, size.height * 0.25f)))
+        // 节点本体：比分组框亮一档，形成"浮在画布上"的层次
         drawRoundRect(
-            color = c.dialog.copy(alpha = 0.92f * alpha),
+            color = c.cardStrong.copy(alpha = (if (active) 0.97f else 0.55f)),
             topLeft = topLeft,
             size = size,
             cornerRadius = radius,
         )
+        // 顶部标题条：启用=强调色，旁路/静音=灰
+        val headerH = min(size.height, max(4f, 16f.coerceAtMost(size.height * 0.32f)))
         drawRoundRect(
-            color = if (node.id == selected) c.accent else c.borderStrong.copy(alpha = 0.9f * alpha),
+            color = (if (active) c.accent else c.textDim).copy(alpha = 0.85f * alpha),
+            topLeft = topLeft,
+            size = Size(size.width, headerH),
+            cornerRadius = CornerRadius(min(radius.x, headerH / 2f)),
+        )
+        // 下半部分把标题条盖回圆角，避免出现上下两截
+        drawRect(
+            color = (if (active) c.accent else c.textDim).copy(alpha = 0.85f * alpha),
+            topLeft = topLeft + Offset(0f, headerH * 0.6f),
+            size = Size(size.width, headerH * 0.4f),
+        )
+        drawRoundRect(
+            color = if (node.id == selected) c.accent else c.borderStrong.copy(alpha = 0.75f * alpha),
             topLeft = topLeft,
             size = size,
             cornerRadius = radius,
             style = Stroke(width = if (node.id == selected) 2.5f else 1f),
         )
-        // 顶部色条：缩小时也能看出节点块的朝向
-        drawRect(
-            color = c.accent.copy(alpha = 0.5f * alpha),
-            topLeft = topLeft,
-            size = Size(size.width, max(2f, 3f * scale.coerceAtMost(2f))),
-        )
-        if (scale > 0.18f && size.width > 54f && size.height > 18f) {
-            val title = node.title?.takeIf { it.isNotBlank() } ?: node.type
-            val label = labels.getOrPut(node.id) {
-                measurer.measure(
-                    text = title,
-                    style = TextStyle(color = c.text.copy(alpha = alpha), fontSize = 10.sp),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    constraints = Constraints(maxWidth = max(40, size.width.roundToInt() - 8)),
+        // 身体里的两条槽位线：空矩形太像占位框，加两条短线才有"节点"的样子
+        if (size.height > headerH + 16f) {
+            val slotColor = c.borderStrong.copy(alpha = 0.5f * alpha)
+            val slotW = (size.width * 0.42f).coerceAtMost(90f)
+            val slotH = 3f.coerceAtLeast(size.height * 0.05f)
+            drawRoundRect(
+                color = slotColor,
+                topLeft = topLeft + Offset(6f, headerH + size.height * 0.16f),
+                size = Size(slotW, slotH),
+                cornerRadius = CornerRadius(slotH / 2f),
+            )
+            if (size.height > headerH + 44f) {
+                drawRoundRect(
+                    color = slotColor,
+                    topLeft = topLeft + Offset(6f, headerH + size.height * 0.34f),
+                    size = Size(slotW * 0.8f, slotH),
+                    cornerRadius = CornerRadius(slotH / 2f),
                 )
             }
-            drawText(label, topLeft = topLeft + Offset(4f, 4f))
+        }
+        if (size.width >= 72f && size.height >= 26f) {
+            // 字号跟着块大小走：缩小时字也缩小，避免几十个标签互相压叠
+            val titlePx = (size.height * 0.20f).coerceIn(9f, 30f)
+            val bucket = titlePx.roundToInt()
+            val title = node.title?.takeIf { it.isNotBlank() } ?: node.type
+            val label = labels.getOrPut(node.id * 1000 + bucket) {
+                measurer.measure(
+                    text = title,
+                    style = TextStyle(
+                        color = c.accentInk.copy(alpha = alpha),
+                        fontSize = (bucket / density).sp,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    constraints = Constraints(maxWidth = max(20, size.width.roundToInt() - 8)),
+                )
+            }
+            drawText(
+                label,
+                topLeft = topLeft + Offset(4f, max(0f, (headerH - label.size.height) / 2f)),
+            )
+        }
+        // 类型行：节点明显放大后才补，避免小方块里出现两行糊字
+        val displayTitle = node.title?.takeIf { it.isNotBlank() } ?: node.type
+        if (size.height >= 92f && size.width >= 150f && node.type != displayTitle) {
+            val typePx = (size.height * 0.14f).coerceIn(8f, 22f)
+            val typeBucket = typePx.roundToInt()
+            val typeKey = node.id * 1000 + 500 + typeBucket
+            val typeLabel = labels.getOrPut(typeKey) {
+                measurer.measure(
+                    text = node.type,
+                    style = TextStyle(color = c.textDim, fontSize = (typeBucket / density).sp),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    constraints = Constraints(maxWidth = max(20, size.width.roundToInt() - 8)),
+                )
+            }
+            drawText(typeLabel, topLeft = topLeft + Offset(4f, headerH + 3f))
         }
     }
 }
 
-/** 右下角小地图：整图缩略 + 当前视野框。 */
-private fun DrawScope.drawMinimap(
-    graph: UiGraph?,
-    bounds: Rect?,
-    viewport: IntSize,
+/** 小地图投影：把世界坐标映射到缩略图局部坐标（留 6% 内边距）。 */
+internal data class MapProjection(val s: Float, val ox: Float, val oy: Float)
+
+internal fun mapProjection(bounds: Rect, canvas: Size): MapProjection {
+    val s = min(canvas.width / bounds.width, canvas.height / bounds.height) * 0.88f
+    val ox = (canvas.width - bounds.width * s) / 2f
+    val oy = (canvas.height - bounds.height * s) / 2f
+    return MapProjection(s, ox, oy)
+}
+
+/** 小地图内容：整图缩略 + 当前视野框（局部坐标，由独立浮层 Canvas 调用）。 */
+private fun DrawScope.drawMinimapLocal(
+    graph: UiGraph,
+    bounds: Rect,
     scale: Float,
     offset: Offset,
-    density: Float,
+    viewport: IntSize,
     c: SpectrumColors,
 ) {
-    if (graph == null || bounds == null) return
-    val rect = minimapRect(viewport, bounds, density) ?: return
-
-    drawRoundRect(
-        color = c.dialog.copy(alpha = 0.90f),
-        topLeft = Offset(rect.left, rect.top),
-        size = Size(rect.width, rect.height),
-        cornerRadius = CornerRadius(8f * density),
-    )
-    drawRoundRect(
-        color = c.borderStrong,
-        topLeft = Offset(rect.left, rect.top),
-        size = Size(rect.width, rect.height),
-        cornerRadius = CornerRadius(8f * density),
-        style = Stroke(width = 1f),
-    )
-
-    val innerW = rect.width * 0.9f
-    val innerH = rect.height * 0.9f
-    val s = min(innerW / bounds.width, innerH / bounds.height)
-    val ox = rect.left + (rect.width - bounds.width * s) / 2f
-    val oy = rect.top + (rect.height - bounds.height * s) / 2f
+    val projection = mapProjection(bounds, size)
+    val s = projection.s
 
     graph.nodes.forEach { node ->
         val w = max(1.2f, node.width.toFloat() * s)
         val h = max(1.2f, node.height.toFloat() * s)
         drawRect(
             color = if (node.mode == UiWorkflowParser.MODE_NORMAL) {
-                c.accent.copy(alpha = 0.75f)
+                c.accent.copy(alpha = 0.78f)
             } else {
                 c.textDim.copy(alpha = 0.45f)
             },
             topLeft = Offset(
-                ox + (node.x.toFloat() - bounds.left) * s,
-                oy + (node.y.toFloat() - bounds.top) * s,
+                projection.ox + (node.x.toFloat() - bounds.left) * s,
+                projection.oy + (node.y.toFloat() - bounds.top) * s,
             ),
             size = Size(w, h),
         )
     }
 
-    // 视野框：屏幕左上角对应的世界坐标 = -offset / scale
-    if (scale > 0f) {
-        val viewLeft = -offset.x / scale
-        val viewTop = -offset.y / scale
-        val viewW = viewport.width / scale
-        val viewH = viewport.height / scale
-        val rectLeft = ox + (viewLeft - bounds.left) * s
-        val rectTop = oy + (viewTop - bounds.top) * s
+    if (scale > 0f && viewport.width > 0) {
+        val viewLeft = projection.ox + (-offset.x / scale - bounds.left) * s
+        val viewTop = projection.oy + (-offset.y / scale - bounds.top) * s
+        val viewW = viewport.width / scale * s
+        val viewH = viewport.height / scale * s
         drawRect(
-            color = c.accent.copy(alpha = 0.16f),
-            topLeft = Offset(rectLeft, rectTop),
-            size = Size(viewW * s, viewH * s),
+            color = c.accent.copy(alpha = 0.18f),
+            topLeft = Offset(viewLeft, viewTop),
+            size = Size(viewW, viewH),
         )
         drawRect(
             color = c.accent,
-            topLeft = Offset(rectLeft, rectTop),
-            size = Size(viewW * s, viewH * s),
-            style = Stroke(width = 1f),
+            topLeft = Offset(viewLeft, viewTop),
+            size = Size(viewW, viewH),
+            style = Stroke(width = 1.2f),
         )
     }
+}
+
+/**
+ * 初始视野用的"聚焦包围盒"：用固定网格找节点最密集的一块。
+ *
+ * ComfyUI 画布上常有被拖到很远的 Note / 注释节点，按全图包围盒适配会把主图缩成一小团，
+ * 所以初始只适配最密的那一格及其 3×3 邻域；远处节点仍会画出来，可以平移或点小地图过去。
+ */
+internal fun graphFocusBounds(graph: UiGraph?): Rect? {
+    if (graph == null || graph.nodes.isEmpty()) return null
+    if (graph.nodes.size <= 3) return graphBounds(graph)
+
+    val cell = 700.0
+    val buckets = mutableMapOf<Long, MutableList<UiNode>>()
+    graph.nodes.forEach { node ->
+        val gx = Math.floor((node.x + node.width / 2.0) / cell).toLong()
+        val gy = Math.floor((node.y + node.height / 2.0) / cell).toLong()
+        buckets.getOrPut(gx * 100_000L + gy) { mutableListOf() }.add(node)
+    }
+    val seedKey = buckets.maxByOrNull { it.value.size }?.key ?: return graphBounds(graph)
+    val seedX = Math.floorDiv(seedKey, 100_000L)
+    val seedY = seedKey - seedX * 100_000L
+
+    val kept = mutableListOf<UiNode>()
+    for (dx in -1L..1L) {
+        for (dy in -1L..1L) {
+            buckets[(seedX + dx) * 100_000L + (seedY + dy)]?.let { kept.addAll(it) }
+        }
+    }
+    if (kept.isEmpty()) return graphBounds(graph)
+
+    var left = Float.MAX_VALUE
+    var top = Float.MAX_VALUE
+    var right = -Float.MAX_VALUE
+    var bottom = -Float.MAX_VALUE
+    kept.forEach { node ->
+        left = min(left, node.x.toFloat())
+        top = min(top, node.y.toFloat())
+        right = max(right, (node.x + node.width).toFloat())
+        bottom = max(bottom, (node.y + node.height).toFloat())
+    }
+    return Rect(left, top, right, bottom)
 }
