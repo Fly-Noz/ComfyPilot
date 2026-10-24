@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
+import com.comfypilot.app.ui.theme.ShimmerBox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -66,7 +67,7 @@ fun RemoteOutputImage(
 
             failed -> Text("预览加载失败", style = MaterialTheme.typography.bodySmall)
 
-            else -> CircularProgressIndicator(modifier = Modifier.size(24.dp).padding(2.dp))
+            else -> ShimmerBox(modifier = Modifier.fillMaxSize())
         }
     }
 }

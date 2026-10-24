@@ -1,6 +1,16 @@
 package com.comfypilot.app.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -27,6 +37,16 @@ private sealed interface Screen {
     data object Diagnostics : Screen
     data object Settings : Screen
     data object About : Screen
+}
+
+private fun screenDepth(screen: Screen): Int = when (screen) {
+    Screen.Connect -> 0
+    Screen.Catalog -> 1
+    Screen.Detail -> 2
+    Screen.Tasks -> 2
+    Screen.Diagnostics -> 1
+    Screen.Settings -> 1
+    Screen.About -> 2
 }
 
 /**
@@ -90,8 +110,24 @@ fun ComfyPilotApp(
                 }
             }
 
-            when (screen) {
-                Screen.Connect -> ConnectScreen(
+            // 页面切换：进入下一层从右侧滑入，返回时从左侧滑回，配合淡入淡出。
+
+            AnimatedContent(
+                targetState = screen,
+                transitionSpec = {
+                    val forward = screenDepth(targetState) >= screenDepth(initialState)
+                    val enterShift = if (forward) 1 else -1
+                    (slideInHorizontally(tween(260)) { full -> enterShift * full / 4 } +
+                        fadeIn(tween(190)))
+                        .togetherWith(
+                            slideOutHorizontally(tween(260)) { full -> -enterShift * full / 4 } +
+                                fadeOut(tween(150)),
+                        )
+                },
+                label = "screen",
+            ) { target ->
+                when (target) {
+                    Screen.Connect -> ConnectScreen(
                     state = state,
                     initialUrl = initialUrl,
                     notice = notice,
@@ -170,10 +206,15 @@ fun ComfyPilotApp(
                 )
 
                 Screen.About -> AboutScreen(onBack = { screen = Screen.Settings })
+                }
             }
 
             // 覆盖层：详情仍留在组合中，任务页关闭后字段、图开关和页签都不会丢。
-            if (tasksOverlay) {
+            AnimatedVisibility(
+                visible = tasksOverlay,
+                enter = slideInVertically(tween(240)) { full -> full / 3 } + fadeIn(tween(160)),
+                exit = slideOutVertically(tween(200)) { full -> full / 3 } + fadeOut(tween(130)),
+            ) {
                 TaskScreen(
                     state = state,
                     notice = notice,

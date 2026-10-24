@@ -2,8 +2,19 @@ package com.comfypilot.app.ui.theme
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -212,15 +223,17 @@ fun GradientButton(
     height: Dp = 46.dp,
 ) {
     val c = Spectrum.colors
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
             .height(height)
             .alpha(if (enabled) 1f else 0.42f)
+            .pressFeedback(interaction)
             .clip(RoundedCornerShape(14.dp))
             .background(c.gradientBrush())
             .clickable(
                 enabled = enabled,
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = interaction,
                 indication = null,
                 onClick = onClick,
             )
@@ -249,16 +262,18 @@ fun GhostButton(
 ) {
     val c = Spectrum.colors
     val shape = RoundedCornerShape(14.dp)
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
             .height(height)
             .alpha(if (enabled) 1f else 0.45f)
+            .pressFeedback(interaction)
             .clip(shape)
             .background(if (selected) c.cardStrong else c.card)
             .border(1.dp, if (selected) c.accentBorder else c.borderStrong, shape)
             .clickable(
                 enabled = enabled,
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = interaction,
                 indication = null,
                 onClick = onClick,
             )
@@ -297,13 +312,15 @@ fun SpectrumChip(
         animationSpec = tween(170),
         label = "chip-text",
     )
+    val chipInteraction = remember { MutableInteractionSource() }
     Box(
         modifier = base
+            .pressFeedback(chipInteraction, pressedScale = 0.95f)
             .clip(shape)
             .background(c.card)
             .border(1.dp, c.border, shape)
             .clickable(
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = chipInteraction,
                 indication = null,
                 onClick = onClick,
             ),
@@ -326,6 +343,30 @@ fun SpectrumChip(
     }
 }
 
+/**
+ * 按压反馈：按下时轻微缩放 + 降低不透明度。给所有自绘按钮共用，
+ * 比默认 ripple 更符合光谱主题的“轻”质感。
+ */
+fun Modifier.pressFeedback(
+    interactionSource: MutableInteractionSource,
+    pressedScale: Float = 0.965f,
+): Modifier = composed {
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) pressedScale else 1f,
+        animationSpec = spring(dampingRatio = 0.62f, stiffness = 900f),
+        label = "press-scale",
+    )
+    graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }
+}
+
+/**
+ * 分段页签：一块会滑动的底板跟着选中项走，而不是每项各自闪一下。
+ * 底板颜色用 cardStrong（深色主题下接近白），切换时带一点回弹。
+ */
 @Composable
 fun SpectrumTabs(
     labels: List<String>,
@@ -335,37 +376,104 @@ fun SpectrumTabs(
 ) {
     val c = Spectrum.colors
     val shape = RoundedCornerShape(14.dp)
-    Row(
+    val gap = 3.dp
+    val inner = RoundedCornerShape(11.dp)
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
             .background(c.card)
             .border(1.dp, c.border, shape)
             .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        labels.forEachIndexed { index, label ->
-            val active = index == selectedIndex
+        val count = labels.size.coerceAtLeast(1)
+        val itemWidth = ((maxWidth - gap * (count - 1)) / count).coerceAtLeast(0.dp)
+        val targetX = (itemWidth + gap) * selectedIndex.coerceIn(0, count - 1)
+        val slide by animateFloatAsState(
+            targetValue = targetX.value,
+            animationSpec = spring(dampingRatio = 0.78f, stiffness = 700f),
+            label = "tab-slide",
+        )
+        val widthSlide by animateFloatAsState(
+            targetValue = itemWidth.value,
+            animationSpec = spring(dampingRatio = 0.78f, stiffness = 700f),
+            label = "tab-width",
+        )
+        Box(modifier = Modifier.fillMaxWidth().height(38.dp).clipToBounds()) {
             Box(
                 modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(11.dp))
-                    .background(if (active) c.cardStrong else Color.Transparent)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                    ) { onSelect(index) }
-                    .padding(vertical = 10.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = label,
-                    color = if (active) c.text else c.textMuted,
-                    fontSize = 12.5.sp,
-                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
-                    maxLines = 1,
-                )
+                    .offset(x = slide.dp)
+                    .width(widthSlide.dp)
+                    .fillMaxHeight()
+                    .clip(inner)
+                    .background(c.cardStrong),
+            )
+            Row(modifier = Modifier.fillMaxWidth().fillMaxHeight()) {
+                labels.forEachIndexed { index, label ->
+                    val active = index == selectedIndex
+                    val interaction = remember { MutableInteractionSource() }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .padding(end = if (index < labels.lastIndex) gap else 0.dp)
+                            .clip(inner)
+                            .clickable(
+                                interactionSource = interaction,
+                                indication = null,
+                            ) { onSelect(index) }
+                            .pressFeedback(interaction, pressedScale = 0.94f),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (active) c.text else c.textMuted,
+                            fontSize = 12.5.sp,
+                            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
+                            maxLines = 1,
+                        )
+                    }
+                }
             }
+        }
+    }
+}
+
+/** 骨架块：加载态用它占位，来回扫一道高光，比转圈更贴合卡片布局。 */
+@Composable
+fun ShimmerBox(
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(10.dp),
+) {
+    val c = Spectrum.colors
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1_150),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "shimmer-progress",
+    )
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(c.card),
+
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val band = w * 0.42f
+            val start = -band + (w + band) * progress
+            drawRect(
+                brush = Brush.linearGradient(
+                    colors = listOf(Color.Transparent, c.borderStrong.copy(alpha = 0.55f), Color.Transparent),
+                    start = Offset(start, 0f),
+                    end = Offset(start + band, size.height),
+                ),
+                size = size,
+            )
         }
     }
 }

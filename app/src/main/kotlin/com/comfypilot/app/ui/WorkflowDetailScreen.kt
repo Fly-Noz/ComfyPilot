@@ -103,16 +103,27 @@ import com.comfypilot.app.ui.theme.GhostButton
 import com.comfypilot.app.ui.theme.GlassCard
 import com.comfypilot.app.ui.theme.GradientButton
 import com.comfypilot.app.ui.theme.PillTone
+import com.comfypilot.app.ui.theme.pressFeedback
 import com.comfypilot.app.ui.theme.Spectrum
+import com.comfypilot.app.ui.theme.pressFeedback
 import com.comfypilot.app.ui.theme.SpectrumArt
+import com.comfypilot.app.ui.theme.pressFeedback
 import com.comfypilot.app.ui.theme.SpectrumChip
+import com.comfypilot.app.ui.theme.pressFeedback
 import com.comfypilot.app.ui.theme.SpectrumDialog
+import com.comfypilot.app.ui.theme.pressFeedback
 import com.comfypilot.app.ui.theme.SpectrumMono
+import com.comfypilot.app.ui.theme.pressFeedback
 import com.comfypilot.app.ui.theme.SpectrumPill
+import com.comfypilot.app.ui.theme.pressFeedback
 import com.comfypilot.app.ui.theme.SpectrumProgress
+import com.comfypilot.app.ui.theme.pressFeedback
 import com.comfypilot.app.ui.theme.SpectrumScaffold
+import com.comfypilot.app.ui.theme.pressFeedback
 import com.comfypilot.app.ui.theme.SpectrumTabs
+import com.comfypilot.app.ui.theme.pressFeedback
 import com.comfypilot.app.ui.theme.SpectrumTextField
+import com.comfypilot.app.ui.theme.pressFeedback
 import com.comfypilot.app.ui.theme.SpectrumTopBar
 import com.comfypilot.app.ui.theme.TopBarAction
 import com.comfypilot.core.api.ApiPaths
@@ -2310,14 +2321,16 @@ private fun NodeIconButton(
         animationSpec = tween(160),
         label = "node-icon-rim",
     )
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
             .size(30.dp)
+            .pressFeedback(interaction, pressedScale = 0.9f)
             .clip(shape)
             .background(fill)
             .border(1.dp, rim, shape)
             .clickable(
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = interaction,
                 indication = null,
                 onClick = onClick,
             ),

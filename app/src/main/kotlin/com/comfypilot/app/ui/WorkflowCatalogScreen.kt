@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.sp
 import com.comfypilot.app.ui.theme.Dot
 import com.comfypilot.app.ui.theme.GhostButton
 import com.comfypilot.app.ui.theme.GlassCard
+import com.comfypilot.app.ui.theme.ShimmerBox
 import com.comfypilot.app.ui.theme.Spectrum
 import com.comfypilot.app.ui.theme.SpectrumMono
 import com.comfypilot.app.ui.theme.SpectrumScaffold
@@ -126,7 +127,7 @@ fun WorkflowCatalogScreen(
                     text = if (connected) "准备读取服务器工作流…" else "尚未连接 ComfyUI。",
                 )
 
-                is WorkflowCatalog.Loading -> GlassCard {
+                is WorkflowCatalog.Loading -> Column {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -141,6 +142,24 @@ fun WorkflowCatalogScreen(
                             color = c.textMuted,
                             fontSize = 12.sp,
                         )
+                    }
+                    Spacer(Modifier.height(14.dp))
+                    // 骨架屏：先用和真实卡片同样的形状占位，数据到达时不会整页跳动。
+                    repeat(4) { index ->
+                        GlassCard {
+                            ShimmerBox(
+                                modifier = Modifier
+                                    .fillMaxWidth((0.62f - index * 0.07f).coerceAtLeast(0.36f))
+                                    .height(13.dp),
+                                shape = RoundedCornerShape(6.dp),
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            ShimmerBox(
+                                modifier = Modifier.fillMaxWidth(0.34f).height(10.dp),
+                                shape = RoundedCornerShape(5.dp),
+                            )
+                        }
+                        Spacer(Modifier.height(10.dp))
                     }
                 }
 
