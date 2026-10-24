@@ -307,10 +307,17 @@ export struct WorkflowGraphOverlay {
       // 标题：按宽度定字号，超宽时缩放
       if (headerH >= 6) {
         const title = node.title.length > 0 ? node.title : node.type;
-        // canvas 的绘制单位是物理像素，先按 vp 设计再乘 vp2px；
-        // 全屏统一：只保留可读下限，不设上限，放大会继续变大
-        const px = vp2px(Math.max(10, 15 * this.zoom));
+        // 先按缩放给字号（物理像素），再按可用宽度收缩；收缩有可读下限，
+        // 宁可裁一点，也不会小到看不见。
+        let px = vp2px(Math.max(10, 15 * this.zoom));
+        const titleFloor = vp2px(9);
         ctx.font = `${px}px sans-serif`;
+        const titleWidth = ctx.measureText(title).width;
+        const titleMax = Math.max(16, nw - 10);
+        if (titleWidth > titleMax && titleWidth > 0) {
+          px = Math.max(titleFloor, px * titleMax / titleWidth);
+          ctx.font = `${px}px sans-serif`;
+        }
         ctx.fillStyle = '#FFFFFF';
         ctx.textBaseline = 'middle';
         // 超长标题裁在标题栏内，不压缩字号，保证比例一致
@@ -445,12 +452,19 @@ export struct WorkflowGraphOverlay {
     if (name.length === 0 || stepPx < 6) {
       return;
     }
-    // 参数名与标题同一套规则（同样换算到物理像素）
-    const px = vp2px(Math.max(7, 10 * this.zoom));
     if (stepPx < 5) {
       return;
     }
+    // 参数名同样按半栏宽度收缩，保留可读下限
+    let px = vp2px(Math.max(7, 10 * this.zoom));
+    const paramFloor = vp2px(6.5);
     ctx.font = `${px}px sans-serif`;
+    const nameWidth = ctx.measureText(name).width;
+    const paramMax = Math.max(20, nw / 2 - 14);
+    if (nameWidth > paramMax && nameWidth > 0) {
+      px = Math.max(paramFloor, px * paramMax / nameWidth);
+      ctx.font = `${px}px sans-serif`;
+    }
     ctx.fillStyle = this.c().textMuted;
     ctx.textBaseline = 'middle';
     ctx.save();
@@ -497,9 +511,15 @@ export struct WorkflowGraphOverlay {
           return;
         }
         if (stepPx >= 5) {
-          const px = vp2px(Math.max(7, 10 * this.zoom));
+          let px = vp2px(Math.max(7, 10 * this.zoom));
           this.ctx.font = `${px}px sans-serif`;
-          const width = this.ctx.measureText(input.name).width;
+          const rawInputWidth = this.ctx.measureText(input.name).width;
+          const inputMax = Math.max(20, nw / 2 - 14);
+          if (rawInputWidth > inputMax && rawInputWidth > 0) {
+            px = Math.max(vp2px(6.5), px * inputMax / rawInputWidth);
+            this.ctx.font = `${px}px sans-serif`;
+          }
+          const width = Math.min(rawInputWidth, inputMax);
           // 文字整行都算命中（左右留 8px），不用精确点在字上
           if (x >= left + 4 && x <= left + 9 + width + 8 && Math.abs(y - cy) <= Math.max(9, stepPx / 2)) {
             result = { nodeId: node.id, index: index, input: true };
@@ -517,9 +537,15 @@ export struct WorkflowGraphOverlay {
           return;
         }
         if (stepPx >= 5) {
-          const px = vp2px(Math.max(7, 10 * this.zoom));
+          let px = vp2px(Math.max(7, 10 * this.zoom));
           this.ctx.font = `${px}px sans-serif`;
-          const width = this.ctx.measureText(output.name).width;
+          const rawOutputWidth = this.ctx.measureText(output.name).width;
+          const outputMax = Math.max(20, nw / 2 - 14);
+          if (rawOutputWidth > outputMax && rawOutputWidth > 0) {
+            px = Math.max(vp2px(6.5), px * outputMax / rawOutputWidth);
+            this.ctx.font = `${px}px sans-serif`;
+          }
+          const width = Math.min(rawOutputWidth, outputMax);
           if (x >= left + nw - 9 - width - 8 && x <= left + nw - 4 && Math.abs(y - cy) <= Math.max(9, stepPx / 2)) {
             result = { nodeId: node.id, index: index, input: false };
           }
