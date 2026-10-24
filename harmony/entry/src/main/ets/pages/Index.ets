@@ -3608,14 +3608,6 @@ struct Index {
   @Builder
   GraphChip(graphItem: WorkflowGraphView) {
     Stack({ alignContent: Alignment.Center }) {
-      // 选中态与 Android 一致：整颗药丸铺渐变。
-      Row()
-        .width('100%')
-        .height('100%')
-        .linearGradient({ angle: 120, colors: Spectrum.gradientColors(this.c()) })
-        .opacity(graphItem.selected ? 1 : 0)
-        .animation({ duration: 160, curve: Curve.EaseOut })
-
       Row() {
         Text(graphItem.title)
           .fontSize(11.5)
@@ -3668,11 +3660,25 @@ struct Index {
       }
       .height(32)
     }
+    .width('auto')
     .height(32)
     .borderRadius(999)
-    .backgroundColor(graphItem.selected ? this.c().accentSoft : this.c().card)
+    .backgroundColor(this.c().card)
+    // 选中时铺渐变（与安卓一致），未选中用全透明色停，避免额外图层把药丸撑满整行。
+    .linearGradient({
+      angle: 120,
+      colors: graphItem.selected
+        ? Spectrum.gradientColors(this.c())
+        : this.transparentGradient(),
+    })
     .border({ width: 1, color: graphItem.selected ? this.c().accentBorder : this.c().border })
     .clip(true)
+    .animation({ duration: 160, curve: Curve.EaseOut })
+  }
+
+  /** 全透明渐变：linearGradient 的颜色必须是非空数组，用它表达"不铺渐变"。 */
+  private transparentGradient(): Array<[string, number]> {
+    return [['#00000000', 0.0], ['#00000000', 1.0]];
   }
   /** 子图勾选面板：只列这个父图下的辅助图组，标题与 Android DropdownPanel 一致。 */
   @Builder
@@ -4330,41 +4336,55 @@ struct Index {
    */
   @Builder
   ProgressBar(fraction: number) {
-    Progress({
-      value: this.clampPercent(fraction * 100),
-      total: 100,
-      type: ProgressType.Linear,
-    })
-      .width('100%')
-      .height(7)
-      .style({ strokeWidth: 7 })
-      .color(this.c().accent)
-      .backgroundColor(this.c().cardStrong)
-      .animation({ duration: 320, curve: Curve.EaseOut })
+    Row() {
+      // 用 layoutWeight 分配宽度：不依赖百分比解析、也不需要测量回调，布局引擎必定给出可见宽度。
+      Row()
+        .layoutWeight(this.progressFillWeight(fraction))
+        .height(7)
+        .linearGradient({ angle: 90, colors: Spectrum.gradientColors(this.c()) })
+      Row()
+        .layoutWeight(this.progressRestWeight(fraction))
+        .height(7)
+    }
+    .width('100%')
+    .height(7)
+    .borderRadius(999)
+    .backgroundColor(this.c().cardStrong)
+    .clip(true)
+    .animation({ duration: 320, curve: Curve.EaseOut })
   }
 
   /** 任务卡里的细进度条（5vp），同 Android TaskCard 的 SpectrumProgress(height = 5.dp)。 */
   @Builder
   TaskProgressBar(fraction: number) {
-    Progress({
-      value: this.clampPercent(fraction * 100),
-      total: 100,
-      type: ProgressType.Linear,
-    })
-      .width('100%')
-      .height(5)
-      .style({ strokeWidth: 5 })
-      .color(this.c().accent)
-      .backgroundColor(this.c().cardStrong)
-      .animation({ duration: 320, curve: Curve.EaseOut })
+    Row() {
+      Row()
+        .layoutWeight(this.progressFillWeight(fraction))
+        .height(5)
+        .linearGradient({ angle: 90, colors: Spectrum.gradientColors(this.c()) })
+      Row()
+        .layoutWeight(this.progressRestWeight(fraction))
+        .height(5)
+    }
+    .width('100%')
+    .height(5)
+    .borderRadius(999)
+    .backgroundColor(this.c().cardStrong)
+    .clip(true)
+    .animation({ duration: 320, curve: Curve.EaseOut })
   }
 
-  /** 进度值钳制到 0~100，避免 NaN / 越界让 Progress 画不出来。 */
-  private clampPercent(value: number): number {
-    if (!(value > 0)) {
+  /** 填充权重：0~1 的比例直接当 layoutWeight 用，非数值一律按 0 处理。 */
+  private progressFillWeight(fraction: number): number {
+    if (!(fraction > 0)) {
       return 0;
     }
-    return value > 100 ? 100 : value;
+    return fraction > 1 ? 1 : fraction;
+  }
+
+  /** 剩余权重：两端权重之和恒为 1，避免出现 0/0 的布局退化。 */
+  private progressRestWeight(fraction: number): number {
+    return 1 - this.progressFillWeight(fraction);
   }
 
   /** 全部节点底部面板：搜索 + 特征筛选 + 节点列表，对应 Android ModalBottomSheet。 */
