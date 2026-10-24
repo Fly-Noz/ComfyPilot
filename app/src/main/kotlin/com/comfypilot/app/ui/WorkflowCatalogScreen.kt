@@ -137,11 +137,15 @@ fun WorkflowCatalogScreen(
             }
             AnimatedContent(
                 targetState = catalogKind,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
                 transitionSpec = {
                     fadeIn(tween(260)).togetherWith(fadeOut(tween(160)))
                 },
                 label = "catalog-state",
             ) { _ ->
+            // 内容自己的 Column 作用域：列表的 weight(1f) 必须挂在这个 Column 上，
+            // 挂到 AnimatedContent 里会丢失作用域，导致列表和上方文字重叠。
+            Column(modifier = Modifier.fillMaxSize()) {
             when (val catalog = state.catalog) {                is WorkflowCatalog.Idle -> HintCard(
                     text = if (connected) "准备读取服务器工作流…" else "尚未连接 ComfyUI。",
                 )
@@ -251,6 +255,7 @@ fun WorkflowCatalogScreen(
                         }
                     }
                 }
+            }
             }
             }
         }

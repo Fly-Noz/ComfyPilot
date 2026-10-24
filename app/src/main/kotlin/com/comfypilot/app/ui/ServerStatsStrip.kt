@@ -12,7 +12,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.material3.Text
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -208,7 +213,19 @@ fun ServerStatsStrip(
                 )
             }
 
-            if (expanded) {
+            // 展开/收起要有过渡：高度用 expandVertically，内容跟着淡入，
+            // 否则点一下会"啪"地跳出一整块。
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(
+                    animationSpec = tween(240),
+                    expandFrom = Alignment.Top,
+                ) + fadeIn(tween(180)),
+                exit = shrinkVertically(
+                    animationSpec = tween(200),
+                    shrinkTowards = Alignment.Top,
+                ) + fadeOut(tween(120)),
+            ) {
                 // 两列 × N 行：每格等宽（weight 平分），文字不够放时换行而不是省略。
                 Column(
                     modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 9.dp),
