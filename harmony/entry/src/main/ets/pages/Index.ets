@@ -4339,11 +4339,11 @@ struct Index {
     Row() {
       // 用 layoutWeight 分配宽度：不依赖百分比解析、也不需要测量回调，布局引擎必定给出可见宽度。
       Row()
-        .layoutWeight(this.progressFillWeight(fraction))
+        .layoutWeight(this.progressWeight(fraction))
         .height(7)
-        .linearGradient({ angle: 90, colors: Spectrum.gradientColors(this.c()) })
+        .backgroundColor(this.c().accent)
       Row()
-        .layoutWeight(this.progressRestWeight(fraction))
+        .layoutWeight(1000 - this.progressWeight(fraction))
         .height(7)
     }
     .width('100%')
@@ -4359,11 +4359,11 @@ struct Index {
   TaskProgressBar(fraction: number) {
     Row() {
       Row()
-        .layoutWeight(this.progressFillWeight(fraction))
+        .layoutWeight(this.progressWeight(fraction))
         .height(5)
-        .linearGradient({ angle: 90, colors: Spectrum.gradientColors(this.c()) })
+        .backgroundColor(this.c().accent)
       Row()
-        .layoutWeight(this.progressRestWeight(fraction))
+        .layoutWeight(1000 - this.progressWeight(fraction))
         .height(5)
     }
     .width('100%')
@@ -4374,17 +4374,17 @@ struct Index {
     .animation({ duration: 320, curve: Curve.EaseOut })
   }
 
-  /** 填充权重：0~1 的比例直接当 layoutWeight 用，非数值一律按 0 处理。 */
-  private progressFillWeight(fraction: number): number {
+  /**
+   * 填充权重：ArkUI 的 layoutWeight 按整数参与分配，直接传 0.45 这类小数会被截断成 0，
+   * 表现为"轨道在、百分比正常、填充永远为空"。这里放大 1000 倍后取整，两端都 ≥1，
+   * 既保留 0.1% 的精度，也不会出现 0 权重。
+   */
+  private progressWeight(fraction: number): number {
     if (!(fraction > 0)) {
       return 0;
     }
-    return fraction > 1 ? 1 : fraction;
-  }
-
-  /** 剩余权重：两端权重之和恒为 1，避免出现 0/0 的布局退化。 */
-  private progressRestWeight(fraction: number): number {
-    return 1 - this.progressFillWeight(fraction);
+    const clamped: number = fraction > 1 ? 1 : fraction;
+    return Math.round(clamped * 1000);
   }
 
   /** 全部节点底部面板：搜索 + 特征筛选 + 节点列表，对应 Android ModalBottomSheet。 */
@@ -6131,9 +6131,57 @@ struct Index {
   }
 
   /** 任务页：顶栏（关闭 / 标题 + 队列计数 / 连接状态 / 刷新）+ 正文，对应 Android TaskScreen。 */
+  /**
+   * 整屏覆盖页的底：纯色 + 与全局一致的三团径向光晕。
+   * 覆盖页若只铺 backgroundColor，浅色主题下就是一整块纯白，和其余页面完全脱节。
+   */
+  @Builder
+  OverlayBackdrop() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor(this.c().background)
+      Column()
+        .width(520)
+        .height(520)
+        .borderRadius(260)
+        .radialGradient({
+          center: [260, 260],
+          radius: 260,
+          colors: [[this.c().glowPurple, 0.0], ['rgba(0,0,0,0)', 1.0]],
+        })
+        .position({ x: -140, y: -220 })
+      Column()
+        .width(460)
+        .height(460)
+        .borderRadius(230)
+        .radialGradient({
+          center: [230, 230],
+          radius: 230,
+          colors: [[this.c().glowTeal, 0.0], ['rgba(0,0,0,0)', 1.0]],
+        })
+        .position({ x: -180, y: 220 })
+      Column()
+        .width(520)
+        .height(520)
+        .borderRadius(260)
+        .radialGradient({
+          center: [260, 260],
+          radius: 260,
+          colors: [[this.c().glowPink, 0.0], ['rgba(0,0,0,0)', 1.0]],
+        })
+        .position({ x: 120, y: 420 })
+    }
+    .width('100%')
+    .height('100%')
+  }
+
   @Builder
   TasksPanel() {
-    Column({ space: 8 }) {
+    Stack() {
+      this.OverlayBackdrop()
+      Column({ space: 8 }) {
       Row({ space: 2 }) {
         Text('关闭')
           .fontSize(12)
@@ -6189,6 +6237,9 @@ struct Index {
       top: 14 + px2vp(this.statusBarPx),
       bottom: 14 + px2vp(this.navBarPx),
     })
+      .width('100%')
+      .height('100%')
+    }
     .width('100%')
     .height('100%')
     .backgroundColor(this.c().background)
