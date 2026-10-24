@@ -297,6 +297,8 @@ struct Index {
   @State previewOpen: boolean = false;
   @State previewOutput: BridgeOutput = emptyOutput();
   @State previewError: boolean = false;
+  /** 底栏提示的自动收起定时器句柄（-1 表示没有在计时）。 */
+  private submitNoticeTimer: number = -1;
   /** 产物预览里是否已切换到内嵌视频播放器。 */
   @State videoInline: boolean = false;
   @State downloadingKey: string = '';
@@ -372,6 +374,14 @@ struct Index {
       this.notice = text;
       if (text.startsWith('提交被拒绝') || text.startsWith('已提交')) {
         this.submitNotice = text;
+        // 成功/拒绝的提示都在几秒后自动收起，避免一直占据底栏。
+        if (this.submitNoticeTimer >= 0) {
+          clearTimeout(this.submitNoticeTimer);
+        }
+        this.submitNoticeTimer = setTimeout(() => {
+          this.submitNotice = '';
+          this.submitNoticeTimer = -1;
+        }, 4000);
       }
       // 共享层确认服务器已接受后才算成功：只有这条路径点亮「已提交 ✓」。
       if (text.startsWith('已提交')) {
@@ -795,6 +805,17 @@ struct Index {
     for (let i = 0; i < task.outputRefs.length; i++) {
       const output = task.outputRefs[i];
       if (output.image) {
+        return this.artifactUrl(output);
+      }
+    }
+    return '';
+  }
+
+  /** 首个视频产物的 URL：预览页用它显示首帧，点开即可内嵌播放。 */
+  private firstVideoUrl(task: BridgeTask): string {
+    for (let i = 0; i < task.outputRefs.length; i++) {
+      const output = task.outputRefs[i];
+      if (output.video && this.artifactUrl(output).length > 0) {
         return this.artifactUrl(output);
       }
     }
@@ -4212,6 +4233,19 @@ struct Index {
           if (this.firstImageUrl(task).length > 0) {
             this.RemoteImage(this.firstImageUrl(task), ImageFit.Contain)
 
+          } else if (this.firstVideoUrl(task).length > 0) {
+            // 视频产物也先给首帧：点击整块打开产物面板，里面可以内嵌播放。
+            Column() {
+              VideoThumb({
+                url: this.firstVideoUrl(task),
+                isDark: this.isDark,
+                hint: '点击播放',
+              })
+            }
+            .width('100%')
+            .height('100%')
+            .onClick(() => this.openArtifacts(task))
+
           } else {
             Column() {
               Text(task.state === 'Failed' ? '任务失败' : '没有可预览的图片')
@@ -4276,7 +4310,7 @@ struct Index {
           .width('100%')
           .alignItems(VerticalAlign.Top)
         } else if (task.outputRefs.length > 0 && this.firstImageUrl(task).length === 0) {
-          Text(`产物 ${task.outputRefs.length} 个；该类型暂不内置预览。`)
+          Text(this.firstVideoUrl(task).length > 0 ? `产物 ${task.outputRefs.length} 个；点击上方首帧可播放。` : `产物 ${task.outputRefs.length} 个；该类型暂不内置预览。`)
             .fontSize(10.5)
             .fontFamily('monospace')
             .fontColor(this.c().textDim)
