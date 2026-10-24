@@ -46,6 +46,7 @@ fun ComfyPilotApp(
     onCancel: (String) -> Unit,
     onRefreshWorkflows: () -> Unit,
     onOpenWorkflow: (String) -> Unit,
+    onSetNodeBypassed: (Int, Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val appearance = remember(context) { AppearanceStore(context.applicationContext) }
@@ -129,6 +130,7 @@ fun ComfyPilotApp(
                     onTasks = { tasksOverlay = true },
                     onSubmit = { workflowJson, name, path -> onSubmit(workflowJson, name, path) },
                     onCancel = onCancel,
+                    onSetNodeBypassed = onSetNodeBypassed,
                 )
 
                 Screen.Tasks -> TaskScreen(

@@ -31,6 +31,7 @@ internal fun sessionWorkflowJson(state: SessionState, rawRequest: String): Strin
     return when (request.op) {
         WorkflowUiRequest.OP_VIEW -> workflowViewJson(state, request)
         WorkflowUiRequest.OP_PROMPT -> workflowPromptJson(state, request)
+        WorkflowUiRequest.OP_DISABLE_IMPACT -> workflowDisableImpactJson(state, request)
         else -> workflowError("未知的工作流操作：${request.op}")
     }
 }
@@ -40,12 +41,19 @@ private data class WorkflowUiRequest(
     val pinnedNodeIds: Set<Int>,
     val enabledGraphIds: Set<String>?,
     val overrides: Map<Int, Map<String, JsonElement>>,
+    /** 用户逐个关闭的节点；null 表示请求没带，沿用会话状态里的集合。 */
+    val bypassedNodeIds: Set<Int>?,
+    /** 用户逐个重新启用的节点；null 表示请求没带，沿用会话状态里的集合。 */
+    val enabledNodeIds: Set<Int>?,
+    /** 仅关闭影响探测使用：要试关的节点。 */
+    val nodeId: Int?,
     /** 仅提交时使用：保存类节点的文件名追加这个短 token，避免产物互相覆盖。 */
     val runToken: String?,
 ) {
     companion object {
         const val OP_VIEW = "view"
         const val OP_PROMPT = "prompt"
+        const val OP_DISABLE_IMPACT = "disable_impact"
 
         fun parse(raw: String): WorkflowUiRequest {
             val obj = bridgeJson.parseToJsonElement(raw) as? JsonObject
@@ -57,6 +65,9 @@ private data class WorkflowUiRequest(
                     .toSet(),
                 enabledGraphIds = parseGraphIds(obj),
                 overrides = parseOverrides(obj["overrides"] as? JsonObject),
+                bypassedNodeIds = parseNodeIds(obj["bypassedNodeIds"]),
+                enabledNodeIds = parseNodeIds(obj["enabledNodeIds"]),
+                nodeId = (obj["nodeId"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull(),
                 runToken = obj.stringOrNull("run")?.trim()?.takeIf { it.isNotEmpty() },
             )
         }
@@ -66,6 +77,13 @@ private data class WorkflowUiRequest(
             if (element is JsonNull) return null
             val array = element as? JsonArray ?: return null
             return array.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.toSet()
+        }
+
+        /** 显式传空数组 = 全部启用；没带这个键 = 由会话状态决定。 */
+        private fun parseNodeIds(element: JsonElement?): Set<Int>? {
+            if (element == null || element is JsonNull) return null
+            val array = element as? JsonArray ?: return null
+            return array.mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.toIntOrNull() }.toSet()
         }
 
         private fun parseOverrides(obj: JsonObject?): Map<Int, Map<String, JsonElement>> {
@@ -86,6 +104,7 @@ private data class WorkflowUiRequest(
 private fun workflowViewJson(state: SessionState, request: WorkflowUiRequest): String {
     val document = state.workflow.document
         ?: return workflowError("还没有打开工作流", path = state.workflow.loadingPath.orEmpty())
+    val bypassedNodeIds = request.effectiveBypassedNodeIds(state)
     val decision = WorkflowDecisions.evaluate(
         document = document,
         definitions = state.nodeInfo,
@@ -95,6 +114,8 @@ private fun workflowViewJson(state: SessionState, request: WorkflowUiRequest): S
         nodeInfoRequested = state.nodeInfoRequested,
         // 视图永远不带提交 token；唯一后缀只在真正提交时追加。
         runToken = null,
+        bypassedNodeIds = bypassedNodeIds,
+        enabledNodeIds = request.effectiveEnabledNodeIds(state),
     )
 
     return buildJsonObject {
@@ -105,6 +126,12 @@ private fun workflowViewJson(state: SessionState, request: WorkflowUiRequest): S
         put("format", decision.format.name)
         put("defaultGraphIds", stringArray(decision.defaultGraphIds))
         put("selectedGraphIds", stringArray(decision.selectedGraphIds.sorted()))
+        putJsonArray("bypassedNodeIds") {
+            decision.bypassedNodeIds.sorted().forEach { add(JsonPrimitive(it)) }
+        }
+        putJsonArray("enabledNodeIds") {
+            decision.enabledNodeIds.sorted().forEach { add(JsonPrimitive(it)) }
+        }
         putJsonArray("graphs") {
             decision.graphs.forEach { graph ->
                 add(
@@ -152,6 +179,8 @@ private fun workflowPromptJson(state: SessionState, request: WorkflowUiRequest):
         overrides = request.overrides,
         nodeInfoRequested = state.nodeInfoRequested,
         runToken = request.runToken,
+        bypassedNodeIds = request.effectiveBypassedNodeIds(state),
+        enabledNodeIds = request.effectiveEnabledNodeIds(state),
     )
     if (decision.format == WorkflowFormat.UI && decision.pendingNodeClasses.isNotEmpty()) {
         return buildJsonObject {
@@ -193,6 +222,50 @@ private fun workflowPromptJson(state: SessionState, request: WorkflowUiRequest):
     }
 }
 
+/**
+ * 关闭单个节点前的同步影响探测（`op=disable_impact`）。
+ *
+ * 只构建 prompt、不落盘、不发请求；宿主在用户点开关时调用一次即可。
+ */
+private fun workflowDisableImpactJson(state: SessionState, request: WorkflowUiRequest): String {
+    val nodeId = request.nodeId
+        ?: return workflowImpactError("缺少要关闭的节点 id")
+    val document = state.workflow.document
+        ?: return workflowImpactError("还没有打开工作流")
+    val impact = WorkflowDecisions.probeNodeDisable(
+        document = document,
+        definitions = state.nodeInfo,
+        nodeId = nodeId,
+        requestedGraphIds = request.enabledGraphIds,
+        overrides = request.overrides,
+        bypassedNodeIds = request.effectiveBypassedNodeIds(state),
+        enabledNodeIds = request.effectiveEnabledNodeIds(state),
+    )
+    return buildJsonObject {
+        put("ok", true)
+        put("state", "ready")
+        put("nodeId", nodeId)
+        put("breaking", impact.breaking)
+        put("reason", impact.reason ?: "")
+    }.toString()
+}
+
+private fun workflowImpactError(message: String): String = buildJsonObject {
+    put("ok", false)
+    put("state", "error")
+    put("message", message)
+    put("breaking", false)
+    put("reason", "")
+}.toString()
+
+/** 请求没带 `bypassedNodeIds` 时沿用会话状态：宿主刷新视图不会丢掉开关。 */
+private fun WorkflowUiRequest.effectiveBypassedNodeIds(state: SessionState): Set<Int> =
+    bypassedNodeIds ?: state.bypassedNodeIds
+
+/** 同理：请求没带 `enabledNodeIds` 时沿用会话状态里重新启用的节点。 */
+private fun WorkflowUiRequest.effectiveEnabledNodeIds(state: SessionState): Set<Int> =
+    enabledNodeIds ?: state.enabledNodeIds
+
 private fun workflowError(message: String, path: String = ""): String = buildJsonObject {
     put("ok", false)
     put("state", "error")
@@ -202,6 +275,8 @@ private fun workflowError(message: String, path: String = ""): String = buildJso
     put("format", "")
     put("defaultGraphIds", stringArray(emptyList()))
     put("selectedGraphIds", stringArray(emptyList()))
+    putJsonArray("bypassedNodeIds") {}
+    putJsonArray("enabledNodeIds") {}
     putJsonArray("graphs") {}
     putJsonArray("nodes") {}
     putJsonArray("commonFields") {}
@@ -220,6 +295,9 @@ private fun nodeJson(node: WorkflowNodeView, pinnedNodeIds: Set<Int>) = buildJso
     put("displayName", node.displayName)
     put("title", node.title)
     put("mode", node.mode)
+    // 界面开关读 enabled（文件模式 + 本次会话覆盖后的生效状态），不能只看 bypassed。
+    put("enabled", node.enabled)
+    put("bypassed", node.bypassed)
     put("missing", node.missing)
     put("reachable", node.reachable)
     put("needsInput", node.needsInput)

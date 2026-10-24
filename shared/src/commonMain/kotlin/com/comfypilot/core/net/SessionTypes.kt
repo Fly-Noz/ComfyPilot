@@ -53,6 +53,14 @@ sealed interface SessionInput {
     /** 打开某个工作流文件；原文与节点定义都从服务器现取。 */
     data class WorkflowOpenRequested(val path: String) : SessionInput
 
+    /**
+     * 用户在当前工作流里关闭/重新启用一个节点（旁路开关）。
+     *
+     * 只改会话内存，不写回工作流文件；打开另一个工作流时清空。
+     * [bypassed] 为 false 表示“我要这个节点执行”，即使文件里保存的是静音/旁路。
+     */
+    data class NodeBypassChanged(val nodeId: Int, val bypassed: Boolean) : SessionInput
+
     data class UserReconnect(val nowMs: Long) : SessionInput
 
     /**

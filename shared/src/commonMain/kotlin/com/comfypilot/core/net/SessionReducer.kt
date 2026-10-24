@@ -58,6 +58,7 @@ class SessionReducer(
         is SessionInput.CancelRequested -> onCancel(state, input)
         SessionInput.WorkflowCatalogRequested -> onCatalogRequested(state)
         is SessionInput.WorkflowOpenRequested -> onWorkflowOpenRequested(state, input)
+        is SessionInput.NodeBypassChanged -> onNodeBypassChanged(state, input)
         is SessionInput.UserReconnect -> onUserReconnect(state, input.nowMs)
         is SessionInput.ReconcileRequested -> onReconcileRequested(state, input)
         is SessionInput.Tick -> onTick(state, input.nowMs)
@@ -417,9 +418,21 @@ class SessionReducer(
         input: SessionInput.WorkflowOpenRequested,
     ): ReduceResult {
         val lease = state.lease
-            ?: return ReduceResult(state.copy(workflow = WorkflowSelection(error = "未连接 ComfyUI")))
+            ?: return ReduceResult(
+                state.copy(
+                    workflow = WorkflowSelection(error = "未连接 ComfyUI"),
+                    // 没打开新文档，但旧文档的开关状态不该留在"打开失败"的页面之外。
+                    bypassedNodeIds = emptySet(),
+                    enabledNodeIds = emptySet(),
+                ),
+            )
         return ReduceResult(
-            state.copy(workflow = WorkflowSelection(loadingPath = input.path)),
+            // 换文档就清空单节点开关；它们只属于当前打开的工作流。
+            state.copy(
+                workflow = WorkflowSelection(loadingPath = input.path),
+                bypassedNodeIds = emptySet(),
+                enabledNodeIds = emptySet(),
+            ),
             listOf(
                 SessionEffect.SendHttp(
                     lease,
@@ -427,6 +440,31 @@ class SessionReducer(
                     RequestTag.WorkflowFile(input.path),
                 ),
             ),
+        )
+    }
+
+    /** 单节点旁路开关只影响会话内存；节点是否真实存在由工作流视图决定。 */
+    private fun onNodeBypassChanged(
+        state: SessionState,
+        input: SessionInput.NodeBypassChanged,
+    ): ReduceResult {
+        if (state.workflow.document == null) return ReduceResult(state)
+        // 两个集合互斥：关闭 = 只进 bypassed；重新启用 = 只进 enabled（覆盖文件里的静音/旁路）。
+        val nextBypassed = if (input.bypassed) {
+            state.bypassedNodeIds + input.nodeId
+        } else {
+            state.bypassedNodeIds - input.nodeId
+        }
+        val nextEnabled = if (input.bypassed) {
+            state.enabledNodeIds - input.nodeId
+        } else {
+            state.enabledNodeIds + input.nodeId
+        }
+        if (nextBypassed == state.bypassedNodeIds && nextEnabled == state.enabledNodeIds) {
+            return ReduceResult(state)
+        }
+        return ReduceResult(
+            state.copy(bypassedNodeIds = nextBypassed, enabledNodeIds = nextEnabled),
         )
     }
 

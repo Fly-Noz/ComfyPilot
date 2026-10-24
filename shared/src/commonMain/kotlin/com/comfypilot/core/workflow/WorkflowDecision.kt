@@ -24,6 +24,10 @@ class WorkflowAnalysis internal constructor(
     val selectedGraphIds: Set<String> get() = selection.selectedIds
     val enabledOutputIds: Set<Int>? get() = selection.enabledOutputIds
     val forcedNormalNodeIds: Set<Int> get() = selection.forcedNormalNodeIds
+    /** 用户在当前工作流里显式关闭的节点（优先于图级强制启用）。 */
+    val bypassedNodeIds: Set<Int> get() = selection.bypassedNodeIds
+    /** 用户在当前工作流里显式重新启用的节点（把文件里的静音/旁路恢复执行）。 */
+    val enabledNodeIds: Set<Int> get() = selection.enabledNodeIds
     val commonFields: List<WorkflowField> get() = fields.commonFields
     val pendingNodeClassCount: Int get() = pendingNodeClasses.size
 
@@ -60,6 +64,8 @@ data class WorkflowDecision(
     val selectedGraphIds: Set<String> get() = analysis.selectedGraphIds
     val enabledOutputIds: Set<Int>? get() = analysis.enabledOutputIds
     val forcedNormalNodeIds: Set<Int> get() = analysis.forcedNormalNodeIds
+    val bypassedNodeIds: Set<Int> get() = analysis.bypassedNodeIds
+    val enabledNodeIds: Set<Int> get() = analysis.enabledNodeIds
     val commonFields: List<WorkflowField> get() = analysis.commonFields
     val pendingNodeClasses: List<String> get() = analysis.pendingNodeClasses
     val missingNodeClasses: List<String> get() = analysis.missingNodeClasses
@@ -106,6 +112,8 @@ object WorkflowDecisions {
         definitions: Map<String, NodeDefinition>,
         requestedGraphIds: Set<String>? = null,
         nodeInfoRequested: Set<String> = emptySet(),
+        bypassedNodeIds: Set<Int> = emptySet(),
+        enabledNodeIds: Set<Int> = emptySet(),
     ): WorkflowAnalysis {
         val graphs = if (document.format == WorkflowFormat.UI) {
             WorkflowGraphs.analyze(document, definitions)
@@ -120,7 +128,15 @@ object WorkflowDecisions {
             graphs = graphs,
             selectedIds = selectedIds,
             enabledOutputIds = if (graphs.isEmpty()) null else selected.flatMap { it.outputNodeIds }.toSet(),
-            forcedNormalNodeIds = if (graphs.isEmpty()) emptySet() else selected.flatMap { it.nodeIds }.toSet(),
+            // 只强制启用“文件里本来关着、这次被用户主动打开”的节点图；
+            // 默认就启用的图保留文件里保存的单节点静音/旁路状态。
+            forcedNormalNodeIds = if (graphs.isEmpty()) {
+                emptySet()
+            } else {
+                selected.filter { !it.enabled }.flatMap { it.nodeIds }.toSet()
+            },
+            bypassedNodeIds = bypassedNodeIds,
+            enabledNodeIds = enabledNodeIds,
         )
 
         val fields = WorkflowFields.build(
@@ -128,6 +144,8 @@ object WorkflowDecisions {
             definitions = definitions,
             forcedNormalNodeIds = selection.forcedNormalNodeIds,
             enabledOutputIds = selection.enabledOutputIds,
+            bypassedNodeIds = selection.bypassedNodeIds,
+            enabledNodeIds = selection.enabledNodeIds,
         )
 
         val allClasses = document.nodeClasses.distinct()
@@ -161,6 +179,8 @@ object WorkflowDecisions {
             overrides = overrides,
             enabledOutputIds = analysis.enabledOutputIds,
             forcedNormalNodeIds = analysis.forcedNormalNodeIds,
+            bypassedNodeIds = analysis.bypassedNodeIds,
+            enabledNodeIds = analysis.enabledNodeIds,
             runToken = runToken,
         )
         return WorkflowDecision(
@@ -179,28 +199,146 @@ object WorkflowDecisions {
         overrides: Map<Int, Map<String, JsonElement>> = emptyMap(),
         nodeInfoRequested: Set<String> = emptySet(),
         runToken: String? = null,
+        bypassedNodeIds: Set<Int> = emptySet(),
+        enabledNodeIds: Set<Int> = emptySet(),
     ): WorkflowDecision = decide(
-        analysis = analyze(document, definitions, requestedGraphIds, nodeInfoRequested),
+        analysis = analyze(
+            document = document,
+            definitions = definitions,
+            requestedGraphIds = requestedGraphIds,
+            nodeInfoRequested = nodeInfoRequested,
+            bypassedNodeIds = bypassedNodeIds,
+            enabledNodeIds = enabledNodeIds,
+        ),
         overrides = overrides,
         pinnedNodeIds = pinnedNodeIds,
         runToken = runToken,
     )
 
     /**
-     * 置顶且可达最前；其余可达按“缺值优先”；未启用/旁路节点最后。
-     * 置顶状态在水合图关闭时保留，但该节点不会因此提前。
+     * 置顶且会提交的节点最前；其余节点严格保持工作流原文里的顺序。
+     *
+     * 排序只看“原文顺序 + 置顶”，绝不看本次会话的单节点开关：关闭一个节点不能让它
+     * （或它的下游）跳到列表底部。[WorkflowNodeView.orderReachable] 是忽略单节点开关
+     * 的可达性，未启用节点图里的节点仍然会排到最后（这是图级启停，不是单节点开关）。
      */
     fun orderNodes(
         nodes: List<WorkflowNodeView>,
         pinnedNodeIds: Set<Int>,
     ): List<WorkflowNodeView> = nodes.sortedWith(
         compareBy<WorkflowNodeView>(
-            { !(it.reachable && it.id in pinnedNodeIds) },
-            { !it.reachable },
-            { !it.needsInput },
+            { !(it.orderReachable && it.id in pinnedNodeIds) },
+            { !it.orderReachable },
+            { !it.orderNeedsInput },
         ),
     )
+
+    /**
+     * 关闭某个节点前的影响探测：只回答"关掉它还能不能构建出可执行的输出"。
+     *
+     * 用当前选择构建两次 prompt（一次原样、一次额外旁路 [nodeId]），并检查可执行的
+     * 输出节点是否还在。开销只在用户点开关时发生，不进入每帧状态。
+     */
+    fun probeNodeDisable(
+        document: WorkflowDocument,
+        definitions: Map<String, NodeDefinition>,
+        nodeId: Int,
+        requestedGraphIds: Set<String>? = null,
+        overrides: Map<Int, Map<String, JsonElement>> = emptyMap(),
+        bypassedNodeIds: Set<Int> = emptySet(),
+        enabledNodeIds: Set<Int> = emptySet(),
+    ): NodeDisableImpact {
+        if (document.format != WorkflowFormat.UI) return NodeDisableImpact(breaking = false, reason = null)
+        return probeNodeDisable(
+            analysis = analyze(
+                document = document,
+                definitions = definitions,
+                requestedGraphIds = requestedGraphIds,
+                bypassedNodeIds = bypassedNodeIds,
+                enabledNodeIds = enabledNodeIds,
+            ),
+            nodeId = nodeId,
+            overrides = overrides,
+        )
+    }
+
+    /**
+     * 已有静态分析时的影响探测（界面点开关时用这个）：不必重新分析整张图，
+     * 只需按当前选择构建两次 prompt。
+     */
+    fun probeNodeDisable(
+        analysis: WorkflowAnalysis,
+        nodeId: Int,
+        overrides: Map<Int, Map<String, JsonElement>> = emptyMap(),
+    ): NodeDisableImpact {
+        val target = analysis.fields.nodes.firstOrNull { it.id == nodeId }
+            ?: return NodeDisableImpact(breaking = false, reason = null)
+        val nextBypass = analysis.bypassedNodeIds + nodeId
+        val nextEnabled = analysis.enabledNodeIds - nodeId
+
+        // 第一次构建确认当前选择下的状态；第二次只多关这一个节点。
+        PromptBuilder.build(
+            document = analysis.document,
+            definitions = analysis.definitions,
+            overrides = overrides,
+            enabledOutputIds = analysis.enabledOutputIds,
+            forcedNormalNodeIds = analysis.forcedNormalNodeIds,
+            bypassedNodeIds = analysis.bypassedNodeIds,
+            enabledNodeIds = analysis.enabledNodeIds,
+        )
+        val disabledBuild = PromptBuilder.build(
+            document = analysis.document,
+            definitions = analysis.definitions,
+            overrides = overrides,
+            enabledOutputIds = analysis.enabledOutputIds,
+            forcedNormalNodeIds = analysis.forcedNormalNodeIds,
+            bypassedNodeIds = nextBypass,
+            enabledNodeIds = nextEnabled,
+        )
+
+        // 当前视图里的 mode 已经是生效后的模式；关掉目标节点只影响它自己这一位。
+        val enabledOutputIds = analysis.enabledOutputIds
+        val executableOutputs = analysis.fields.nodes
+            .filter { node ->
+                val mode = if (node.id == nodeId) UiWorkflowParser.MODE_BYPASS else node.mode
+                mode == UiWorkflowParser.MODE_NORMAL &&
+                    analysis.definitions[node.type]?.isOutputNode == true &&
+                    (enabledOutputIds == null || node.id in enabledOutputIds)
+            }
+            .map { it.id }
+            .toSet()
+
+        if (disabledBuild is PromptBuild.Ready && executableOutputs.isNotEmpty()) {
+            return NodeDisableImpact(breaking = false, reason = null)
+        }
+        val targetIsOutput = analysis.definitions[target.type]?.isOutputNode == true
+        val reason = when {
+            targetIsOutput && executableOutputs.isEmpty() -> "该节点是输出节点，关闭后没有可执行的输出"
+            disabledBuild is PromptBuild.Blocked -> describeDisableProblem(disabledBuild.problems.firstOrNull())
+            executableOutputs.isEmpty() -> "关闭后没有可执行的输出"
+            else -> null
+        }
+        return NodeDisableImpact(breaking = true, reason = reason)
+    }
+
+    /** 把转换问题翻译成一句短的关闭影响说明；没有节点信息的通用问题直接带上原因。 */
+    private fun describeDisableProblem(problem: BuildProblem?): String {
+        problem ?: return "关闭后工作流不能构建"
+        val nodeId = problem.nodeId ?: return "关闭后${problem.message}"
+        if (problem.message.contains("必填输入") || problem.message.contains("上游连接")) {
+            val type = problem.nodeType?.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
+            return "关闭后 #$nodeId$type 的必填输入没有来源"
+        }
+        return "关闭后 ${problem.format()}"
+    }
 }
+
+/** 关闭单个节点的影响：会不会让工作流无法构建/没有可执行输出，以及一句原因。 */
+data class NodeDisableImpact(
+    val breaking: Boolean,
+    /** 只在 [breaking] 为 true 时有值，用于确认弹窗的第二行。 */
+    val reason: String?,
+)
 
 /** 选中了哪些节点图，以及由此派生的输出节点/强制正常执行节点。 */
 data class WorkflowGraphSelection(
@@ -208,6 +346,10 @@ data class WorkflowGraphSelection(
     val selectedIds: Set<String>,
     val enabledOutputIds: Set<Int>?,
     val forcedNormalNodeIds: Set<Int>,
+    /** 用户逐个关闭的节点；覆盖 [forcedNormalNodeIds]。 */
+    val bypassedNodeIds: Set<Int> = emptySet(),
+    /** 用户逐个重新启用的节点；把文件里的静音/旁路恢复为正常执行。 */
+    val enabledNodeIds: Set<Int> = emptySet(),
 ) {
     val selectedGraphs: List<WorkflowGraph> get() = graphs.filter { it.id in selectedIds }
 }

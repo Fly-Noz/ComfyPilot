@@ -77,6 +77,9 @@ import android.graphics.BitmapFactory
 import android.graphics.Bitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.unit.LayoutDirection
@@ -145,6 +148,7 @@ fun WorkflowDetailScreen(
     onTasks: () -> Unit,
     onSubmit: (String, String?, String?) -> Unit,
     onCancel: (String) -> Unit,
+    onSetNodeBypassed: (Int, Boolean) -> Unit,
 ) {
     val document = state.workflow.document
 
@@ -171,6 +175,7 @@ fun WorkflowDetailScreen(
                     onSubmit = onSubmit,
                     onCancel = onCancel,
                     onTasks = onTasks,
+                    onSetNodeBypassed = onSetNodeBypassed,
                 )
             }
         }
@@ -215,6 +220,7 @@ private fun DetailBody(
     onSubmit: (String, String?, String?) -> Unit,
     onCancel: (String) -> Unit,
     onTasks: () -> Unit,
+    onSetNodeBypassed: (Int, Boolean) -> Unit,
 ) {
     val c = Spectrum.colors
     var enabledGraphOverride by remember(document.path) { mutableStateOf<Set<String>?>(null) }
@@ -233,13 +239,26 @@ private fun DetailBody(
         mutableStateOf<Map<Int, Map<String, JsonElement>>>(emptyMap())
     }
 
+    // 单节点旁路开关存在会话状态里：Activity 重建（配置刷新）后仍然保留，
+    // 但打开另一个工作流时由共享层清空。
+    val bypassedNodeIds = state.bypassedNodeIds
+    val enabledNodeIds = state.enabledNodeIds
     // 节点图、字段和待加载定义都由共享层决定；这里只缓存与字段值无关的部分。
-    val analysis = remember(document, state.nodeInfo, enabledGraphOverride, state.nodeInfoRequested) {
+    val analysis = remember(
+        document,
+        state.nodeInfo,
+        enabledGraphOverride,
+        state.nodeInfoRequested,
+        bypassedNodeIds,
+        enabledNodeIds,
+    ) {
         WorkflowDecisions.analyze(
             document = document,
             definitions = state.nodeInfo,
             requestedGraphIds = enabledGraphOverride,
             nodeInfoRequested = state.nodeInfoRequested,
+            bypassedNodeIds = bypassedNodeIds,
+            enabledNodeIds = enabledNodeIds,
         )
     }
     val graphs = analysis.graphs
@@ -247,8 +266,8 @@ private fun DetailBody(
     val fields = analysis.fields
     val disabledNodeIds = analysis.disabledNodeIds
     val showGraphPicker = graphs.size > 1 || (graphs.size == 1 && !graphs[0].enabled)
-    // 置顶且会提交的节点最前；节点图未启用时保留置顶，但不会优先显示。
-    // 其余节点仍按“可达优先、可达且缺值更优先”排序，未启用/旁路的节点放最后。
+    // 置顶且会提交的节点最前；其余节点按工作流原文顺序排列。
+    // 单节点开关不参与排序：关掉一个节点不会让它跳到列表底部。
     val orderedNodes = remember(analysis, pinnedNodeIds) {
         WorkflowDecisions.orderNodes(analysis.fields.nodes, pinnedNodeIds)
     }
@@ -282,6 +301,8 @@ private fun DetailBody(
     var expandedChildGraphs by remember(document.path) { mutableStateOf<Set<String>>(emptySet()) }
     var restExpanded by remember(document.path) { mutableStateOf(false) }
     var expandedOverride by remember(document.path) { mutableStateOf<Set<Int>?>(null) }
+    // 关闭节点前的确认弹窗：只有共享层判定 breaking 时才会出现。
+    var bypassConfirm by remember(document.path) { mutableStateOf<BypassConfirm?>(null) }
     var sheetVisible by remember { mutableStateOf(false) }
     var sheetQuery by remember { mutableStateOf("") }
     var sheetTraits by remember { mutableStateOf<Set<NodeTrait>>(emptySet()) }
@@ -368,6 +389,31 @@ private fun DetailBody(
         }
         enabledGraphOverride = next
         expandedOverride = null
+    }
+
+    /**
+     * 节点开关：关闭前先做共享层的影响探测；只有会破坏工作流时才弹确认。
+     * 文件里本来静音/旁路的节点显示为关闭，点一下就是“启用”，不需要再探测。
+     */
+    fun toggleBypass(node: WorkflowNodeView) {
+        if (!node.enabled) {
+            onSetNodeBypassed(node.id, false)
+            return
+        }
+        scope.launch {
+            val impact = withContext(Dispatchers.Default) {
+                WorkflowDecisions.probeNodeDisable(
+                    analysis = analysis,
+                    nodeId = node.id,
+                    overrides = overrides,
+                )
+            }
+            if (impact.breaking) {
+                bypassConfirm = BypassConfirm(node = node, reason = impact.reason)
+            } else {
+                onSetNodeBypassed(node.id, true)
+            }
+        }
     }
 
     // 上传只服务 LoadImage 的 image 控件：先传服务器，再用返回的文件名覆盖控件值。
@@ -610,6 +656,7 @@ private fun DetailBody(
                     },
                     onToggle = ::toggleNode,
                     onTogglePin = ::togglePin,
+                    onToggleBypass = ::toggleBypass,
                     onToggleChildGraph = { id ->
                         expandedChildGraphs = if (id in expandedChildGraphs) {
                             expandedChildGraphs - id
@@ -720,6 +767,33 @@ private fun DetailBody(
             }
         }
     }
+    bypassConfirm?.let { confirm ->
+        SpectrumDialog(
+            title = "关闭节点",
+            onDismiss = { bypassConfirm = null },
+            confirmText = "仍要关闭",
+            onConfirm = {
+                onSetNodeBypassed(confirm.node.id, true)
+                bypassConfirm = null
+            },
+            dismissText = "取消",
+        ) {
+            Text(
+                text = "关闭该节点可能导致工作流无法运行，是否确认关闭",
+                color = c.textMuted,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+            )
+            confirm.reason?.takeIf { it.isNotBlank() }?.let { reason ->
+                Text(
+                    text = reason,
+                    color = c.err,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                )
+            }
+        }
+    }
     if (sheetVisible) {
         val sheetNodes = remember(fields.nodes, sheetQuery, sheetTraits, nodeNotes) {
             val typeFilters = sheetTraits - NodeTrait.NeedsInput
@@ -824,6 +898,7 @@ private fun DetailBody(
                         }
                         val stateLabel = when {
                             node.missing -> "缺少定义"
+                            !node.enabled -> "已关闭"
                             node.id in disabledNodeIds -> "未启用"
                             !node.reachable -> "不会提交"
                             else -> "${node.fields.size} 个输入"
@@ -929,6 +1004,7 @@ private fun InputPane(
     onToggle: (Int) -> Unit,
     onEditNote: (WorkflowNodeView) -> Unit,
     onTogglePin: (Int) -> Unit,
+    onToggleBypass: (WorkflowNodeView) -> Unit,
     onToggleChildGraph: (String) -> Unit,
     onToggleGraph: (WorkflowGraph) -> Unit,
     onToggleRest: () -> Unit,
@@ -1013,6 +1089,7 @@ private fun InputPane(
                     previews = previews,
                     onToggle = { onToggle(row.node.id) },
                     onTogglePin = { onTogglePin(row.node.id) },
+                    onToggleBypass = { onToggleBypass(row.node) },
                     onEditNote = { onEditNote(row.node) },
                     onChange = onOverride,
                     onPickImage = onPickImage,
@@ -1281,6 +1358,12 @@ private data class GraphSection(
     val children: List<GraphChild>,
 )
 
+/** 等待用户确认的"关闭节点"操作，以及共享层给出的破坏原因。 */
+private data class BypassConfirm(
+    val node: WorkflowNodeView,
+    val reason: String?,
+)
+
 private data class GraphChild(
     val graph: WorkflowGraph,
     val nodes: List<WorkflowNodeView>,
@@ -1477,19 +1560,21 @@ private fun NodeInputCard(
     previews: Map<String, Bitmap>,
     onToggle: () -> Unit,
     onTogglePin: () -> Unit,
+    onToggleBypass: () -> Unit,
     onEditNote: () -> Unit,
     onChange: (Int, String, JsonElement) -> Unit,
     onPickImage: (WorkflowField) -> Unit,
 ) {
     val c = Spectrum.colors
     val shape = RoundedCornerShape(18.dp)
+    val enabled = node.enabled
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = if (nested) 10.dp else 0.dp)
             .clip(shape)
-            .background(c.card)
-            .border(1.dp, c.border, shape),
+            .background(if (enabled) c.card else c.card.copy(alpha = 0.5f))
+            .border(1.dp, if (enabled) c.border else c.border.copy(alpha = 0.55f), shape),
     ) {
         Row(
             modifier = Modifier
@@ -1514,7 +1599,7 @@ private fun NodeInputCard(
                     )
                     Text(
                         text = label ?: node.displayName,
-                        color = c.text,
+                        color = if (enabled) c.text else c.textDim,
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
@@ -1535,6 +1620,7 @@ private fun NodeInputCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            BypassIconButton(enabled = enabled, onToggle = onToggleBypass)
             if (node.needsInput) {
                 SpectrumPill(text = "待填写", tone = PillTone.Err)
             }
@@ -1549,6 +1635,7 @@ private fun NodeInputCard(
 
         val note = when {
             node.missing -> "服务端没有该节点的定义，不能调参；提交会被拒绝。"
+            !enabled -> "已关闭，提交时会跳过该节点。"
             graphDisabled -> "节点图未启用，不会被提交。"
             !node.reachable -> "未连接到输出节点，不会被提交。"
             else -> null
@@ -1576,9 +1663,12 @@ private fun NodeInputCard(
                     FieldEditor(
                         field = field,
                         value = overrides[field.inputName] ?: field.value,
-                        editable = node.reachable,
+                        editable = node.reachable && enabled,
                         preview = previews["${node.id}:${field.inputName}"],
-                        onPickImage = if (node.reachable && field.nodeType == "LoadImage" && field.inputName == "image") {
+                        onPickImage = if (
+                            node.reachable && enabled &&
+                            field.nodeType == "LoadImage" && field.inputName == "image"
+                        ) {
                             { onPickImage(field) }
                         } else {
                             null
@@ -1590,6 +1680,56 @@ private fun NodeInputCard(
                     Text("没有可调参数。", color = c.textDim, fontSize = 11.sp)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun BypassIconButton(enabled: Boolean, onToggle: () -> Unit) {
+    val c = Spectrum.colors
+    val shape = RoundedCornerShape(10.dp)
+    // 开启时用强调色；关闭时用暗色 + 55% 透明度，和卡片整体的“已关闭”观感一致。
+    val tint = if (enabled) c.accent else c.textDim.copy(alpha = 0.55f)
+    val fill = if (enabled) c.accentSoft else Color.Transparent
+    val rim = if (enabled) c.accent.copy(alpha = 0.45f) else c.border.copy(alpha = 0.7f)
+    Box(
+        modifier = Modifier
+            .size(36.dp)
+            .clip(shape)
+            .background(fill)
+            .border(1.dp, rim, shape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClickLabel = if (enabled) "关闭节点" else "启用节点",
+                onClick = onToggle,
+            )
+            .semantics {
+                contentDescription = if (enabled) "启用状态" else "已关闭"
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(modifier = Modifier.size(17.dp)) {
+            val w = size.width
+            val h = size.height
+            val stroke = w * 0.11f
+            // 电源图标：顶部留口的圆环 + 一根竖杆，不依赖 material-icons-extended。
+            drawArc(
+                color = tint,
+                startAngle = -60f,
+                sweepAngle = 300f,
+                useCenter = false,
+                topLeft = Offset(w * 0.18f, h * 0.26f),
+                size = Size(w * 0.64f, h * 0.64f),
+                style = Stroke(width = stroke, cap = StrokeCap.Round),
+            )
+            drawLine(
+                color = tint,
+                start = Offset(w * 0.5f, h * 0.12f),
+                end = Offset(w * 0.5f, h * 0.46f),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
         }
     }
 }

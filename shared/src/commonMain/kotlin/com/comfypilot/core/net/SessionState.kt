@@ -26,6 +26,19 @@ data class SessionState(
     val catalog: WorkflowCatalog = WorkflowCatalog.Idle,
     /** 当前打开的工作流（原文 + 格式识别）。 */
     val workflow: WorkflowSelection = WorkflowSelection(),
+    /**
+     * 当前工作流里被用户逐个关闭（旁路）的节点。
+     *
+     * 只保存在会话内存：切换工作流时清空，不写回服务器上的工作流文件。
+     */
+    val bypassedNodeIds: Set<Int> = emptySet(),
+    /**
+     * 当前工作流里被用户逐个重新启用的节点。
+     *
+     * 用于把工作流文件里保存为静音（2）/旁路（4）的节点恢复执行；同样只存在会话内存，
+     * 切换工作流时清空。[bypassedNodeIds] 优先。
+     */
+    val enabledNodeIds: Set<Int> = emptySet(),
     /** 已取到的节点定义，按类名缓存；同一台服务器上可跨工作流复用。 */
     val nodeInfo: Map<String, NodeDefinition> = emptyMap(),
     /** 已发出过请求的类名：成功/失败都算，避免反复打服务端。 */

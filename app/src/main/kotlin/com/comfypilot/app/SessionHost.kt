@@ -114,6 +114,11 @@ object SessionHost {
         runtime?.openWorkflow(path)
     }
 
+    /** 关闭/重新启用当前工作流里的单个节点；只存在会话内存，不写回服务器文件。 */
+    fun setNodeBypass(nodeId: Int, bypassed: Boolean) {
+        runtime?.setNodeBypass(nodeId, bypassed)
+    }
+
     fun cancel(promptId: String) {
         runtime?.cancel(promptId)
     }

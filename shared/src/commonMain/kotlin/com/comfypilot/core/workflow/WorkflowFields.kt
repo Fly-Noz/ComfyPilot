@@ -35,12 +35,30 @@ data class WorkflowNodeView(
     val type: String,
     val displayName: String,
     val title: String?,
+    /** 生效后的节点模式（文件里的 mode 叠加用户开关），0 为正常执行。 */
     val mode: Int,
     val missing: Boolean,
     /** 该节点在输出节点的上游，提交时会真正执行。 */
     val reachable: Boolean,
+    /** 用户在本次会话里显式关闭了该节点（与文件里保存的 mode 分开）。 */
+    val bypassed: Boolean = false,
+    /**
+     * 排序用的可达性：只看工作流原文和节点图选择，忽略本次会话的单节点开关。
+     *
+     * 关闭一个节点会让它（以及下游）不再提交，但输入区的顺序必须保持不变，
+     * 否则节点会突然跳到列表底部。
+     */
+    val orderReachable: Boolean = reachable || bypassed,
     val fields: List<WorkflowField>,
+    /** 排序用的“是否缺值”：同样忽略单节点开关，保持关闭前后的相对顺序。 */
+    val orderNeedsInput: Boolean = reachable && fields.any { it.needsInput },
 ) {
+    /**
+     * 生效后的模式是否正常。保存为静音（2）/旁路（4）的节点，以及本次会话关闭的节点
+     * 都为 false；界面上的开关必须读这个值，而不是只看用户覆盖集合。
+     */
+    val enabled: Boolean get() = mode == UiWorkflowParser.MODE_NORMAL
+
     /**
      * 只有会真正参与本次提交的节点才提示“待填写”。
      *
@@ -84,6 +102,8 @@ object WorkflowFields {
         definitions: Map<String, NodeDefinition>,
         forcedNormalNodeIds: Set<Int> = emptySet(),
         enabledOutputIds: Set<Int>? = null,
+        bypassedNodeIds: Set<Int> = emptySet(),
+        enabledNodeIds: Set<Int> = emptySet(),
     ): WorkflowFieldView {
         if (document.format != WorkflowFormat.UI) {
             return WorkflowFieldView(
@@ -105,7 +125,11 @@ object WorkflowFields {
                 nodes = emptyList(),
                 problems = listOf(BuildProblem(message = "工作流不是有效的网页格式 JSON")),
             )
-        val graph = parsed.withForcedNormal(forcedNormalNodeIds)
+        val graph = parsed.withEffectiveModes(
+            forcedNormalNodeIds = forcedNormalNodeIds,
+            bypassedNodeIds = bypassedNodeIds,
+            enabledNodeIds = enabledNodeIds,
+        )
 
         val resolver = UiGraphResolver(graph)
         val problems = mutableListOf<BuildProblem>()
@@ -113,19 +137,51 @@ object WorkflowFields {
             problems += BuildProblem(message = "工作流包含子图（subgraph），当前版本不支持编辑")
         }
 
-        val roots = graph.nodes
-            .filter { node ->
-                node.mode == UiWorkflowParser.MODE_NORMAL &&
-                    definitions[node.type]?.isOutputNode == true &&
-                    (enabledOutputIds == null || node.id in enabledOutputIds)
-            }
-            .map { it.id }
-            .toSet()
+        val roots = outputRootIds(graph, definitions, enabledOutputIds)
         val reachable = reachableNodeIds(roots, graph, resolver)
+
+        // 排序只看工作流原文 + 节点图选择：用户逐个开关节点不能让输入区重排。
+        // 单节点开关会改变下游字段的连线来源，所以“缺值优先”也要在忽略开关的图上重算。
+        val ordering = if (bypassedNodeIds.isEmpty() && enabledNodeIds.isEmpty()) {
+            null
+        } else {
+            val orderingGraph = parsed.withEffectiveModes(forcedNormalNodeIds = forcedNormalNodeIds)
+            val orderingResolver = UiGraphResolver(orderingGraph)
+            val orderingReachable = reachableNodeIds(
+                outputRootIds(orderingGraph, definitions, enabledOutputIds),
+                orderingGraph,
+                orderingResolver,
+            )
+            val orderingNeedsInput = orderingGraph.nodes
+                .filter { it.id in orderingReachable }
+                .filter { node ->
+                    buildNode(
+                        node = node,
+                        definitions = definitions,
+                        resolver = orderingResolver,
+                        reachable = true,
+                        bypassed = false,
+                        orderReachable = true,
+                        orderNeedsInput = false,
+                    ).needsInput
+                }
+                .mapTo(mutableSetOf()) { it.id }
+            orderingReachable to orderingNeedsInput
+        }
 
         val nodes = graph.nodes
             .sortedWith(compareBy({ it.order }, { it.id }))
-            .map { node -> buildNode(node, definitions, resolver, node.id in reachable) }
+            .map { node ->
+                buildNode(
+                    node = node,
+                    definitions = definitions,
+                    resolver = resolver,
+                    reachable = node.id in reachable,
+                    bypassed = node.id in bypassedNodeIds,
+                    orderReachable = ordering?.first?.contains(node.id) ?: (node.id in reachable),
+                    orderNeedsInput = ordering?.second?.contains(node.id),
+                )
+            }
 
         val common = nodes.filter { it.reachable }.flatMap { it.fields }
             .filter { it.common && it.widget && !it.linked }
@@ -146,6 +202,10 @@ object WorkflowFields {
         definitions: Map<String, NodeDefinition>,
         resolver: UiGraphResolver,
         reachable: Boolean,
+        bypassed: Boolean,
+        orderReachable: Boolean,
+        /** 排序用的缺值标记；null = 与当前字段一致（没有单节点开关时）。 */
+        orderNeedsInput: Boolean?,
     ): WorkflowNodeView {
         val definition = definitions[node.type]
         if (definition == null || definition.missing) {
@@ -157,7 +217,10 @@ object WorkflowFields {
                 mode = node.mode,
                 missing = true,
                 reachable = reachable,
+                bypassed = bypassed,
+                orderReachable = orderReachable,
                 fields = emptyList(),
+                orderNeedsInput = orderNeedsInput ?: false,
             )
         }
 
@@ -226,9 +289,26 @@ object WorkflowFields {
             mode = node.mode,
             missing = false,
             reachable = reachable,
+            bypassed = bypassed,
+            orderReachable = orderReachable,
             fields = fields,
+            orderNeedsInput = orderNeedsInput ?: (reachable && fields.any { it.needsInput }),
         )
     }
+
+    /** 本次要提交的输出节点：模式正常、确实是输出节点，且在选中的节点图里。 */
+    private fun outputRootIds(
+        graph: UiGraph,
+        definitions: Map<String, NodeDefinition>,
+        enabledOutputIds: Set<Int>?,
+    ): Set<Int> = graph.nodes
+        .filter { node ->
+            node.mode == UiWorkflowParser.MODE_NORMAL &&
+                definitions[node.type]?.isOutputNode == true &&
+                (enabledOutputIds == null || node.id in enabledOutputIds)
+        }
+        .map { it.id }
+        .toSet()
 
     private fun isCommon(nodeType: String, input: NodeInputDef): Boolean = when {
         input.type == "STRING" && input.name in TEXT_INPUTS -> true

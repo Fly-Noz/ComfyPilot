@@ -24,11 +24,33 @@ data class UiGraph(
     val byId: Map<Int, UiNode> = nodes.associateBy { it.id }
 
     /** 把某一个独立节点图里的节点临时当作正常执行（用于在 App 里启用被旁路的图）。 */
-    fun withForcedNormal(ids: Set<Int>): UiGraph =
-        if (ids.isEmpty()) {
+    fun withForcedNormal(ids: Set<Int>): UiGraph = withEffectiveModes(forcedNormalNodeIds = ids)
+
+    /**
+     * 应用本次会话的节点模式覆盖。
+     *
+     * 优先级从高到低：用户逐个关闭 > 用户逐个重新启用 > 图级强制启用 > 文件里保存的模式。
+     * 单节点显式关闭优先于图级强制启用：用户刚关掉的节点不能被图选择悄悄打开；
+     * 反过来，文件里保存为静音/旁路的节点只有在用户明确点开或启用整张图时才恢复执行。
+     */
+    fun withEffectiveModes(
+        forcedNormalNodeIds: Set<Int> = emptySet(),
+        bypassedNodeIds: Set<Int> = emptySet(),
+        enabledNodeIds: Set<Int> = emptySet(),
+    ): UiGraph =
+        if (forcedNormalNodeIds.isEmpty() && bypassedNodeIds.isEmpty() && enabledNodeIds.isEmpty()) {
             this
         } else {
-            copy(nodes = nodes.map { node -> if (node.id in ids) node.copy(mode = UiWorkflowParser.MODE_NORMAL) else node })
+            copy(
+                nodes = nodes.map { node ->
+                    when {
+                        node.id in bypassedNodeIds -> node.copy(mode = UiWorkflowParser.MODE_BYPASS)
+                        node.id in enabledNodeIds -> node.copy(mode = UiWorkflowParser.MODE_NORMAL)
+                        node.id in forcedNormalNodeIds -> node.copy(mode = UiWorkflowParser.MODE_NORMAL)
+                        else -> node
+                    }
+                },
+            )
         }
 }
 

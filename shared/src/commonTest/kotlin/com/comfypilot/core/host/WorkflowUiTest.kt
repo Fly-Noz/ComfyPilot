@@ -108,6 +108,68 @@ class WorkflowUiTest {
         )
     }
 
+    @Test
+    fun `view exposes per node bypass and explicit disable wins over graph enable`() {
+        val request = """{"op":"view","graphs":["c1"],"bypassedNodeIds":[1]}"""
+        val response = Json.parseToJsonElement(sessionWorkflowJson(state(), request)).jsonObject
+
+        val nodes = response["nodes"]!!.jsonArray.associateBy {
+            it.jsonObject["id"]!!.jsonPrimitive.content
+        }
+        assertTrue(nodes.getValue("1").jsonObject["bypassed"]!!.jsonPrimitive.content.toBoolean())
+        assertFalse(nodes.getValue("2").jsonObject["bypassed"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals(
+            listOf("1"),
+            response["bypassedNodeIds"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+        // 图级强制启用不能把用户显式关闭的上游重新打开。
+        assertFalse(response["canSubmit"]!!.jsonPrimitive.content.toBoolean())
+    }
+
+    @Test
+    fun `view reports saved bypass mode as disabled until the user enables it`() {
+        val view = Json.parseToJsonElement(
+            sessionWorkflowJson(state(), """{"op":"view"}"""),
+        ).jsonObject
+        val nodes = view["nodes"]!!.jsonArray.associateBy {
+            it.jsonObject["id"]!!.jsonPrimitive.content
+        }
+
+        // 节点 3/4 在文件里就是旁路（mode=4）：开关必须显示为关闭，而不是按覆盖集合判断。
+        assertEquals("4", nodes.getValue("3").jsonObject["mode"]!!.jsonPrimitive.content)
+        assertFalse(nodes.getValue("3").jsonObject["enabled"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals("0", nodes.getValue("1").jsonObject["mode"]!!.jsonPrimitive.content)
+        assertTrue(nodes.getValue("1").jsonObject["enabled"]!!.jsonPrimitive.content.toBoolean())
+
+        // 用户点开它：通过 enabledNodeIds 覆盖为正常执行，视图里的 mode 随之为 0。
+        val enabled = Json.parseToJsonElement(
+            sessionWorkflowJson(state(), """{"op":"view","enabledNodeIds":[3]}"""),
+        ).jsonObject
+        val enabledNode = enabled["nodes"]!!.jsonArray.first {
+            it.jsonObject["id"]!!.jsonPrimitive.content == "3"
+        }.jsonObject
+        assertEquals("0", enabledNode["mode"]!!.jsonPrimitive.content)
+        assertTrue(enabledNode["enabled"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals(
+            listOf("3"),
+            enabled["enabledNodeIds"]!!.jsonArray.map { it.jsonPrimitive.content },
+        )
+    }
+
+    @Test
+    fun `disable impact reports a breaking output node`() {
+        val request = """{"op":"disable_impact","nodeId":2}"""
+        val response = Json.parseToJsonElement(sessionWorkflowJson(state(), request)).jsonObject
+
+        assertTrue(response["ok"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals("2", response["nodeId"]!!.jsonPrimitive.content)
+        assertTrue(response["breaking"]!!.jsonPrimitive.content.toBoolean())
+        assertEquals(
+            "该节点是输出节点，关闭后没有可执行的输出",
+            response["reason"]!!.jsonPrimitive.content,
+        )
+    }
+
     private fun state(
         nodeInfoRequested: Set<String> = setOf("Checkpoint", "SaveImage"),
         nodeInfo: Map<String, NodeDefinition> = DEFINITIONS,

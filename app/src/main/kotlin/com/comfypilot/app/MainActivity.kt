@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
                 onCancel = viewModel::cancel,
                 onRefreshWorkflows = viewModel::refreshWorkflows,
                 onOpenWorkflow = viewModel::openWorkflow,
+                onSetNodeBypassed = viewModel::setNodeBypass,
             )
         }
     }

@@ -105,6 +105,10 @@ class SessionRuntime(
 
     fun openWorkflow(path: String) = enqueue(SessionInput.WorkflowOpenRequested(path))
 
+    /** 关闭/重新启用当前工作流里的一个节点；只改会话内存。 */
+    fun setNodeBypass(nodeId: Int, bypassed: Boolean) =
+        enqueue(SessionInput.NodeBypassChanged(nodeId, bypassed))
+
     fun onNetworkChanged(network: NetworkInfo) =
         enqueue(SessionInput.NetworkChanged(network, clock.nowMillis()))
 

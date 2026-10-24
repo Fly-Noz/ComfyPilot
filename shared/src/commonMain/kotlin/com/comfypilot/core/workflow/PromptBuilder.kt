@@ -66,6 +66,16 @@ object PromptBuilder {
         /** 选中的节点图内的节点：临时当作正常执行，用于在 App 里启用被旁路的分支。 */
         forcedNormalNodeIds: Set<Int> = emptySet(),
         /**
+         * 用户逐个关闭（旁路）的节点。它优先于 [forcedNormalNodeIds]：
+         * 图级选择不能把用户刚关掉的节点重新打开。
+         */
+        bypassedNodeIds: Set<Int> = emptySet(),
+        /**
+         * 用户逐个重新启用的节点。用于把文件里保存为静音/旁路的节点恢复执行；
+         * 优先级低于 [bypassedNodeIds]。
+         */
+        enabledNodeIds: Set<Int> = emptySet(),
+        /**
          * 每次提交的唯一短 token。保存类节点的 filename_prefix 会追加它，
          * 避免工作流前缀不唯一时后一次产物覆盖前一次。
          */
@@ -92,7 +102,11 @@ object PromptBuilder {
 
         val parsed = UiWorkflowParser.parse(document.raw)
             ?: return PromptBuild.Blocked(listOf(BuildProblem(message = "工作流不是有效的网页格式 JSON")))
-        val graph = parsed.withForcedNormal(forcedNormalNodeIds)
+        val graph = parsed.withEffectiveModes(
+            forcedNormalNodeIds = forcedNormalNodeIds,
+            bypassedNodeIds = bypassedNodeIds,
+            enabledNodeIds = enabledNodeIds,
+        )
         if (graph.hasSubgraphs) {
             return PromptBuild.Blocked(
                 listOf(BuildProblem(message = "工作流包含子图（subgraph），当前版本不支持转换")),
