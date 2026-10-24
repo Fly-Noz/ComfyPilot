@@ -185,11 +185,36 @@ export struct WorkflowGraphOverlay {
     const focus = this.graph.nodes.filter((node: GraphNodeView) =>
       this.graph.activeNodeIds.includes(node.id) && node.outputs.length > 0);
     const framed = focus.length > 0 ? focus : this.graph.nodes;
+    // 找「最密集的一块」：按 700 世界单位的网格统计，取 3×3 邻域，
+    // 避免远处零散节点把主图压成一小团。
+    const cell = 700;
+    const counts: Map<string, number> = new Map<string, number>();
+    framed.forEach((node: GraphNodeView) => {
+      const key = `${Math.floor(node.x / cell)}:${Math.floor(node.y / cell)}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    });
+    let bestKey = '';
+    let bestCount = -1;
+    counts.forEach((count: number, key: string) => {
+      if (count > bestCount) {
+        bestCount = count;
+        bestKey = key;
+      }
+    });
+    const parts = bestKey.split(':');
+    const bestCx = parts.length === 2 ? Number(parts[0]) : 0;
+    const bestCy = parts.length === 2 ? Number(parts[1]) : 0;
+    const cluster = framed.filter((node: GraphNodeView) => {
+      const cx = Math.floor(node.x / cell);
+      const cy = Math.floor(node.y / cell);
+      return Math.abs(cx - bestCx) <= 1 && Math.abs(cy - bestCy) <= 1;
+    });
+    const framedNodes = cluster.length > 0 ? cluster : framed;
     let minX = Number.MAX_VALUE;
     let minY = Number.MAX_VALUE;
     let maxX = -Number.MAX_VALUE;
     let maxY = -Number.MAX_VALUE;
-    framed.forEach((node: GraphNodeView) => {
+    framedNodes.forEach((node: GraphNodeView) => {
       minX = Math.min(minX, node.x);
       minY = Math.min(minY, node.y);
       maxX = Math.max(maxX, node.x + node.w);
@@ -208,12 +233,12 @@ export struct WorkflowGraphOverlay {
     } else {
       let sumX = 0;
       let sumY = 0;
-      framed.forEach((node: GraphNodeView) => {
+      framedNodes.forEach((node: GraphNodeView) => {
         sumX += node.x + node.w / 2;
         sumY += node.y + node.h / 2;
       });
-      const centerX = sumX / Math.max(1, framed.length);
-      const centerY = sumY / Math.max(1, framed.length);
+      const centerX = sumX / Math.max(1, framedNodes.length);
+      const centerY = sumY / Math.max(1, framedNodes.length);
       this.zoom = readable;
       this.originX = w / 2 - centerX * this.zoom;
       this.originY = h / 2 - centerY * this.zoom;
@@ -656,7 +681,14 @@ export struct WorkflowGraphOverlay {
     if (output === undefined) {
       return null;
     }
-    const info: SlotInfo = { node: node, name: output.name, type: output.type, linkId: 0, input: false };
+    // 输出是否已连接：看有没有以它为起点的连线
+    let outLinkId = 0;
+    this.graph.links.forEach((link: GraphLinkView) => {
+      if (link.originId === node.id && link.originSlot === slot.index) {
+        outLinkId = link.id;
+      }
+    });
+    const info: SlotInfo = { node: node, name: output.name, type: output.type, linkId: outLinkId, input: false };
     return info;
   }
 
@@ -839,8 +871,8 @@ export struct WorkflowGraphOverlay {
       // 右下角小地图
       Column() {
         Canvas(this.miniCtx)
-          .width(92)
-          .height(118)
+          .width(72)
+          .height(92)
           .borderRadius(14)
           .backgroundColor(this.c().isDark ? 'rgba(24,26,34,0.82)' : 'rgba(255,255,255,0.82)')
           .border({ width: 1, color: this.c().borderStrong })
@@ -853,7 +885,8 @@ export struct WorkflowGraphOverlay {
       .justifyContent(FlexAlign.End)
       .alignItems(HorizontalAlign.End)
       .padding({ right: 14, bottom: 150 })
-      .hitTestBehavior(HitTestMode.Transparent);
+      .hitTestBehavior(HitTestMode.Transparent)
+      .opacity(0.88);
 
       // 底部卡片
       if (this.selectedSlot.length > 0) {

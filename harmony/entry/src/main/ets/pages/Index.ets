@@ -1857,22 +1857,37 @@ struct Index {
 
   /** 跳到某个节点卡片：按已测高度累加出偏移，再让 Scroll 滚过去。 */
   private jumpToNode(nodeId: number): void {
+    // 未测量过的卡片用「已测卡片的平均高度」估算，比固定 150 更接近真实值
+    let measuredSum = 0;
+    let measuredCount = 0;
+    this.cardHeights.forEach((height: number) => {
+      if (height > 0) {
+        measuredSum += height;
+        measuredCount++;
+      }
+    });
+    const fallback = measuredCount > 0 ? measuredSum / measuredCount : 150;
     let offset = 6;
     for (let i = 0; i < this.view.nodes.length; i++) {
       const node = this.view.nodes[i];
       if (node.id === nodeId) {
         break;
       }
-      offset += (this.cardHeights.get(node.id) ?? 150) + 9;
+      offset += (this.cardHeights.get(node.id) ?? fallback) + 9;
       if (this.isSectionStart(i)) {
         offset += 30;
       }
     }
+    const target = Math.max(0, offset - 8);
     this.scroller.scrollTo({
       xOffset: 0,
-      yOffset: Math.max(0, offset),
+      yOffset: target,
       animation: { duration: 280, curve: Curve.EaseOut },
     });
+    // 展开卡片会改变列表高度，稍后再校正一次，抵消首帧 clamp
+    setTimeout(() => {
+      this.scroller.scrollTo({ xOffset: 0, yOffset: target, animation: { duration: 160, curve: Curve.EaseOut } });
+    }, 320);
   }
 
   private applyNodeBypass(nodeId: number, bypassed: boolean): void {
