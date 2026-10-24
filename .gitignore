@@ -40,7 +40,7 @@ Thumbs.db
 # Local device artifacts (screenshots, dumps)
 artifacts/
 
-# Local scratch (screenshots, editor dumps, one-off scripts) — issues stay tracked under .scratch/<feature>/issues
+# Local scratch (screenshots, editor dumps, one-off scripts) 鈥?issues stay tracked under .scratch/<feature>/issues
 .scratch/*.png
 .scratch/*.jpeg
 .scratch/*.jpg
@@ -51,3 +51,4 @@ artifacts/
 .scratch/icon-bg*/
 .scratch/icon_final*/
 artifacts/
+harmony/build-profile.json5
