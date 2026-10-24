@@ -49,6 +49,8 @@ function parseSlotKey(key: string): SlotRef | null {
 @Component
 export struct WorkflowGraphOverlay {
   @Prop @Watch('onGraphDataChanged') graph: WorkflowGraphData;
+  /** 当前工作流路径：只有换文档才重新适配视野。 */
+  @Prop @Watch('onDocumentChanged') documentKey: string;
   @Prop isDark: boolean;
   /** 状态栏高度（vp）：顶栏要避开系统通知栏。 */
   @Prop topInset: number;
@@ -102,13 +104,29 @@ export struct WorkflowGraphOverlay {
     this.fitted = false;
   }
 
-  /** 共享层回填新视图后重新适配一次：onReady 早于数据到达时也能拿到正确视野。 */
+  /** 节点开关、连线编辑都会刷新 graph：只重绘，保持当前缩放/位置。 */
   onGraphDataChanged(): void {
+    this.draw();
+  }
+
+  /** 换工作流才重新适配。 */
+  onDocumentChanged(): void {
     this.fitted = false;
+    this.pendingFit = true;
     setTimeout(() => {
-      this.fitToScreen();
+      this.tryFit();
       this.draw();
     }, 0);
+  }
+
+  private pendingFit: boolean = true;
+
+  /** 画布尺寸或数据未就绪时先记着，等两者都到齐再适配。 */
+  private tryFit(): void {
+    if (this.ctx.width > 0 && this.ctx.height > 0 && this.graph.nodes.length > 0) {
+      this.fitToScreen();
+      this.pendingFit = false;
+    }
   }
 
   private nodesById(): Map<number, GraphNodeView> {
@@ -189,8 +207,8 @@ export struct WorkflowGraphOverlay {
     if (w <= 0 || h <= 0) {
       return;
     }
-    if (!this.fitted) {
-      this.fitToScreen();
+    if (!this.fitted || this.pendingFit) {
+      this.tryFit();
     }
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = this.c().background;
@@ -268,7 +286,7 @@ export struct WorkflowGraphOverlay {
       // 标题：按宽度定字号，超宽时缩放
       if (headerH >= 6) {
         const title = node.title.length > 0 ? node.title : node.type;
-        let px = Math.max(9, Math.min(nw * 0.2, headerH * 0.82));
+        let px = Math.max(12, Math.min(nw * 0.22, headerH * 0.95));
         ctx.font = `${px}px sans-serif`;
         const measured = ctx.measureText(title).width;
         const maxWidth = Math.max(8, nw - 10);
@@ -404,7 +422,7 @@ export struct WorkflowGraphOverlay {
     if (name.length === 0 || stepPx < 6) {
       return;
     }
-    let px = Math.max(8, Math.min(nw * 0.095, stepPx * 0.9));
+    let px = Math.max(9, Math.min(nw * 0.11, stepPx * 0.95));
     if (px < 5) {
       return;
     }
@@ -603,6 +621,13 @@ export struct WorkflowGraphOverlay {
         .height('100%')
         .onReady(() => {
           this.fitted = false;
+          this.pendingFit = true;
+          this.tryFit();
+          this.draw();
+        })
+        .onAreaChange((oldValue: Area, newValue: Area) => {
+          // 首帧尺寸确认后再适配一次，避免 onReady 时宽高还是 0
+          this.tryFit();
           this.draw();
         })
         .gesture(

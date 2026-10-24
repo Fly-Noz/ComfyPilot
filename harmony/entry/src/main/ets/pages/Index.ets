@@ -6865,6 +6865,7 @@ struct Index {
       if (this.graphOpen) {
         WorkflowGraphOverlay({
           graph: this.view.graph,
+          documentKey: this.view.path,
           isDark: this.c().isDark,
           topInset: px2vp(this.statusBarPx),
           fieldRows: this.graphFieldRows(),
