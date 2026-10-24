@@ -87,6 +87,10 @@ export struct WorkflowGraphOverlay {
   @State private query: string = '';
 
   private fitted: boolean = false;
+  /** 画布逻辑尺寸（vp）：onAreaChange 给出，比 ctx.width 可靠。 */
+  private viewW: number = 0;
+  private viewH: number = 0;
+  private userInteracted: boolean = false;
   private panBaseX: number = 0;
   private panBaseY: number = 0;
   private pinchBase: number = 1;
@@ -123,7 +127,7 @@ export struct WorkflowGraphOverlay {
 
   /** 画布尺寸或数据未就绪时先记着，等两者都到齐再适配。 */
   private tryFit(): void {
-    if (this.ctx.width > 0 && this.ctx.height > 0 && this.graph.nodes.length > 0) {
+    if (this.viewW > 0 && this.viewH > 0 && this.graph.nodes.length > 0) {
       this.fitToScreen();
       this.pendingFit = false;
     }
@@ -172,8 +176,8 @@ export struct WorkflowGraphOverlay {
   }
 
   private fitToScreen(): void {
-    const w = this.ctx.width;
-    const h = this.ctx.height;
+    const w = this.viewW;
+    const h = this.viewH;
     if (w <= 0 || h <= 0 || this.graph.nodes.length === 0) {
       return;
     }
@@ -193,10 +197,27 @@ export struct WorkflowGraphOverlay {
     });
     const bw = Math.max(1, maxX - minX);
     const bh = Math.max(1, maxY - minY);
-    const next = Math.min(w / bw, h / bh) * 0.9;
-    this.zoom = Math.min(1, Math.max(0.02, next));
-    this.originX = (w - bw * this.zoom) / 2 - minX * this.zoom;
-    this.originY = (h - bh * this.zoom) / 2 - minY * this.zoom;
+    const fit = Math.min(w / bw, h / bh) * 0.9;
+    // 大盘整图适配会把节点压到看不清：低于可读比例时改为定位到主图中心，
+    // 让用户从「能看清」的缩放开始，再自己缩小看全貌。
+    const readable = 0.34;
+    if (fit >= readable) {
+      this.zoom = Math.min(1, fit);
+      this.originX = (w - bw * this.zoom) / 2 - minX * this.zoom;
+      this.originY = (h - bh * this.zoom) / 2 - minY * this.zoom;
+    } else {
+      let sumX = 0;
+      let sumY = 0;
+      framed.forEach((node: GraphNodeView) => {
+        sumX += node.x + node.w / 2;
+        sumY += node.y + node.h / 2;
+      });
+      const centerX = sumX / Math.max(1, framed.length);
+      const centerY = sumY / Math.max(1, framed.length);
+      this.zoom = readable;
+      this.originX = w / 2 - centerX * this.zoom;
+      this.originY = h / 2 - centerY * this.zoom;
+    }
     this.fitted = true;
   }
 
@@ -355,8 +376,8 @@ export struct WorkflowGraphOverlay {
     // 当前视口框
     const viewLeft = -this.originX / this.zoom;
     const viewTop = -this.originY / this.zoom;
-    const viewW = this.ctx.width / this.zoom;
-    const viewH = this.ctx.height / this.zoom;
+    const viewW = this.viewW / this.zoom;
+    const viewH = this.viewH / this.zoom;
     ctx.strokeStyle = 'rgba(124,92,255,0.95)';
     ctx.lineWidth = 1.4;
     ctx.strokeRect(
@@ -374,8 +395,8 @@ export struct WorkflowGraphOverlay {
     }
     const worldX = (x - this.miniOx) / this.miniScale + this.miniMinX;
     const worldY = (y - this.miniOy) / this.miniScale + this.miniMinY;
-    this.originX = this.ctx.width / 2 - worldX * this.zoom;
-    this.originY = this.ctx.height / 2 - worldY * this.zoom;
+    this.originX = this.viewW / 2 - worldX * this.zoom;
+    this.originY = this.viewH / 2 - worldY * this.zoom;
     this.draw();
   }
 
@@ -517,8 +538,8 @@ export struct WorkflowGraphOverlay {
 
   /** 把某个节点移到画布中心并选中。 */
   private centerOnNode(node: GraphNodeView): void {
-    this.originX = this.ctx.width / 2 - (node.x + node.w / 2) * this.zoom;
-    this.originY = this.ctx.height / 2 - (node.y + node.h / 2) * this.zoom;
+    this.originX = this.viewW / 2 - (node.x + node.w / 2) * this.zoom;
+    this.originY = this.viewH / 2 - (node.y + node.h / 2) * this.zoom;
     this.query = '';
     this.selectedNode = node.id;
     this.selectedSlot = '';
@@ -626,7 +647,13 @@ export struct WorkflowGraphOverlay {
           this.draw();
         })
         .onAreaChange((oldValue: Area, newValue: Area) => {
-          // 首帧尺寸确认后再适配一次，避免 onReady 时宽高还是 0
+          this.viewW = Number(newValue.width);
+          this.viewH = Number(newValue.height);
+          // 用户还没动过视野时，尺寸变化就重新适配一次
+          if (!this.userInteracted) {
+            this.fitted = false;
+            this.pendingFit = true;
+          }
           this.tryFit();
           this.draw();
         })
@@ -639,6 +666,7 @@ export struct WorkflowGraphOverlay {
                 if (this.pinching) {
                   return;
                 }
+                this.userInteracted = true;
                 this.panBaseX = this.originX;
                 this.panBaseY = this.originY;
               })
@@ -653,6 +681,7 @@ export struct WorkflowGraphOverlay {
             PinchGesture({ fingers: 2 })
               .onActionStart((event: GestureEvent) => {
                 this.pinching = true;
+                this.userInteracted = true;
                 this.pinchBase = this.zoom;
                 this.pinchOriginX = this.originX;
                 this.pinchOriginY = this.originY;
@@ -665,8 +694,8 @@ export struct WorkflowGraphOverlay {
                   this.pinchAnchorX = fingers[0].localX;
                   this.pinchAnchorY = fingers[0].localY;
                 } else {
-                  this.pinchAnchorX = this.ctx.width / 2;
-                  this.pinchAnchorY = this.ctx.height / 2;
+                  this.pinchAnchorX = this.viewW / 2;
+                  this.pinchAnchorY = this.viewH / 2;
                 }
               })
               .onActionUpdate((event: GestureEvent) => {
