@@ -45,6 +45,10 @@ private data class WorkflowUiRequest(
     val bypassedNodeIds: Set<Int>?,
     /** 用户逐个重新启用的节点；null 表示请求没带，沿用会话状态里的集合。 */
     val enabledNodeIds: Set<Int>?,
+    /** 本次会话里被断开的连线。 */
+    val removedLinkIds: Set<Int>,
+    /** 本次会话里新建/改接的连线。 */
+    val linkOverrides: List<com.comfypilot.core.workflow.InputLinkOverride>,
     /** 仅关闭影响探测使用：要试关的节点。 */
     val nodeId: Int?,
     /** 仅提交时使用：保存类节点的文件名追加这个短 token，避免产物互相覆盖。 */
@@ -67,6 +71,8 @@ private data class WorkflowUiRequest(
                 overrides = parseOverrides(obj["overrides"] as? JsonObject),
                 bypassedNodeIds = parseNodeIds(obj["bypassedNodeIds"]),
                 enabledNodeIds = parseNodeIds(obj["enabledNodeIds"]),
+                removedLinkIds = parseNodeIds(obj["removedLinkIds"]).orEmpty(),
+                linkOverrides = parseLinkOverrides(obj["linkOverrides"] as? JsonArray),
                 nodeId = (obj["nodeId"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull(),
                 runToken = obj.stringOrNull("run")?.trim()?.takeIf { it.isNotEmpty() },
             )
@@ -79,6 +85,22 @@ private data class WorkflowUiRequest(
             return array.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.toSet()
         }
 
+        private fun parseLinkOverrides(array: JsonArray?): List<com.comfypilot.core.workflow.InputLinkOverride> {
+            if (array == null) return emptyList()
+            return array.mapNotNull { element ->
+                val obj = element as? JsonObject ?: return@mapNotNull null
+                val nodeId = (obj["nodeId"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull()
+                    ?: return@mapNotNull null
+                val inputName = obj.stringOrNull("inputName") ?: return@mapNotNull null
+                com.comfypilot.core.workflow.InputLinkOverride(
+                    nodeId = nodeId,
+                    inputName = inputName,
+                    originNodeId = (obj["originNodeId"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull(),
+                    originSlot = (obj["originSlot"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 0,
+                    type = obj.stringOrNull("type") ?: "",
+                )
+            }
+        }
         /** 显式传空数组 = 全部启用；没带这个键 = 由会话状态决定。 */
         private fun parseNodeIds(element: JsonElement?): Set<Int>? {
             if (element == null || element is JsonNull) return null
@@ -116,6 +138,8 @@ private fun workflowViewJson(state: SessionState, request: WorkflowUiRequest): S
         runToken = null,
         bypassedNodeIds = bypassedNodeIds,
         enabledNodeIds = request.effectiveEnabledNodeIds(state),
+        removedLinkIds = request.removedLinkIds,
+        linkOverrides = request.linkOverrides,
     )
 
     return buildJsonObject {
@@ -163,6 +187,7 @@ private fun workflowViewJson(state: SessionState, request: WorkflowUiRequest): S
         putJsonArray("missingNodeClasses") {
             decision.missingNodeClasses.forEach { add(JsonPrimitive(it)) }
         }
+        put("graph", workflowGraphJson(document, decision, request))
         put("canSubmit", decision.canSubmit)
         put("blockReason", decision.blockReason ?: "")
     }.toString()
@@ -349,4 +374,98 @@ private fun WorkflowField.valueKind(): String = when (val value = value) {
     }
 
     else -> "json"
+}
+
+/**
+ * 节点图预览数据（鸿蒙 Canvas 直接画）。
+ *
+ * 坐标/尺寸沿用工作流文件里的画布坐标；拓扑已经叠加本次会话的断线与改接，
+ * 因此 ArkTS 不需要在本地重算连线规则。
+ */
+private fun workflowGraphJson(
+    document: com.comfypilot.core.workflow.WorkflowDocument,
+    decision: com.comfypilot.core.workflow.WorkflowDecision,
+    request: WorkflowUiRequest,
+): JsonObject = buildJsonObject {
+    val parsed = com.comfypilot.core.workflow.UiWorkflowParser.parse(document.raw)
+    if (parsed == null) return@buildJsonObject
+    val graph = parsed
+        .withoutLinks(request.removedLinkIds)
+        .withInputLinks(request.linkOverrides)
+        .withEffectiveModes(
+            forcedNormalNodeIds = decision.forcedNormalNodeIds,
+            bypassedNodeIds = decision.bypassedNodeIds,
+            enabledNodeIds = decision.enabledNodeIds,
+        )
+    putJsonArray("nodes") {
+        graph.nodes.forEach { node ->
+            add(
+                buildJsonObject {
+                    put("id", node.id)
+                    put("type", node.type)
+                    put("title", node.title ?: "")
+                    put("mode", node.mode)
+                    put("x", node.x)
+                    put("y", node.y)
+                    put("w", node.width)
+                    put("h", node.height)
+                    putJsonArray("inputs") {
+                        node.inputs.forEach { input ->
+                            add(
+                                buildJsonObject {
+                                    put("name", input.name)
+                                    put("type", input.type)
+                                    put("linkId", input.linkId ?: 0)
+                                },
+                            )
+                        }
+                    }
+                    putJsonArray("outputs") {
+                        node.outputs.forEach { output ->
+                            add(
+                                buildJsonObject {
+                                    put("name", output.name)
+                                    put("type", output.type)
+                                },
+                            )
+                        }
+                    }
+                },
+            )
+        }
+    }
+    putJsonArray("links") {
+        graph.links.values.forEach { link ->
+            add(
+                buildJsonObject {
+                    put("id", link.id)
+                    put("originId", link.originId)
+                    put("originSlot", link.originSlot)
+                    put("targetId", link.targetId)
+                    put("targetSlot", link.targetSlot)
+                    put("type", link.type)
+                },
+            )
+        }
+    }
+    putJsonArray("groups") {
+        graph.groups.forEach { group ->
+            add(
+                buildJsonObject {
+                    put("id", group.id)
+                    put("title", group.title)
+                    put("x", group.x)
+                    put("y", group.y)
+                    put("w", group.width)
+                    put("h", group.height)
+                },
+            )
+        }
+    }
+    putJsonArray("activeNodeIds") {
+        decision.nodes.filter { it.mode == 0 }.forEach { add(JsonPrimitive(it.id)) }
+    }
+    putJsonArray("disabledNodeIds") {
+        decision.disabledNodeIds.sorted().forEach { add(JsonPrimitive(it)) }
+    }
 }

@@ -213,6 +213,8 @@ object WorkflowDecisions {
         runToken: String? = null,
         bypassedNodeIds: Set<Int> = emptySet(),
         enabledNodeIds: Set<Int> = emptySet(),
+        removedLinkIds: Set<Int> = emptySet(),
+        linkOverrides: List<InputLinkOverride> = emptyList(),
     ): WorkflowDecision = decide(
         analysis = analyze(
             document = document,
@@ -221,6 +223,8 @@ object WorkflowDecisions {
             nodeInfoRequested = nodeInfoRequested,
             bypassedNodeIds = bypassedNodeIds,
             enabledNodeIds = enabledNodeIds,
+            removedLinkIds = removedLinkIds,
+            linkOverrides = linkOverrides,
         ),
         overrides = overrides,
         pinnedNodeIds = pinnedNodeIds,

@@ -63,6 +63,7 @@ export interface BuildProblemView {
 }
 
 export interface WorkflowViewResponse {
+  graph: WorkflowGraphData;
   ok: boolean;
   state: string;
   message?: string;
@@ -110,4 +111,65 @@ export interface DisableImpactResponse {
   nodeId: number;
   breaking: boolean;
   reason: string;
+}
+
+/** 节点图预览里的一枚参数槽位。 */
+export interface GraphNodeInput {
+  name: string;
+  type: string;
+  linkId: number;
+}
+
+export interface GraphNodeOutput {
+  name: string;
+  type: string;
+}
+
+/** 节点图预览的节点：坐标/尺寸直接用工作流文件里的画布坐标。 */
+export interface GraphNodeView {
+  id: number;
+  type: string;
+  title: string;
+  mode: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  inputs: GraphNodeInput[];
+  outputs: GraphNodeOutput[];
+}
+
+export interface GraphLinkView {
+  id: number;
+  originId: number;
+  originSlot: number;
+  targetId: number;
+  targetSlot: number;
+  type: string;
+}
+
+export interface GraphGroupView {
+  id: number;
+  title: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** 节点图预览数据：拓扑已叠加本次会话的断线/改接。 */
+export interface WorkflowGraphData {
+  nodes: GraphNodeView[];
+  links: GraphLinkView[];
+  groups: GraphGroupView[];
+  activeNodeIds: number[];
+  disabledNodeIds: number[];
+}
+
+export interface GraphLinkOverride {
+  nodeId: number;
+  inputName: string;
+  originNodeId: number;
+  originSlot: number;
+  type: string;
 }

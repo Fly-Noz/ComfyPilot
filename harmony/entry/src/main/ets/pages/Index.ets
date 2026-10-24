@@ -28,9 +28,11 @@ import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/Artifact
 import { VideoThumb } from '../artifact/VideoThumb';
 import { VideoPlayer } from '../artifact/VideoPlayer';
 import { ImageUploader, PickedImage } from '../workflow/ImageUploader';
+import { WorkflowGraphOverlay } from '../workflow/WorkflowGraphOverlay';
 import {
   BuildProblemView,
   DisableImpactResponse,
+  GraphLinkOverride,
   PromptResponse,
   WorkflowFieldView,
   WorkflowGraphView,
@@ -104,6 +106,7 @@ function emptyView(): WorkflowViewResponse {
     bypassedNodeIds: [],
     enabledNodeIds: [],
     graphs: [],
+    graph: { nodes: [], links: [], groups: [], activeNodeIds: [], disabledNodeIds: [] },
     nodes: [],
     commonFields: [],
     problems: [],
@@ -288,6 +291,10 @@ struct Index {
   @State graphMenuOpen: boolean = false;
   /** 「全部节点」面板的展开状态（对应 Android 的 ModalBottomSheet）。 */
   @State allNodesOpen: boolean = false;
+  /** 节点图预览浮层与本次会话的连线编辑。 */
+  @State graphOpen: boolean = false;
+  @State removedLinkIds: number[] = [];
+  @State linkOverrides: GraphLinkOverride[] = [];
   /** 节点卡片展开集合；expandedSeed 为 false 时用 autoExpandedIds() 的自动展开。 */
   @State expandedIds: number[] = [];
   @State expandedSeed: boolean = false;
@@ -1278,6 +1285,9 @@ struct Index {
     // 断开后没有“当前工作流”，单节点开关和待确认的关闭框一起作废。 
     this.bypassedIds = [];
     this.enabledIds = [];
+    this.removedLinkIds = [];
+    this.linkOverrides = [];
+    this.graphOpen = false;
     this.bypassConfirmNodeId = -1;
     this.bypassConfirmReason = '';
     this.catalogRequested = false;
@@ -1300,6 +1310,9 @@ struct Index {
     // 单节点开关只属于当前打开的工作流：换文档就清空，避免把旧 id 套到新图上。 
     this.bypassedIds = [];
     this.enabledIds = [];
+    this.removedLinkIds = [];
+    this.linkOverrides = [];
+    this.graphOpen = false;
     this.bypassConfirmNodeId = -1;
     this.bypassConfirmReason = '';
     this.edits.clear();
@@ -1355,6 +1368,9 @@ struct Index {
     // 单节点开关只属于当前打开的工作流：换文档就清空，避免把旧 id 套到新图上。 
     this.bypassedIds = [];
     this.enabledIds = [];
+    this.removedLinkIds = [];
+    this.linkOverrides = [];
+    this.graphOpen = false;
     this.bypassConfirmNodeId = -1;
     this.bypassConfirmReason = '';
     this.edits.clear();
@@ -1439,8 +1455,14 @@ struct Index {
     const bypass = this.bridge.nodeBypassJson(this.bypassedIds, this.enabledIds);
     // `op=disable_impact` 只关心要试关的那一个节点；其余请求不带这个字段。 
     const target = nodeId >= 0 ? `,"nodeId":${nodeId}` : '';
+    const removed = `[${this.removedLinkIds.join(',')}]`;
+    const linkOverrides = `[${this.linkOverrides.map((item: GraphLinkOverride) =>
+      `{"nodeId":${item.nodeId},"inputName":${JSON.stringify(item.inputName)},` +
+      `"originNodeId":${item.originNodeId},"originSlot":${item.originSlot},` +
+      `"type":${JSON.stringify(item.type)}}`).join(',')}]`;
     return `{"op":${JSON.stringify(op)},"graphs":${graphs},"pinned":${pinned}${run},` +
-      `"overrides":${this.overridesJson()},${bypass}${target}}`;
+      `"overrides":${this.overridesJson()},${bypass}${target},` +
+      `"removedLinkIds":${removed},"linkOverrides":${linkOverrides}}`;
   }
 
   private overridesJson(): string {
@@ -3398,6 +3420,7 @@ struct Index {
               .width('100%')
           }
           Row({ space: 10 }) {
+            this.GraphIconButton()
             Button('全部节点')
               .fontSize(12.5)
               .fontColor(this.c().textMuted)
@@ -3455,6 +3478,47 @@ struct Index {
     }
     .width('100%')
     .height('100%')
+  }
+
+  private graphIconCtx: CanvasRenderingContext2D =
+    new CanvasRenderingContext2D(new RenderingContextSettings(true));
+
+  /** 底栏最左侧的节点图入口：3 个圆点 + 连线的示意图标。 */
+  @Builder
+  GraphIconButton() {
+    Button({ type: ButtonType.Circle }) {
+      Canvas(this.graphIconCtx)
+        .width(22)
+        .height(22)
+        .onReady(() => {
+          const ctx = this.graphIconCtx;
+          ctx.clearRect(0, 0, 22, 22);
+          ctx.strokeStyle = this.c().accent;
+          ctx.fillStyle = this.c().accent;
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.moveTo(6, 6);
+          ctx.lineTo(16, 16);
+          ctx.moveTo(16, 6);
+          ctx.lineTo(6, 16);
+          ctx.stroke();
+          [[6, 6], [16, 6], [11, 17]].forEach((point: number[]) => {
+            ctx.beginPath();
+            ctx.arc(point[0], point[1], 2.6, 0, Math.PI * 2);
+            ctx.fill();
+          });
+        });
+    }
+    .width(36)
+    .height(36)
+    .backgroundColor(this.c().card)
+    .border({ width: 1, color: this.c().borderStrong })
+    .scale(this.pressScaleOptions('graph'))
+    .onTouch((event: TouchEvent) => this.onPressTouch(event, 'graph'))
+    .onClick(() => {
+      this.refreshView(false);
+      this.graphOpen = true;
+    });
   }
 
   /** 输入 / 预览 分段控件，对应 Android SpectrumTabs。 */
@@ -6747,6 +6811,44 @@ struct Index {
       }
       if (this.bypassConfirmNodeId >= 0) {
         this.BypassConfirmDialog()
+      }
+      if (this.graphOpen) {
+        WorkflowGraphOverlay({
+          graph: this.view.graph,
+          isDark: this.c().isDark,
+          bypassedIds: this.bypassedIds,
+          enabledIds: this.enabledIds,
+          removedLinkIds: this.removedLinkIds,
+          linkOverrides: this.linkOverrides,
+          onClose: () => {
+            this.graphOpen = false;
+          },
+          onOpenNode: (id: number) => {
+            this.graphOpen = false;
+            this.tab = 0;
+            this.expandedSeed = true;
+            if (!this.expandedIds.includes(id)) {
+              this.expandedIds = [...this.expandedIds, id];
+            }
+            this.scroller.scrollEdge(Edge.Top);
+          },
+          onToggleNode: (id: number) => {
+            this.applyNodeBypass(id, !this.bypassedIds.includes(id));
+          },
+          onRemoveLink: (id: number) => {
+            if (!this.removedLinkIds.includes(id)) {
+              this.removedLinkIds = [...this.removedLinkIds, id];
+            }
+            this.refreshView(false);
+          },
+          onAddLink: (override: GraphLinkOverride) => {
+            this.linkOverrides = this.linkOverrides
+              .filter((item: GraphLinkOverride) =>
+                !(item.nodeId === override.nodeId && item.inputName === override.inputName))
+              .concat([override]);
+            this.refreshView(false);
+          },
+        })
       }
     }
     .width('100%')
