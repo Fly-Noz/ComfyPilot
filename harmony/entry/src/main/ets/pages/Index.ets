@@ -3414,8 +3414,8 @@ struct Index {
         .width('100%')
         .padding({ left: 12, right: 12, top: 7, bottom: 7 })
         .borderRadius(22)
-        .backgroundColor(this.c().isDark ? 'rgba(22,24,32,0.72)' : 'rgba(255,255,255,0.78)')
-        .backgroundBlurStyle(this.c().isDark ? BlurStyle.COMPONENT_ULTRA_THICK : BlurStyle.COMPONENT_THICK)
+        .backgroundColor(this.c().isDark ? 'rgba(18,20,28,0.38)' : 'rgba(255,255,255,0.46)')
+        .backgroundBlurStyle(BlurStyle.BACKGROUND_THICK)
         .border({ width: 1, color: this.c().borderStrong })
         .shadow({ radius: 16, color: this.c().isDark ? 'rgba(0,0,0,0.32)' : 'rgba(31,41,55,0.14)', offsetX: 0, offsetY: 5 })
       }
@@ -3424,6 +3424,8 @@ struct Index {
       }
       .layoutWeight(1)
       .width('100%')
+      // 内容与胶囊一起向下溢出 MainPanel 的底部安全区，列表就能铺到屏幕最底。
+      .margin({ bottom: -(14 + px2vp(this.navBarPx)) })
     }
     .width('100%')
     .height('100%')
