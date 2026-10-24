@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -64,6 +65,7 @@ import com.comfypilot.app.ui.theme.SpectrumMono
 import com.comfypilot.core.workflow.UiGraph
 import com.comfypilot.core.workflow.UiNode
 import com.comfypilot.core.workflow.UiWorkflowParser
+import com.comfypilot.core.workflow.WorkflowField
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -83,8 +85,8 @@ fun NodeGraphDialog(
     activeNodeIds: Set<Int>,
     /** 所属节点图被关闭的节点：它们不提交，图上显示成灰。 */
     disabledNodeIds: Set<Int>,
-    /** 点「查看参数」时回到列表并定位到该节点的卡片。 */
-    onOpenNode: (Int) -> Unit,
+    /** 节点 id → 输入区里的节点视图：选中节点时在浮层内展开它的参数卡片。 */
+    nodeViews: Map<Int, com.comfypilot.core.workflow.WorkflowNodeView>,
     onDismiss: () -> Unit,
 ) {
     val c = Spectrum.colors
@@ -370,55 +372,92 @@ fun NodeGraphDialog(
                     }
 
                     val current = nodes.firstOrNull { it.id == selected }
+                    val detail = current?.let { nodeViews[it.id] }
                     if (current != null) {
-                        Row(
+                        // 选中节点后直接在浮层里展开参数卡片，不跳回列表页。
+                        Column(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .fillMaxWidth()
                                 .padding(10.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(c.dialog.copy(alpha = 0.94f))
-                                .border(1.dp, c.borderStrong, RoundedCornerShape(12.dp))
-                                .padding(horizontal = 12.dp, vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(c.dialog.copy(alpha = 0.96f))
+                                .border(1.dp, c.borderStrong, RoundedCornerShape(14.dp)),
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        "#${current.id}  ${current.title?.takeIf { it.isNotBlank() } ?: current.type}",
+                                        color = c.text,
+                                        fontSize = 12.5.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        "${current.type} · ${modeLabel(current.mode)} · 输入 ${current.inputs.size} / 输出 ${current.outputs.size}",
+                                        color = c.textDim,
+                                        fontSize = 9.5.sp,
+                                        fontFamily = SpectrumMono,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
                                 Text(
-                                    "#${current.id}  ${current.title?.takeIf { it.isNotBlank() } ?: current.type}",
-                                    color = c.text,
-                                    fontSize = 12.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
-                                Text(
-                                    "${current.type} · ${modeLabel(current.mode)} · 输入 ${current.inputs.size} / 输出 ${current.outputs.size}",
-                                    color = c.textDim,
-                                    fontSize = 9.5.sp,
-                                    fontFamily = SpectrumMono,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                    "收起",
+                                    color = c.textMuted,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.clickable { selected = null },
                                 )
                             }
-                            Text(
-                                "查看参数",
-                                color = c.accent,
-                                fontSize = 11.sp,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        val id = current.id
-                                        selected = null
-                                        onOpenNode(id)
+
+                            val fields = detail?.fields.orEmpty()
+                            if (fields.isEmpty()) {
+                                Text(
+                                    "这个节点没有可调参数。",
+                                    color = c.textMuted,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 10.dp),
+                                )
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(max = 300.dp)
+                                        .padding(horizontal = 12.dp),
+                                ) {
+                                    items(fields, key = { it.inputName }) { field ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 5.dp),
+                                            verticalAlignment = Alignment.Top,
+                                        ) {
+                                            Text(
+                                                field.label ?: field.inputName,
+                                                color = c.textMuted,
+                                                fontSize = 11.sp,
+                                                modifier = Modifier.weight(1f),
+                                            )
+                                            Text(
+                                                fieldValueText(field),
+                                                color = c.text,
+                                                fontSize = 11.sp,
+                                                fontFamily = SpectrumMono,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.weight(1.4f),
+                                            )
+                                        }
                                     }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
-                            Text(
-                                "关闭",
-                                color = c.textMuted,
-                                fontSize = 11.sp,
-                                modifier = Modifier.clickable { selected = null },
-                            )
+                                }
+                                Spacer(Modifier.height(8.dp))
+                            }
                         }
                     }
                 }
@@ -580,8 +619,8 @@ private fun DrawScope.drawScene(
         )
 
         // 标题栏：高度固定 28px（不随缩放变），标题字号也固定 10sp。
-        // 标题栏固定 ~30px 高、字号固定 8sp：不随缩放变化，也不会把文字裁掉。
-        val headerH = min(size.height * 0.5f, 30f).coerceAtLeast(10f)
+        // 标题栏与字号都按卡片自身尺寸取比例，任何缩放下都能完整装下文字。
+        val headerH = (size.height * 0.26f).coerceIn(6f, 34f)
         val headerColor = (if (active) c.accent else c.textDim).copy(alpha = 0.85f * alpha)
         drawRoundRect(
             color = headerColor,
@@ -602,15 +641,18 @@ private fun DrawScope.drawScene(
             style = Stroke(width = if (node.id == selected) 2.5f else 1f),
         )
 
-        if (headerH >= 22f && size.width >= 60f) {
+        if (headerH >= 7f && size.width >= 40f) {
             val title = node.title?.takeIf { it.isNotBlank() } ?: node.type
             val label = labels.getOrPut(node.id) {
                 measurer.measure(
                     text = title,
-                    style = TextStyle(color = c.accentInk.copy(alpha = alpha), fontSize = 8.sp),
+                    style = TextStyle(
+                        color = c.accentInk.copy(alpha = alpha),
+                        fontSize = ((headerH * 0.62f) / density).sp,
+                    ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    constraints = Constraints(maxWidth = max(24, size.width.roundToInt() - 10)),
+                    constraints = Constraints(maxWidth = max(16, size.width.roundToInt() - 8)),
                 )
             }
             clipRect(
@@ -767,4 +809,11 @@ internal fun graphFocusBounds(graph: UiGraph?): Rect? {
         bottom = max(bottom, (node.y + node.height).toFloat())
     }
     return Rect(left, top, right, bottom)
+}
+
+/** 参数卡片里的一行值：连线/空值都有明确文案，不显示 JSON 引号。 */
+private fun fieldValueText(field: WorkflowField): String = when {
+    field.linked -> "由连线提供"
+    field.value == null -> "—"
+    else -> field.value.toString().trim('"')
 }
