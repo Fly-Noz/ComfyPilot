@@ -246,6 +246,10 @@ class SessionHost(
 
     private fun renderFrame(nowMs: Long): String {
         val stateJson = runtime.state.value.toBridgeJson()
+        // 指纹包含 monitor：监控帧每秒都会让 revision 前进，这是刻意的——宿主按
+        // revision 去重状态帧，若把 monitor 排除在外，界面就永远收不到新读数。
+        // 刷新"工作流视图"用的是状态帧里的 workflow 摘要（path/format/nodeInfo），
+        // monitor 在顶层、不参与那个摘要，因此不会触发昂贵的视图重建。
         val fingerprint = stateJson.toString()
         if (fingerprint != stateFingerprint) {
             stateFingerprint = fingerprint

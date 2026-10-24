@@ -479,7 +479,10 @@ private fun DetailBody(
 
     Column(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp)) {
-            ServerStatsStrip(baseUrl = state.lease?.baseUrl)
+            ServerStatsStrip(
+                baseUrl = state.lease?.baseUrl,
+                monitor = state.monitor,
+            )
         }
 
         if (latestFailure != null && latestFailure.updatedAtMs > dismissedFailureAt) {

@@ -32,6 +32,13 @@ data class SessionState(
     val nodeInfoRequested: Set<String> = emptySet(),
     /** 最近一帧采样预览；只在内存里，不落库、不进桥协议状态帧。 */
     val preview: PreviewFrame? = null,
+    /**
+     * 最近一帧 Crystools 监控采样（CPU/GPU/温度等）。
+     *
+     * 和预览一样是租约内的硬件数据：断线、换网络类别或新租约都清空，
+     * 免得把上一台服务器的读数画在新连接上。
+     */
+    val monitor: MonitorSample? = null,
 ) {
     val lease: ConnectionLease? get() = phase.lease()
 

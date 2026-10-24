@@ -70,6 +70,24 @@ fun SessionState.toBridgeJson(): JsonObject = buildJsonObject {
         } ?: JsonNull,
     )
 
+    // Crystools 监控采样（CPU/GPU/温度/内存/显存）。放在顶层而不是 workflow 里：
+    // 宿主判断"要不要重算工作流视图"的摘要键只看 workflow 的 path/format/nodeInfo，
+    // 每秒一帧的监控数据因此不会触发昂贵的视图重建，但状态帧仍然带着它。
+    put(
+        "monitor",
+        monitor?.let { sample ->
+            buildJsonObject {
+                put("cpu", sample.cpuPercent)
+                put("ram", sample.ramPercent)
+                put("gpu", sample.gpuPercent)
+                put("vram", sample.vramPercent)
+                put("temperature", sample.temperatureC)
+                put("gpuName", sample.gpuName)
+                put("receivedAtMs", sample.receivedAtMs)
+            }
+        } ?: JsonNull,
+    )
+
     // 只放轻量元数据：工作流原文可能有几百 KB，每帧序列化一次不现实。
     // 参数模型/节点定义由宿主在需要时单独拉取（后续 ABI），这里只告诉它"有没有、叫什么"。
     putJsonObject("catalog") {

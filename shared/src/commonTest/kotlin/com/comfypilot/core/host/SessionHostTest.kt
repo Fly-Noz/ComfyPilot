@@ -2,6 +2,7 @@ package com.comfypilot.core.host
 
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -140,6 +141,33 @@ class SessionHostTest {
         driver.deliver("""{"t":"net","transport":"wifi","validated":true,"handle":"wlan1"}""")
         assertEquals("1", driver.stateString("generation"))
         assertNull(driver.command("ws.open"), "同一网络类别的重复上报不应重建连接")
+    }
+
+    @Test
+    fun `monitor frames reach the frame without touching the workflow summary`() {
+        val driver = HostDriver()
+        driver.host.start()
+        val wsId = driver.connect()
+        val workflowBefore = driver.state()["workflow"].toString()
+        val revisionBefore = driver.frame["revision"]!!.jsonPrimitive.long
+
+        driver.deliver(
+            """{"t":"ws.text","id":$wsId,"text":"{\"type\":\"crystools.monitor\",\"data\":{\"cpu_utilization\":5.3,\"ram_used_percent\":50,\"gpus\":[{\"gpu_utilization\":2,\"gpu_temperature\":49,\"vram_used_percent\":13.5}]}}"}""",
+        )
+
+        val monitor = driver.state()["monitor"]!!.jsonObject
+        assertEquals(5.3, monitor["cpu"]!!.jsonPrimitive.double)
+        // revision 必须前进，否则按 revision 去重的宿主根本收不到每秒的监控更新。
+        assertTrue(
+            driver.frame["revision"]!!.jsonPrimitive.long > revisionBefore,
+            "监控更新必须让 revision 前进",
+        )
+        // 但工作流摘要（宿主用来决定是否重建视图）不能跟着监控帧变。
+        assertEquals(
+            workflowBefore,
+            driver.state()["workflow"].toString(),
+            "监控帧不能改变工作流摘要",
+        )
     }
 
     @Test

@@ -72,7 +72,10 @@ class SessionReducer(
 
     private fun onStop(state: SessionState, now: Long): ReduceResult {
         val effects = closeCurrent(state, "用户停止")
-        return ReduceResult(state.copy(phase = SessionPhase.Idle("已停止"), preview = null), effects)
+        return ReduceResult(
+            state.copy(phase = SessionPhase.Idle("已停止"), preview = null, monitor = null),
+            effects,
+        )
     }
 
     private fun onUserReconnect(state: SessionState, now: Long): ReduceResult {
@@ -125,6 +128,7 @@ class SessionReducer(
             lastOnlineTransport = lastOnline,
             queue = null,
             preview = null,
+            monitor = null,
         )
 
         if (next.transport == NetworkTransport.NONE) {
@@ -153,7 +157,7 @@ class SessionReducer(
         if (phase.lease.leaseId != input.lease.leaseId) return ReduceResult(state)
 
         val effects = mutableListOf<SessionEffect>()
-        var next = state.copy(preview = null)
+        var next = state.copy(preview = null, monitor = null)
 
         // 建连期间还在提交的任务：结果不可知，不能假装它成功或失败。
         state.tasks.values.filter { it.state is TaskState.Submitting }.forEach { draft ->
@@ -221,6 +225,7 @@ class SessionReducer(
                 ),
                 queue = null,
                 preview = null,
+                monitor = null,
             ),
             listOf(
                 SessionEffect.CloseSocket(lease.leaseId, reason),
@@ -333,8 +338,16 @@ class SessionReducer(
 
             // WebSocket 只是提示：status / cached / 预览帧不改变任务真相
             is ComfyEvent.Status, is ComfyEvent.ExecutionCached,
-            is ComfyEvent.BinaryPreview, is ComfyEvent.Unknown,
+            is ComfyEvent.BinaryPreview,
             -> Unit
+
+            // Crystools 的监控数据也走同一条 socket（它的 HTTP 路由在多数服务器上是 404）。
+            // 只更新监控采样；不是监控帧、解析失败或旧租约的帧都由 parser/守卫安静忽略。
+            is ComfyEvent.Unknown -> {
+                MonitorSample.parse(input.text, input.nowMs)?.let { sample ->
+                    next = state.copy(monitor = sample)
+                }
+            }
         }
 
         return ReduceResult(next, effects)
@@ -773,6 +786,7 @@ class SessionReducer(
                     startedAtMs = now,
                 ),
                 queue = null,
+                monitor = null,
             ),
             listOf(
                 SessionEffect.CloseSocket(lease.leaseId, "进度静默超时"),
@@ -1034,6 +1048,7 @@ class SessionReducer(
             nextLeaseId = leaseId + 1,
             queue = null,
             preview = null,
+            monitor = null,
         )
         return ReduceResult(next, listOf(SessionEffect.OpenSocket(lease)))
     }

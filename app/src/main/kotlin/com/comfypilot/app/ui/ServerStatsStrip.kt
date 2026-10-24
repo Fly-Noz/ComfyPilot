@@ -29,6 +29,7 @@ import com.comfypilot.core.api.ApiCodec
 import com.comfypilot.core.api.ApiPaths
 import com.comfypilot.core.api.QueueSnapshot
 import com.comfypilot.core.api.SystemStats
+import com.comfypilot.core.net.MonitorSample
 import com.comfypilot.core.transport.HttpRequest
 import com.comfypilot.core.transport.HttpTransport
 import kotlinx.coroutines.Dispatchers
@@ -45,12 +46,16 @@ import kotlin.math.roundToInt
 
 /**
  * 服务器基础状态：官方 `/system_stats` 只给内存/显存与版本，没有 CPU/GPU 利用率。
- * 装了 ComfyUI-Crystools 时额外读 `/crystools/monitor` 补上 CPU/GPU/温度等指标；
- * 没有这个扩展的服务器保持原样，轮询仍只有一个 2 秒循环，失败保留上一次结果。
+ *
+ * 装了 ComfyUI-Crystools 的服务器会把 CPU/GPU/温度等指标通过 WebSocket 推上来，
+ * 共享层解析后以 [monitor] 传进来，这里优先用它；`/system_stats` 仍负责内存/显存/版本，
+ * `/crystools/monitor` 的 HTTP 轮询也保留着当兜底（很多服务器根本没有这个路由）。
+ * 轮询仍是单个 2 秒循环，失败保留上一次结果。
  */
 @Composable
 fun ServerStatsStrip(
     baseUrl: String?,
+    monitor: MonitorSample? = null,
 ) {
     val c = Spectrum.colors
     var stats by remember(baseUrl) { mutableStateOf<SystemStats?>(null) }
@@ -117,24 +122,31 @@ fun ServerStatsStrip(
     ) {
         val current = stats
         val metrics = crystools
+        val live = monitor
 
         // 百分比短，窄屏不会像 "8.5 GB / 16 GB" 那样被裁掉。总量为 0 视为未知，
         // 此时用 Crystools 的百分比兜底；仍然缺就整格省略，不画 "--"。
+        // 内存/显存优先用 WebSocket 的实时采样，其次是 /system_stats，最后才是 HTTP 兜底。
         val cells = buildList {
-            val ramPercent = current?.let { usedPercent(it.system.ramTotal, it.system.ramFree) }
+            val ramPercent = live?.ramPercent
+                ?: current?.let { usedPercent(it.system.ramTotal, it.system.ramFree) }
                 ?: metrics?.ramPercent
             if (ramPercent != null) add(StatValue("内存", percentText(ramPercent)))
-            val vramPercent = current?.devices?.firstOrNull()
-                ?.let { usedPercent(it.vramTotal, it.vramFree) }
+            val vramPercent = live?.vramPercent
+                ?: current?.devices?.firstOrNull()
+                    ?.let { usedPercent(it.vramTotal, it.vramFree) }
                 ?: metrics?.vramPercent
             if (vramPercent != null) add(StatValue("显存", percentText(vramPercent)))
             queue?.let { add(StatValue("队列", "${it.running.size} / ${it.pending.size}")) }
             current?.system?.comfyuiVersion?.takeIf { it.isNotBlank() }
                 ?.let { add(StatValue("版本", it)) }
-            // Crystools 指标：只有真正给出值时才加格子。
-            metrics?.cpuPercent?.let { add(StatValue("CPU", percentText(it))) }
-            metrics?.gpuPercent?.let { add(StatValue("GPU", percentText(it))) }
-            metrics?.temperature?.let { add(StatValue("温度", "${it.roundToInt()} °C")) }
+            // CPU/GPU/温度：实时 WebSocket 采样优先，HTTP 兜底其次；只有真正给出值时才加格子。
+            val cpuPercent = live?.cpuPercent ?: metrics?.cpuPercent
+            val gpuPercent = live?.gpuPercent ?: metrics?.gpuPercent
+            val temperature = live?.temperatureC ?: metrics?.temperature
+            cpuPercent?.let { add(StatValue("CPU", percentText(it))) }
+            gpuPercent?.let { add(StatValue("GPU", percentText(it))) }
+            temperature?.let { add(StatValue("温度", "${it.roundToInt()}°C")) }
         }
 
         // 固定两列 × N 行：每格等宽（weight 平分），文字不够放时换行而不是省略。
