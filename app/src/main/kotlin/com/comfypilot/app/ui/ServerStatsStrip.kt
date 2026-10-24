@@ -1,12 +1,14 @@
 package com.comfypilot.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.material3.Text
@@ -14,8 +16,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
@@ -111,18 +115,11 @@ fun ServerStatsStrip(
         }
     }
 
+    val current = stats
+    val metrics = crystools
+    val live = monitor
+    var expanded by rememberSaveable { mutableStateOf(false) }
     val shape = RoundedCornerShape(16.dp)
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(c.card)
-            .border(1.dp, c.border, shape)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
-    ) {
-        val current = stats
-        val metrics = crystools
-        val live = monitor
 
         // 百分比短，窄屏不会像 "8.5 GB / 16 GB" 那样被裁掉。总量为 0 视为未知，
         // 此时用 Crystools 的百分比兜底；仍然缺就整格省略，不画 "--"。
@@ -147,45 +144,101 @@ fun ServerStatsStrip(
             cpuPercent?.let { add(StatValue("CPU", percentText(it))) }
             gpuPercent?.let { add(StatValue("GPU", percentText(it))) }
             temperature?.let { add(StatValue("温度", "${it.roundToInt()}°C")) }
+            live?.gpuName?.takeIf { it.isNotBlank() }?.let { add(StatValue("显卡", it)) }
         }
 
-        // 固定两列 × N 行：每格等宽（weight 平分），文字不够放时换行而不是省略。
-        if (cells.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                cells.chunked(2).forEach { rowCells ->
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        rowCells.forEach { cell ->
-                            StatCell(
-                                label = cell.label,
-                                value = cell.value,
-                                modifier = Modifier.weight(1f),
-                            )
+        // 没有数据的连接页不占地方。
+        if (cells.isEmpty()) return@ServerStatsStrip
+
+        // 收起时只留一行：标题 + 两条最有用的数字；展开才铺开两列明细。
+        val summary = buildList {
+            cells.firstOrNull { it.label == "内存" }?.let { add("内存 ${it.value}") }
+            cells.firstOrNull { it.label == "显存" }?.let { add("显存 ${it.value}") }
+            if (isEmpty()) {
+                cells.firstOrNull { it.label == "CPU" }?.let { add("CPU ${it.value}") }
+                cells.firstOrNull { it.label == "温度" }?.let { add(it.value) }
+            }
+        }.joinToString(" · ")
+
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(shape)
+                .background(c.card)
+                .border(1.dp, c.border, shape),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "主机状态",
+                    color = c.textMuted,
+                    fontSize = 11.5.sp,
+                    letterSpacing = 0.6.sp,
+                )
+                Spacer(Modifier.weight(1f))
+                if (summary.isNotEmpty()) {
+                    Text(
+                        text = summary,
+                        color = c.textDim,
+                        fontSize = 10.5.sp,
+                        fontFamily = SpectrumMono,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    text = if (expanded) "收起 ▾" else "展开 ▸",
+                    color = c.textDim,
+                    fontSize = 10.sp,
+                )
+            }
+
+            if (expanded) {
+                // 两列 × N 行：每格等宽（weight 平分），文字不够放时换行而不是省略。
+                Column(
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 9.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    cells.chunked(2).forEach { rowCells ->
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            rowCells.forEach { cell ->
+                                StatCell(
+                                    label = cell.label,
+                                    value = cell.value,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                            if (rowCells.size == 1) Spacer(Modifier.weight(1f))
                         }
-                        if (rowCells.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
             }
-        }
 
-        val problem = when {
-            baseUrl == null -> "未连接 ComfyUI"
-            current == null && error != null -> error!!
-            current == null -> "读取中…"
-            current.devices.isEmpty() -> "服务器没有返回设备，显存不可用"
-            else -> error?.let { "状态更新失败：$it" }
+            val problem = when {
+                baseUrl == null -> "未连接 ComfyUI"
+                current == null && error != null -> error!!
+                current == null -> "读取中…"
+                current.devices.isEmpty() -> "服务器没有返回设备，显存不可用"
+                else -> error?.let { "状态更新失败：$it" }
+            }
+            if (problem != null) {
+                Text(
+                    text = problem,
+                    color = if (error != null && current != null) c.err else c.textDim,
+                    fontSize = 9.5.sp,
+                    fontFamily = SpectrumMono,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                )
+            }
         }
-        if (problem != null) {
-            Text(
-                text = problem,
-                color = if (error != null && current != null) c.err else c.textDim,
-                fontSize = 9.5.sp,
-                fontFamily = SpectrumMono,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-        }
-    }
 }
 
 /** 一个格子的内容；未知的指标不进列表，因此不会渲染空占位。 */
