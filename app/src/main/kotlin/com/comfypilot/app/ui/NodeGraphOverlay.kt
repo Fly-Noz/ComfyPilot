@@ -94,6 +94,10 @@ fun NodeGraphDialog(
     onToggleNode: (Int, Boolean) -> Unit,
     /** 跳到输入页并定位到该节点卡片。 */
     onJumpToNode: (Int) -> Unit,
+    /** 本次会话里已断开的连线 id。 */
+    removedLinkIds: Set<Int>,
+    /** 断开一条连线（父级负责持久到会话状态）。 */
+    onRemoveLink: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val c = Spectrum.colors
@@ -109,7 +113,10 @@ fun NodeGraphDialog(
     var selected by remember(graph) { mutableStateOf<Int?>(null) }
     // 参数卡片默认只显示标题行，用户点「展开」才列出参数。
     var cardExpanded by remember(graph) { mutableStateOf(false) }
+    var selectedLink by remember(graph) { mutableStateOf<Int?>(null) }
+    var confirmLinkRemoval by remember(graph) { mutableStateOf(false) }
     LaunchedEffect(selected) { cardExpanded = false }
+    LaunchedEffect(selectedLink) { confirmLinkRemoval = false }
     var query by remember(graph) { mutableStateOf("") }
     var fitted by remember(graph) { mutableStateOf(false) }
 
@@ -343,7 +350,22 @@ fun NodeGraphDialog(
                                             world.y >= node.y &&
                                             world.y <= node.y + node.height
                                     }
-                                    selected = hit?.id
+                                    if (hit != null) {
+                                        selected = hit.id
+                                        selectedLink = null
+                                    } else {
+                                        // 连线很细：按屏幕距离 14px 判定命中，手指不用精确压线
+                                        val nearest = if (graph == null) null else nearestLink(
+                                            graph = graph,
+                                            tap = tap,
+                                            scale = scale,
+                                            offset = offset,
+                                            removedLinkIds = removedLinkIds,
+                                            threshold = 14f,
+                                        )
+                                        selectedLink = nearest
+                                        selected = null
+                                    }
                                 },
                                 onDoubleTap = { fitToScreen() },
                             )
@@ -355,6 +377,8 @@ fun NodeGraphDialog(
                             graph = graph,
                             activeIds = activeNodeIds,
                             disabledIds = disabledNodeIds,
+                            removedLinkIds = removedLinkIds,
+                            selectedLink = selectedLink,
                             scale = scale,
                             offset = offset,
                             selected = selected,
@@ -392,6 +416,94 @@ fun NodeGraphDialog(
                         }
                     }
 
+                    val activeLink = selectedLink?.let { id -> graph?.links?.get(id) }
+                    if (activeLink != null && graph != null) {
+                        val fromNode = graph.byId[activeLink.originId]
+                        val toNode = graph.byId[activeLink.targetId]
+                        if (fromNode != null && toNode != null) {
+                            val outName = fromNode.outputs.getOrNull(activeLink.originSlot)?.name ?: "输出"
+                            val inName = toNode.inputs.getOrNull(activeLink.targetSlot)?.name ?: "输入"
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .padding(10.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(c.dialog.copy(alpha = 0.96f))
+                                    .border(1.dp, c.accentBorder, RoundedCornerShape(14.dp))
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "连线",
+                                        color = c.accent,
+                                        fontSize = 11.sp,
+                                        fontFamily = SpectrumMono,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text(
+                                        "✕",
+                                        color = c.textMuted,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { selectedLink = null }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    )
+                                }
+                                Text(
+                                    "${nodeLabel(fromNode)}.$outName  →  ${nodeLabel(toNode)}.$inName",
+                                    color = c.text,
+                                    fontSize = 12.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "类型 ${activeLink.type}",
+                                    color = c.textDim,
+                                    fontSize = 9.5.sp,
+                                    fontFamily = SpectrumMono,
+                                )
+                                if (!confirmLinkRemoval) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        ActionChip(
+                                            text = "断开连接",
+                                            tone = c.warn,
+                                            onClick = { confirmLinkRemoval = true },
+                                        )
+                                        ActionChip(
+                                            text = "关闭",
+                                            tone = c.textMuted,
+                                            onClick = { selectedLink = null },
+                                        )
+                                    }
+                                } else {
+                                    Text(
+                                        "断开后该输入会变成未连接，提交可能被阻断，确认断开？",
+                                        color = c.warn,
+                                        fontSize = 11.sp,
+                                    )
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        ActionChip(
+                                            text = "确认断开",
+                                            tone = c.err,
+                                            onClick = {
+                                                selectedLink = null
+                                                confirmLinkRemoval = false
+                                                onRemoveLink(activeLink.id)
+                                            },
+                                        )
+                                        ActionChip(
+                                            text = "取消",
+                                            tone = c.textMuted,
+                                            onClick = { confirmLinkRemoval = false },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                     val current = nodes.firstOrNull { it.id == selected }
                     val detail = current?.let { nodeViews[it.id] }
                     if (current != null) {
@@ -572,6 +684,8 @@ private fun DrawScope.drawScene(
     graph: UiGraph?,
     activeIds: Set<Int>,
     disabledIds: Set<Int>,
+    removedLinkIds: Set<Int>,
+    selectedLink: Int?,
     scale: Float,
     offset: Offset,
     selected: Int?,
@@ -684,6 +798,7 @@ private fun DrawScope.drawScene(
     // 连线：起点/终点落在真实的输出/输入槽位上（槽位序号来自工作流 links）
     val byId = graph.byId
     graph.links.values.forEach { link ->
+        if (link.id in removedLinkIds) return@forEach
         val from = byId[link.originId] ?: return@forEach
         val to = byId[link.targetId] ?: return@forEach
         val outIndex = link.originSlot.coerceIn(0, max(0, from.outputs.size - 1))
@@ -697,12 +812,12 @@ private fun DrawScope.drawScene(
         }
         drawPath(
             path = path,
-            color = if (isActive(from) && isActive(to)) {
+            color = if (link.id == selectedLink) c.accent else if (isActive(from) && isActive(to)) {
                 c.accent.copy(alpha = 0.55f)
             } else {
                 c.textDim.copy(alpha = 0.28f)
             },
-            style = Stroke(width = 1.8f * scale.coerceIn(0.8f, 1.4f)),
+            style = Stroke(width = if (link.id == selectedLink) 3.4f else 1.8f * scale.coerceIn(0.8f, 1.4f)),
         )
     }
 
@@ -941,3 +1056,85 @@ private fun ActionChip(text: String, tone: Color, onClick: () -> Unit) {
             .padding(horizontal = 10.dp, vertical = 6.dp),
     )
 }
+
+/** 连线端点的屏幕坐标：与绘制时使用同一套槽位公式。 */
+private fun linkScreenAnchors(
+    link: com.comfypilot.core.workflow.UiLink,
+    from: UiNode,
+    to: UiNode,
+    scale: Float,
+    offset: Offset,
+): Pair<Offset, Offset> {
+    fun slotY(node: UiNode, index: Int): Float {
+        val slots = max(node.inputs.size, node.outputs.size).coerceAtLeast(1)
+        val header = node.height * 0.26
+        val usable = (node.height - header).coerceAtLeast(1.0)
+        val step = (usable / slots).coerceIn(4.0, 22.0)
+        return (node.y + header + step * (index + 0.5)).toFloat()
+    }
+    val outIndex = link.originSlot.coerceIn(0, max(0, from.outputs.size - 1))
+    val inIndex = link.targetSlot.coerceIn(0, max(0, to.inputs.size - 1))
+    val start = Offset(
+        (from.x + from.width).toFloat() * scale + offset.x,
+        slotY(from, outIndex) * scale + offset.y,
+    )
+    val end = Offset(
+        to.x.toFloat() * scale + offset.x,
+        slotY(to, inIndex) * scale + offset.y,
+    )
+    return start to end
+}
+
+/** 三次贝塞尔采样；命中判定用折线近似，足够精确且比解方程便宜。 */
+private fun bezierSamples(start: Offset, end: Offset, samples: Int = 24): List<Offset> {
+    val dx = max(20f, abs(end.x - start.x) / 2f)
+    return (0..samples).map { i ->
+        val t = i.toFloat() / samples
+        val mt = 1f - t
+        val x = mt * mt * mt * start.x + 3 * mt * mt * t * (start.x + dx) +
+            3 * mt * t * t * (end.x - dx) + t * t * t * end.x
+        val y = mt * mt * mt * start.y + 3 * mt * mt * t * start.y +
+            3 * mt * t * t * end.y + t * t * t * end.y
+        Offset(x, y)
+    }
+}
+
+private fun distanceToSegment(point: Offset, a: Offset, b: Offset): Float {
+    val ab = b - a
+    val lengthSq = ab.x * ab.x + ab.y * ab.y
+    if (lengthSq <= 0.0001f) return (point - a).getDistance()
+    val t = (((point - a).x * ab.x + (point - a).y * ab.y) / lengthSq).coerceIn(0f, 1f)
+    return (point - (a + ab * t)).getDistance()
+}
+
+/** 找到离点击位置最近的一条连线（阈值内）。 */
+private fun nearestLink(
+    graph: UiGraph,
+    tap: Offset,
+    scale: Float,
+    offset: Offset,
+    removedLinkIds: Set<Int>,
+    threshold: Float,
+): Int? {
+    var best: Int? = null
+    var bestDistance = threshold
+    graph.links.values.forEach { link ->
+        if (link.id in removedLinkIds) return@forEach
+        val from = graph.byId[link.originId] ?: return@forEach
+        val to = graph.byId[link.targetId] ?: return@forEach
+        val (start, end) = linkScreenAnchors(link, from, to, scale, offset)
+        val points = bezierSamples(start, end)
+        for (i in 0 until points.size - 1) {
+            val d = distanceToSegment(tap, points[i], points[i + 1])
+            if (d < bestDistance) {
+                bestDistance = d
+                best = link.id
+            }
+        }
+    }
+    return best
+}
+
+/** 卡片上展示节点名：优先标题，其次类型，最后编号。 */
+private fun nodeLabel(node: UiNode): String =
+    node.title?.takeIf { it.isNotBlank() } ?: node.type.ifBlank { "#${node.id}" }

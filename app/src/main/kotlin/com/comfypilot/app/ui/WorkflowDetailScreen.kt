@@ -257,6 +257,9 @@ private fun DetailBody(
     val bypassedNodeIds = state.bypassedNodeIds
     val enabledNodeIds = state.enabledNodeIds
     // 节点图、字段和待加载定义都由共享层决定；这里只缓存与字段值无关的部分。
+    // 本次会话里断开的连线（不写回文件，只影响提交与视图）。
+    var removedLinks by remember(document.path) { mutableStateOf<Set<Int>>(emptySet()) }
+
     val analysis = remember(
         document,
         state.nodeInfo,
@@ -264,6 +267,7 @@ private fun DetailBody(
         state.nodeInfoRequested,
         bypassedNodeIds,
         enabledNodeIds,
+        removedLinks,
     ) {
         WorkflowDecisions.analyze(
             document = document,
@@ -272,6 +276,7 @@ private fun DetailBody(
             nodeInfoRequested = state.nodeInfoRequested,
             bypassedNodeIds = bypassedNodeIds,
             enabledNodeIds = enabledNodeIds,
+            removedLinkIds = removedLinks,
         )
     }
     val graphs = analysis.graphs
@@ -762,6 +767,8 @@ private fun DetailBody(
             raw = document.raw,
             nodeViews = fields.nodes.associateBy { it.id },
             nodeEnabled = fields.nodes.associate { it.id to (it.mode == 0) },
+            removedLinkIds = removedLinks,
+            onRemoveLink = { linkId -> removedLinks = removedLinks + linkId },
             onToggleNode = { nodeId, enabled ->
                 onSetNodeBypassed(nodeId, !enabled)
             },

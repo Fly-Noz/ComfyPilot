@@ -25,6 +25,35 @@ data class UiGraph(
 
     /** 把某一个独立节点图里的节点临时当作正常执行（用于在 App 里启用被旁路的图）。 */
     fun withForcedNormal(ids: Set<Int>): UiGraph = withEffectiveModes(forcedNormalNodeIds = ids)
+    /**
+     * 断开若干条连线：链接本身移除，对应的输入 linkId 置空。
+     *
+     * 只影响本次会话的提交与视图，不写回工作流文件；断开后该输入会被视为需要连线的空输入，
+     * 由提交校验给出具体阻断原因。
+     */
+    fun withoutLinks(removedLinkIds: Set<Int>): UiGraph =
+        if (removedLinkIds.isEmpty()) {
+            this
+        } else {
+            copy(
+                nodes = nodes.map { node ->
+                    if (node.inputs.none { it.linkId != null && it.linkId in removedLinkIds }) {
+                        node
+                    } else {
+                        node.copy(
+                            inputs = node.inputs.map { input ->
+                                if (input.linkId != null && input.linkId in removedLinkIds) {
+                                    input.copy(linkId = null)
+                                } else {
+                                    input
+                                }
+                            },
+                        )
+                    }
+                },
+                links = links.filterKeys { it !in removedLinkIds },
+            )
+        }
 
     /**
      * 应用本次会话的节点模式覆盖。

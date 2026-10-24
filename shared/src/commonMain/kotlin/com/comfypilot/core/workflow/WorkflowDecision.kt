@@ -28,6 +28,7 @@ class WorkflowAnalysis internal constructor(
     val bypassedNodeIds: Set<Int> get() = selection.bypassedNodeIds
     /** 用户在当前工作流里显式重新启用的节点（把文件里的静音/旁路恢复执行）。 */
     val enabledNodeIds: Set<Int> get() = selection.enabledNodeIds
+    val removedLinkIds: Set<Int> get() = selection.removedLinkIds
     val commonFields: List<WorkflowField> get() = fields.commonFields
     val pendingNodeClassCount: Int get() = pendingNodeClasses.size
 
@@ -66,6 +67,7 @@ data class WorkflowDecision(
     val forcedNormalNodeIds: Set<Int> get() = analysis.forcedNormalNodeIds
     val bypassedNodeIds: Set<Int> get() = analysis.bypassedNodeIds
     val enabledNodeIds: Set<Int> get() = analysis.enabledNodeIds
+    val removedLinkIds: Set<Int> get() = analysis.removedLinkIds
     val commonFields: List<WorkflowField> get() = analysis.commonFields
     val pendingNodeClasses: List<String> get() = analysis.pendingNodeClasses
     val missingNodeClasses: List<String> get() = analysis.missingNodeClasses
@@ -114,6 +116,7 @@ object WorkflowDecisions {
         nodeInfoRequested: Set<String> = emptySet(),
         bypassedNodeIds: Set<Int> = emptySet(),
         enabledNodeIds: Set<Int> = emptySet(),
+        removedLinkIds: Set<Int> = emptySet(),
     ): WorkflowAnalysis {
         val graphs = if (document.format == WorkflowFormat.UI) {
             WorkflowGraphs.analyze(document, definitions)
@@ -137,6 +140,7 @@ object WorkflowDecisions {
             },
             bypassedNodeIds = bypassedNodeIds,
             enabledNodeIds = enabledNodeIds,
+            removedLinkIds = removedLinkIds,
         )
 
         val fields = WorkflowFields.build(
@@ -146,6 +150,7 @@ object WorkflowDecisions {
             enabledOutputIds = selection.enabledOutputIds,
             bypassedNodeIds = selection.bypassedNodeIds,
             enabledNodeIds = selection.enabledNodeIds,
+            removedLinkIds = selection.removedLinkIds,
         )
 
         val allClasses = document.nodeClasses.distinct()
@@ -181,6 +186,7 @@ object WorkflowDecisions {
             forcedNormalNodeIds = analysis.forcedNormalNodeIds,
             bypassedNodeIds = analysis.bypassedNodeIds,
             enabledNodeIds = analysis.enabledNodeIds,
+            removedLinkIds = analysis.removedLinkIds,
             runToken = runToken,
         )
         return WorkflowDecision(
@@ -350,6 +356,8 @@ data class WorkflowGraphSelection(
     val bypassedNodeIds: Set<Int> = emptySet(),
     /** 用户逐个重新启用的节点；把文件里的静音/旁路恢复为正常执行。 */
     val enabledNodeIds: Set<Int> = emptySet(),
+    /** 用户断开的连线：提交时按未连接处理，不写回工作流文件。 */
+    val removedLinkIds: Set<Int> = emptySet(),
 ) {
     val selectedGraphs: List<WorkflowGraph> get() = graphs.filter { it.id in selectedIds }
 }

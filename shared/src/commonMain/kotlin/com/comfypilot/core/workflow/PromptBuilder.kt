@@ -80,6 +80,8 @@ object PromptBuilder {
          * 避免工作流前缀不唯一时后一次产物覆盖前一次。
          */
         runToken: String? = null,
+        /** 本次会话里被用户断开的连线：构建时按输入未连接处理。 */
+        removedLinkIds: Set<Int> = emptySet(),
     ): PromptBuild {
         when (document.format) {
             WorkflowFormat.API -> {
@@ -102,11 +104,13 @@ object PromptBuilder {
 
         val parsed = UiWorkflowParser.parse(document.raw)
             ?: return PromptBuild.Blocked(listOf(BuildProblem(message = "工作流不是有效的网页格式 JSON")))
-        val graph = parsed.withEffectiveModes(
-            forcedNormalNodeIds = forcedNormalNodeIds,
-            bypassedNodeIds = bypassedNodeIds,
-            enabledNodeIds = enabledNodeIds,
-        )
+        val graph = parsed
+            .withoutLinks(removedLinkIds)
+            .withEffectiveModes(
+                forcedNormalNodeIds = forcedNormalNodeIds,
+                bypassedNodeIds = bypassedNodeIds,
+                enabledNodeIds = enabledNodeIds,
+            )
         if (graph.hasSubgraphs) {
             return PromptBuild.Blocked(
                 listOf(BuildProblem(message = "工作流包含子图（subgraph），当前版本不支持转换")),
