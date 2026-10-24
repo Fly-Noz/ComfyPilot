@@ -22,6 +22,7 @@ import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
 import { NodeNoteStore } from '../bridge/NodeNoteStore';
 import { AddressEntry, AddressStore } from '../bridge/AddressStore';
 import { DismissedErrorStore } from '../bridge/DismissedErrorStore';
+import { AppearanceStore } from '../bridge/AppearanceStore';
 import { emptyServerStats, fetchServerStats, sameServerStats, ServerStats } from '../bridge/ServerStats';
 import { Palette, Spectrum } from '../theme/Spectrum';
 import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/ArtifactDownloader';
@@ -326,6 +327,7 @@ struct Index {
   private imageUploader: ImageUploader = new ImageUploader();
   private noteStore: NodeNoteStore = new NodeNoteStore();
   private addressStore: AddressStore = new AddressStore();
+  private appearanceStore: AppearanceStore = new AppearanceStore();
   private dismissedStore: DismissedErrorStore = new DismissedErrorStore();
   /** 性能条复用一个 HttpRequest 句柄，页面离场时 destroy()。 */
   private statsRequest: http.HttpRequest | null = null;
@@ -645,6 +647,12 @@ struct Index {
     // 地址历史和错误关闭状态都必须在第一次连接前就绪。 
     const addressReady: boolean = await this.addressStore.load(context);
     const dismissedReady: boolean = await this.dismissedStore.open(context);
+    // 外观偏好用 preferences 落盘：PersistentStorage 在真机冷启动会丢。
+    const savedAppearance: string | null = await this.appearanceStore.load(context);
+    if (savedAppearance !== null) {
+      this.appearanceMode = savedAppearance;
+      this.applyAppearance();
+    }
     if (workflowPinsReady) {
       this.pinnedWorkflowPaths = this.pinnedWorkflowStore.load();
     }
@@ -5867,6 +5875,8 @@ struct Index {
       this.appearanceMode = mode;
       this.applyAppearance();
     });
+    // 立即落盘，重启后仍是这个模式
+    this.appearanceStore.save(getContext(this) as common.Context, mode);
   }
   @Builder
   GradientAction(label: string, enabled: boolean, action: () => void, pressKey: string = '') {
