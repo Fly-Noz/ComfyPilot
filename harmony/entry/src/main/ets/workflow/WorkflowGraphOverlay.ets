@@ -66,6 +66,13 @@ export struct WorkflowGraphOverlay {
 
   private settings: RenderingContextSettings = new RenderingContextSettings(true);
   private ctx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.settings);
+  private miniCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(this.settings);
+  private miniScale: number = 1;
+  private miniOx: number = 0;
+  private miniOy: number = 0;
+  private miniMinX: number = 0;
+  private miniMinY: number = 0;
+  private miniNodes: GraphNodeView[] = [];
 
   @State private zoom: number = 0.5;
   @State private originX: number = 0;
@@ -85,6 +92,7 @@ export struct WorkflowGraphOverlay {
   private pinchAnchorY: number = 0;
   private pinchOriginX: number = 0;
   private pinchOriginY: number = 0;
+  private pinching: boolean = false;
 
   private c(): Palette {
     return Spectrum.palette(this.isDark);
@@ -267,6 +275,74 @@ export struct WorkflowGraphOverlay {
       });
       ctx.globalAlpha = 1;
     });
+    this.drawMini();
+  }
+
+  /** 小地图：整图缩略 + 当前视口框，点一下把视口移过去。 */
+  private drawMini(): void {
+    const ctx = this.miniCtx;
+    const w = ctx.width;
+    const h = ctx.height;
+    if (w <= 0 || h <= 0 || this.graph.nodes.length === 0) {
+      return;
+    }
+    ctx.clearRect(0, 0, w, h);
+    let minX = Number.MAX_VALUE;
+    let minY = Number.MAX_VALUE;
+    let maxX = -Number.MAX_VALUE;
+    let maxY = -Number.MAX_VALUE;
+    this.graph.nodes.forEach((node: GraphNodeView) => {
+      minX = Math.min(minX, node.x);
+      minY = Math.min(minY, node.y);
+      maxX = Math.max(maxX, node.x + node.w);
+      maxY = Math.max(maxY, node.y + node.h);
+    });
+    const bw = Math.max(1, maxX - minX);
+    const bh = Math.max(1, maxY - minY);
+    const pad = 5;
+    const s = Math.min((w - pad * 2) / bw, (h - pad * 2) / bh);
+    this.miniScale = s;
+    this.miniMinX = minX;
+    this.miniMinY = minY;
+    this.miniOx = pad + ((w - pad * 2) - bw * s) / 2;
+    this.miniOy = pad + ((h - pad * 2) - bh * s) / 2;
+
+    this.graph.nodes.forEach((node: GraphNodeView) => {
+      const active = this.isActive(node);
+      ctx.fillStyle = active ? 'rgba(124,92,255,0.75)' : 'rgba(150,150,160,0.5)';
+      ctx.fillRect(
+        this.miniOx + (node.x - minX) * s,
+        this.miniOy + (node.y - minY) * s,
+        Math.max(1, node.w * s),
+        Math.max(1, node.h * s),
+      );
+    });
+
+    // 当前视口框
+    const viewLeft = -this.originX / this.zoom;
+    const viewTop = -this.originY / this.zoom;
+    const viewW = this.ctx.width / this.zoom;
+    const viewH = this.ctx.height / this.zoom;
+    ctx.strokeStyle = 'rgba(124,92,255,0.95)';
+    ctx.lineWidth = 1.4;
+    ctx.strokeRect(
+      this.miniOx + (viewLeft - minX) * s,
+      this.miniOy + (viewTop - minY) * s,
+      viewW * s,
+      viewH * s,
+    );
+  }
+
+  /** 点小地图：把点击位置对应的世界坐标移到视口中心。 */
+  private miniJump(x: number, y: number): void {
+    if (this.miniScale <= 0) {
+      return;
+    }
+    const worldX = (x - this.miniOx) / this.miniScale + this.miniMinX;
+    const worldY = (y - this.miniOy) / this.miniScale + this.miniMinY;
+    this.originX = this.ctx.width / 2 - worldX * this.zoom;
+    this.originY = this.ctx.height / 2 - worldY * this.zoom;
+    this.draw();
   }
 
   private drawSlot(
@@ -509,16 +585,24 @@ export struct WorkflowGraphOverlay {
             GestureMode.Parallel,
             PanGesture({ fingers: 1 })
               .onActionStart(() => {
+                // 捏合时双指也会触发平移，直接忽略，避免和缩放抢 origin
+                if (this.pinching) {
+                  return;
+                }
                 this.panBaseX = this.originX;
                 this.panBaseY = this.originY;
               })
               .onActionUpdate((event: GestureEvent) => {
+                if (this.pinching) {
+                  return;
+                }
                 this.originX = this.panBaseX + event.offsetX;
                 this.originY = this.panBaseY + event.offsetY;
                 this.draw();
               }),
             PinchGesture({ fingers: 2 })
               .onActionStart((event: GestureEvent) => {
+                this.pinching = true;
                 this.pinchBase = this.zoom;
                 this.pinchOriginX = this.originX;
                 this.pinchOriginY = this.originY;
@@ -541,6 +625,13 @@ export struct WorkflowGraphOverlay {
                 this.zoom = next;
                 this.originX = this.pinchAnchorX - (this.pinchAnchorX - this.pinchOriginX) * ratio;
                 this.originY = this.pinchAnchorY - (this.pinchAnchorY - this.pinchOriginY) * ratio;
+                this.draw();
+              })
+              .onActionEnd(() => {
+                // 松手后把平移基准对齐到当前 origin，下一次单指拖动不会跳。
+                this.pinching = false;
+                this.panBaseX = this.originX;
+                this.panBaseY = this.originY;
                 this.draw();
               })
           )
@@ -626,6 +717,25 @@ export struct WorkflowGraphOverlay {
         .position({ x: 0, y: 96 + this.topInset });
       }
 
+      // 右下角小地图
+      Column() {
+        Canvas(this.miniCtx)
+          .width(92)
+          .height(118)
+          .borderRadius(14)
+          .backgroundColor(this.c().isDark ? 'rgba(24,26,34,0.82)' : 'rgba(255,255,255,0.82)')
+          .border({ width: 1, color: this.c().borderStrong })
+          .shadow({ radius: 12, color: 'rgba(0,0,0,0.18)', offsetX: 0, offsetY: 4 })
+          .onReady(() => this.drawMini())
+          .onClick((event: ClickEvent) => this.miniJump(event.x, event.y));
+      }
+      .width('100%')
+      .height('100%')
+      .justifyContent(FlexAlign.End)
+      .alignItems(HorizontalAlign.End)
+      .padding({ right: 14, bottom: 150 })
+      .hitTestBehavior(HitTestMode.Transparent);
+
       // 底部卡片
       if (this.selectedSlot.length > 0) {
         this.slotCard();
@@ -699,9 +809,17 @@ export struct WorkflowGraphOverlay {
       }
     }
     .width('100%')
+    .borderRadius(18)
     .padding(14)
-    .backgroundColor(this.c().dialog)
-    .borderRadius(16)
+    .backgroundColor(this.c().isDark ? 'rgba(28,30,40,0.55)' : 'rgba(255,255,255,0.52)')
+    .backdropBlur(28)
+    .border({ width: 1, color: this.c().isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.78)' })
+    .shadow({
+      radius: 18,
+      color: this.c().isDark ? 'rgba(0,0,0,0.35)' : 'rgba(31,41,55,0.16)',
+      offsetX: 0,
+      offsetY: 6,
+    })
     .margin({ left: 14, right: 14, bottom: 16 });
   }
 
@@ -771,9 +889,17 @@ export struct WorkflowGraphOverlay {
       }
     }
     .width('100%')
+    .borderRadius(18)
     .padding(14)
-    .backgroundColor(this.c().dialog)
-    .borderRadius(16)
+    .backgroundColor(this.c().isDark ? 'rgba(28,30,40,0.55)' : 'rgba(255,255,255,0.52)')
+    .backdropBlur(28)
+    .border({ width: 1, color: this.c().isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.78)' })
+    .shadow({
+      radius: 18,
+      color: this.c().isDark ? 'rgba(0,0,0,0.35)' : 'rgba(31,41,55,0.16)',
+      offsetX: 0,
+      offsetY: 6,
+    })
     .margin({ left: 14, right: 14, bottom: 16 });
   }
 
@@ -810,9 +936,17 @@ export struct WorkflowGraphOverlay {
       .width('100%');
     }
     .width('100%')
+    .borderRadius(18)
     .padding(14)
-    .backgroundColor(this.c().dialog)
-    .borderRadius(16)
+    .backgroundColor(this.c().isDark ? 'rgba(28,30,40,0.55)' : 'rgba(255,255,255,0.52)')
+    .backdropBlur(28)
+    .border({ width: 1, color: this.c().isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.78)' })
+    .shadow({
+      radius: 18,
+      color: this.c().isDark ? 'rgba(0,0,0,0.35)' : 'rgba(31,41,55,0.16)',
+      offsetX: 0,
+      offsetY: 6,
+    })
     .margin({ left: 14, right: 14, bottom: 16 });
   }
 

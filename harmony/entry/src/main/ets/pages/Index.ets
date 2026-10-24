@@ -6860,6 +6860,10 @@ struct Index {
           },
           onToggleNode: (id: number) => {
             this.applyNodeBypass(id, !this.bypassedIds.includes(id));
+            // 关键节点需要二次确认时，先收起浮层，否则确认框会被浮层盖住。
+            if (this.bypassConfirmNodeId >= 0) {
+              this.graphOpen = false;
+            }
           },
           onRemoveLink: (id: number) => {
             if (!this.removedLinkIds.includes(id)) {
