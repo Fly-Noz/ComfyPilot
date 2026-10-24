@@ -3017,58 +3017,64 @@ struct Index {
   }
 
   /**
-   * 服务器性能条：一行可换行的紧凑单元。
-   * 拿不到的项不渲染；全部拿不到时整块不渲染（离线时页面不会多一条红字）。
+   * 服务器性能条：两列网格（对应 Android ServerStatsStrip）。
+   * 每格宽 50% 自动换行，标签在上、数值在下；内存/显存/CPU/GPU 都是百分比，
+   * 队列是「运行 / 等待」，温度带 °C。Crystools 没给的指标不画格子，不做占位。
+   * 全部拿不到时整块不渲染（离线时页面不会多一条红字）。
    */
   @Builder
   ServerStatsStrip() {
     if (this.hasServerStats()) {
-      Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center }) {
+      Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap, alignItems: ItemAlign.Start }) {
         if (this.serverStats.ramPercent >= 0) {
-          this.ServerStatCell('内存 %', `${Math.round(this.serverStats.ramPercent)}`)
+          this.ServerStatCell('内存', `${Math.round(this.serverStats.ramPercent)}%`)
         }
         if (this.serverStats.vramPercent >= 0) {
-          this.ServerStatCell('显存 %', `${Math.round(this.serverStats.vramPercent)}`)
+          this.ServerStatCell('显存', `${Math.round(this.serverStats.vramPercent)}%`)
         }
-        if (this.serverStats.cpuPercent >= 0) {
-          this.ServerStatCell('CPU %', `${Math.round(this.serverStats.cpuPercent)}`)
-        }
-        if (this.serverStats.gpuPercent >= 0) {
-          this.ServerStatCell('GPU %', `${Math.round(this.serverStats.gpuPercent)}`)
-        }
-        if (this.serverStats.temperature >= 0) {
-          this.ServerStatCell('温度 °C', `${Math.round(this.serverStats.temperature)}`)
-        }
+        this.ServerStatCell('队列', `${this.queueRunning} / ${this.queuePending}`)
         if (this.serverStats.version.length > 0) {
           this.ServerStatCell('版本', this.serverStats.version)
         }
+        if (this.serverStats.cpuPercent >= 0) {
+          this.ServerStatCell('CPU', `${Math.round(this.serverStats.cpuPercent)}%`)
+        }
+        if (this.serverStats.gpuPercent >= 0) {
+          this.ServerStatCell('GPU', `${Math.round(this.serverStats.gpuPercent)}%`)
+        }
+        if (this.serverStats.temperature >= 0) {
+          this.ServerStatCell('温度', `${Math.round(this.serverStats.temperature)} °C`)
+        }
       }
       .width('100%')
-      .padding({ left: 4, right: 4, top: 6, bottom: 6 })
+      .padding({ left: 2, right: 2, top: 3, bottom: 3 })
       .backgroundColor(this.c().card)
       .borderRadius(14)
       .border({ width: 1, color: this.c().border })
     }
   }
 
-  /** 性能条里的一个单元：9sp 等宽标签 + 12sp 数值。 */
+  /**
+   * 性能条里的一格：9sp 等宽小标签在上，12sp 等宽数值在下。
+   * 宽度固定半行、高度由内容撑开；数值不设 maxLines/textOverflow，
+   * 放不下就换行，绝不裁字。
+   */
   @Builder
   ServerStatCell(label: string, value: string) {
-    Column({ space: 1 }) {
+    Column({ space: 3 }) {
       Text(label)
         .fontSize(9)
         .fontFamily('monospace')
-        .letterSpacing(0.4)
+        .letterSpacing(0.9)
         .fontColor(this.c().textDim)
-        .maxLines(1)
       Text(value)
         .fontSize(12)
+        .fontFamily('monospace')
         .fontColor(this.c().text)
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
     }
+    .width('50%')
     .alignItems(HorizontalAlign.Start)
-    .margin({ left: 10, right: 10, top: 3, bottom: 3 })
+    .padding({ left: 10, right: 10, top: 6, bottom: 6 })
   }
 
   @Builder
