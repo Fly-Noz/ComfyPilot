@@ -79,6 +79,23 @@ export interface BridgePreview {
   bytes: number;
 }
 
+/**
+ * 状态帧顶层的 `monitor`：最近一帧 Crystools 监控采样。
+ *
+ * 每个指标都可能为 `null`（Crystools 没给、这一项不存在、或者刚断开），界面据此
+ * 省掉那一格，绝不拿 0 冒充读数。`receivedAtMs` 是共享层收到这帧的宿主时钟，
+ * 只用来判断新旧，界面不显示。
+ */
+export interface BridgeMonitor {
+  cpu: number | null;
+  ram: number | null;
+  gpu: number | null;
+  vram: number | null;
+  temperature: number | null;
+  gpuName: string | null;
+  receivedAtMs: number;
+}
+
 export interface BridgeState {
   phase: string;
   label: string;
@@ -93,6 +110,8 @@ export interface BridgeState {
   catalog: BridgeCatalog;
   workflow: BridgeWorkflow;
   preview: BridgePreview | null;
+  /** Crystools 监控采样；没有采样或已断开时为 null。顶层字段，不在 workflow 摘要里。 */
+  monitor: BridgeMonitor | null;
 }
 
 /**
@@ -561,8 +580,13 @@ export class ComfyBridge {
     });
     socket.on('message', (err: BusinessError, data: string | ArrayBuffer) => {
       if (typeof data === 'string') {
-        // Crystools 每秒刷几十条监控帧，连接后还会一次性补发一大段。共享层不用这些
-        // 数据，全量透传会把 JS 线程和 hilog 冲垮，长任务的 execution 事件也容易被淹。
+        // Crystools 每秒刷几十条监控帧，连接后还会一次性补发一大段。共享层只认
+        // `crystools.monitor`（把它折成状态帧顶层的 monitor），这一种必须透传；
+        // 其余 crystools 帧共享层用不到，照旧丢掉，别把 JS 线程和 hilog 冲垮。
+        if (data.indexOf('"crystools.monitor"') >= 0) {
+          this.send({ t: 'ws.text', id: id, text: data });
+          return;
+        }
         if (data.indexOf('"crystools.') >= 0) {
           return;
         }

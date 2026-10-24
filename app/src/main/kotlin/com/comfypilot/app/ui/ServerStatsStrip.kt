@@ -134,9 +134,7 @@ fun ServerStatsStrip(
                     ?.let { usedPercent(it.vramTotal, it.vramFree) }
                 ?: metrics?.vramPercent
             if (vramPercent != null) add(StatValue("显存", percentText(vramPercent)))
-            queue?.let { add(StatValue("队列", "${it.running.size} / ${it.pending.size}")) }
-            current?.system?.comfyuiVersion?.takeIf { it.isNotBlank() }
-                ?.let { add(StatValue("版本", it)) }
+
             // CPU/GPU/温度：实时 WebSocket 采样优先，HTTP 兜底其次；只有真正给出值时才加格子。
             val cpuPercent = live?.cpuPercent ?: metrics?.cpuPercent
             val gpuPercent = live?.gpuPercent ?: metrics?.gpuPercent
@@ -145,6 +143,10 @@ fun ServerStatsStrip(
             gpuPercent?.let { add(StatValue("GPU", percentText(it))) }
             temperature?.let { add(StatValue("温度", "${it.roundToInt()}°C")) }
             live?.gpuName?.takeIf { it.isNotBlank() }?.let { add(StatValue("显卡", it)) }
+            // 队列/版本放最后：硬件指标更常用，先看到。
+            queue?.let { add(StatValue("队列", "${it.running.size} / ${it.pending.size}")) }
+            current?.system?.comfyuiVersion?.takeIf { it.isNotBlank() }
+                ?.let { add(StatValue("版本", it)) }
         }
 
         // 没有数据的连接页不占地方。

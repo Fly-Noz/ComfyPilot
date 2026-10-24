@@ -7,6 +7,7 @@ import { promptAction } from '@kit.ArkUI';
 import { http } from '@kit.NetworkKit';
 import {
   BridgeCatalog,
+  BridgeMonitor,
   BridgeOutput,
   BridgePreview,
   BridgeState,
@@ -111,6 +112,27 @@ function emptyView(): WorkflowViewResponse {
   };
 }
 
+/** 缺失的监控指标按 -1 处理，性能条据此判断"这一格要不要画"。 */
+function shownNumber(value: number | null): number {
+  return value === null || !Number.isFinite(value) ? -1 : Math.round(value);
+}
+
+/**
+ * 只比较性能条真正会显示的数字（四舍五入后）。
+ * 监控帧的 receivedAtMs 每秒都变，读数没变时就不该重绘整条性能条。
+ */
+function sameMonitor(a: BridgeMonitor | null, b: BridgeMonitor | null): boolean {
+  if (a === null || b === null) {
+    return a === b;
+  }
+  return shownNumber(a.cpu) === shownNumber(b.cpu) &&
+    shownNumber(a.ram) === shownNumber(b.ram) &&
+    shownNumber(a.gpu) === shownNumber(b.gpu) &&
+    shownNumber(a.vram) === shownNumber(b.vram) &&
+    shownNumber(a.temperature) === shownNumber(b.temperature) &&
+    a.gpuName === b.gpuName;
+}
+
 interface PreviewPayload {
   ok: boolean;
   promptId?: string | null;
@@ -136,6 +158,15 @@ struct Index {
   @State addressMenuOpen: boolean = false;
   /** 性能条的数据；拿不到的项保持 -1 / ''，页面直接跳过。 */
   @State serverStats: ServerStats = emptyServerStats();
+  /**
+   * 状态帧顶层的 Crystools 监控采样（CPU/GPU/温度/内存/显存）。
+   *
+   * 它每秒都会变，所以单独存一份 @State 只给性能条读：summaryKey 里没有它，
+   * 不会触发 refreshView()，工作流视图不会被每秒重建。
+   */
+  @State monitor: BridgeMonitor | null = null;
+  /** 性能条展开/收起；收起时只剩一行标题，纯界面状态，不进 summaryKey。 */
+  @State statsExpanded: boolean = false;
   /** 被用户关掉的错误提示 key：`taskId|errorText`，按工作流持久化。 */
   @State dismissedErrorKey: string = '';
   @State running: boolean = false;
@@ -367,6 +398,9 @@ struct Index {
     this.tasks = state.tasks;
     this.queueRunning = state.queueRunning ?? 0;
     this.queuePending = state.queuePending ?? 0;
+    // 监控采样只喂性能条：单独一份 @State，summaryKey 不读它，工作流视图不受影响。
+    const monitor: BridgeMonitor | null = state.monitor ?? null;
+    this.monitor = sameMonitor(this.monitor, monitor) ? this.monitor : monitor;
     this.catalog = state.catalog;
     this.workflow = state.workflow;
     this.livePreviewMeta = state.preview ?? null;
@@ -678,9 +712,105 @@ struct Index {
   }
 
   private hasServerStats(): boolean {
+    // 监控帧只要有一项读数（或显卡名）就算"有数据"：/system_stats 拿不到时性能条照样要出。
+    const live: BridgeMonitor | null = this.monitor;
+    if (live !== null &&
+      (this.monitorValue(live.cpu) >= 0 || this.monitorValue(live.ram) >= 0 ||
+        this.monitorValue(live.gpu) >= 0 || this.monitorValue(live.vram) >= 0 ||
+        this.monitorValue(live.temperature) >= 0 || this.gpuName().length > 0)) {
+      return true;
+    }
     const stats = this.serverStats;
     return stats.ramPercent >= 0 || stats.vramPercent >= 0 || stats.cpuPercent >= 0 ||
       stats.gpuPercent >= 0 || stats.temperature >= 0 || stats.version.length > 0;
+  }
+
+  /** 监控帧里的一个数；缺失或非法返回 -1，性能条据此省掉这一格（绝不补 0）。 */
+  private monitorValue(value: number | null): number {
+    if (value === null || !Number.isFinite(value)) {
+      return -1;
+    }
+    return value;
+  }
+
+  /** 内存占用：监控帧优先，没有就退回 /system_stats 算出来的百分比；都没有 -1。 */
+  private stripRam(): number {
+    const live: BridgeMonitor | null = this.monitor;
+    const value = live === null ? -1 : this.monitorValue(live.ram);
+    return value >= 0 ? value : this.serverStats.ramPercent;
+  }
+
+  /** 显存占用：监控帧优先，/system_stats 兜底。 */
+  private stripVram(): number {
+    const live: BridgeMonitor | null = this.monitor;
+    const value = live === null ? -1 : this.monitorValue(live.vram);
+    return value >= 0 ? value : this.serverStats.vramPercent;
+  }
+
+  /** CPU 占用：监控帧优先，HTTP 轮询兜底。 */
+  private stripCpu(): number {
+    const live: BridgeMonitor | null = this.monitor;
+    const value = live === null ? -1 : this.monitorValue(live.cpu);
+    return value >= 0 ? value : this.serverStats.cpuPercent;
+  }
+
+  /** GPU 占用：监控帧优先，HTTP 轮询兜底。 */
+  private stripGpu(): number {
+    const live: BridgeMonitor | null = this.monitor;
+    const value = live === null ? -1 : this.monitorValue(live.gpu);
+    return value >= 0 ? value : this.serverStats.gpuPercent;
+  }
+
+  /** 温度（°C）：监控帧优先，HTTP 轮询兜底。 */
+  private stripTemp(): number {
+    const live: BridgeMonitor | null = this.monitor;
+    const value = live === null ? -1 : this.monitorValue(live.temperature);
+    return value >= 0 ? value : this.serverStats.temperature;
+  }
+
+  /** 显卡名：只有监控帧给，没给就空字符串（这一格不画）。 */
+  private gpuName(): string {
+    const live: BridgeMonitor | null = this.monitor;
+    if (live === null) {
+      return '';
+    }
+    const name: string | null = live.gpuName;
+    if (name === null) {
+      return '';
+    }
+    return name.trim();
+  }
+
+  /** 收起时右侧箭头：展开 ▾，收起 ▸。 */
+  private statsChevron(): string {
+    return this.statsExpanded ? '▾' : '▸';
+  }
+
+  /**
+   * 收起时右侧的一行摘要：内存/显存优先，两者都没有才退回 CPU/温度。
+   * 一个数都没有就返回空字符串，标题行只留箭头（不写 --，也不补 0）。
+   */
+  private statsSummary(): string {
+    const parts: string[] = [];
+    const ram = this.stripRam();
+    if (ram >= 0) {
+      parts.push(`内存 ${Math.round(ram)}%`);
+    }
+    const vram = this.stripVram();
+    if (vram >= 0) {
+      parts.push(`显存 ${Math.round(vram)}%`);
+    }
+    if (parts.length === 0) {
+      const cpu = this.stripCpu();
+      if (cpu >= 0) {
+        parts.push(`CPU ${Math.round(cpu)}%`);
+      }
+      const temperature = this.stripTemp();
+      if (temperature >= 0) {
+        parts.push(`温度 ${Math.round(temperature)}°C`);
+      }
+    }
+    return parts.join(' · ');
   }
 
   private async pollServerStats(): Promise<void> {
@@ -3017,37 +3147,75 @@ struct Index {
   }
 
   /**
-   * 服务器性能条：两列网格（对应 Android ServerStatsStrip）。
-   * 每格宽 50% 自动换行，标签在上、数值在下；内存/显存/CPU/GPU 都是百分比，
-   * 队列是「运行 / 等待」，温度带 °C。Crystools 没给的指标不画格子，不做占位。
-   * 全部拿不到时整块不渲染（离线时页面不会多一条红字）。
+   * 服务器性能条（对应 Android ServerStatsStrip）。
+   *
+   * 默认收成一行标题：左边「主机状态」，右边 ▾/▸ 加两个最有用的读数
+   * （内存·显存，两者都没有才退回 CPU·温度），整条 38vp 左右，不再占掉半屏；
+   * 整行标题就是展开/收起的热区。展开后是两列网格：每格宽 50% 自动换行，
+   * 标签在上、数值在下，Crystools 没给的指标不画格子、不写 `--`。
+   * 监控帧（CPU/GPU/温度/内存/显存/显卡名）优先，/system_stats 的百分比兜底；
+   * 一个数都没有时整块不渲染（离线时页面不会多一条空卡片）。
    */
   @Builder
   ServerStatsStrip() {
     if (this.hasServerStats()) {
-      Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap, alignItems: ItemAlign.Start }) {
-        if (this.serverStats.ramPercent >= 0) {
-          this.ServerStatCell('内存', `${Math.round(this.serverStats.ramPercent)}%`)
+      Column() {
+        Row({ space: 6 }) {
+          Text('主机状态')
+            .fontSize(12)
+            .fontColor(this.c().textMuted)
+          Blank()
+          if (this.statsSummary().length > 0) {
+            Text(this.statsSummary())
+              .fontSize(10.5)
+              .fontFamily('monospace')
+              .fontColor(this.c().textDim)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .constraintSize({ maxWidth: '72%' })
+          }
+          Text(this.statsChevron())
+            .fontSize(12)
+            .fontColor(this.c().textDim)
         }
-        if (this.serverStats.vramPercent >= 0) {
-          this.ServerStatCell('显存', `${Math.round(this.serverStats.vramPercent)}%`)
-        }
-        this.ServerStatCell('队列', `${this.queueRunning} / ${this.queuePending}`)
-        if (this.serverStats.version.length > 0) {
-          this.ServerStatCell('版本', this.serverStats.version)
-        }
-        if (this.serverStats.cpuPercent >= 0) {
-          this.ServerStatCell('CPU', `${Math.round(this.serverStats.cpuPercent)}%`)
-        }
-        if (this.serverStats.gpuPercent >= 0) {
-          this.ServerStatCell('GPU', `${Math.round(this.serverStats.gpuPercent)}%`)
-        }
-        if (this.serverStats.temperature >= 0) {
-          this.ServerStatCell('温度', `${Math.round(this.serverStats.temperature)} °C`)
+        .width('100%')
+        .height(36)
+        .padding({ left: 10, right: 10 })
+        .alignItems(VerticalAlign.Center)
+        .onClick(() => {
+          this.statsExpanded = !this.statsExpanded;
+        })
+
+        if (this.statsExpanded) {
+          Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap, alignItems: ItemAlign.Start }) {
+            if (this.stripRam() >= 0) {
+              this.ServerStatCell('内存', `${Math.round(this.stripRam())}%`)
+            }
+            if (this.stripVram() >= 0) {
+              this.ServerStatCell('显存', `${Math.round(this.stripVram())}%`)
+            }
+            if (this.stripCpu() >= 0) {
+              this.ServerStatCell('CPU', `${Math.round(this.stripCpu())}%`)
+            }
+            if (this.stripGpu() >= 0) {
+              this.ServerStatCell('GPU', `${Math.round(this.stripGpu())}%`)
+            }
+            if (this.stripTemp() >= 0) {
+              this.ServerStatCell('温度', `${Math.round(this.stripTemp())}°C`)
+            }
+            if (this.gpuName().length > 0) {
+              this.ServerStatCell('显卡名', this.gpuName())
+            }
+            this.ServerStatCell('队列', `${this.queueRunning} / ${this.queuePending}`)
+            if (this.serverStats.version.length > 0) {
+              this.ServerStatCell('版本', this.serverStats.version)
+            }
+          }
+          .width('100%')
+          .padding({ left: 2, right: 2, bottom: 4 })
         }
       }
       .width('100%')
-      .padding({ left: 2, right: 2, top: 3, bottom: 3 })
       .backgroundColor(this.c().card)
       .borderRadius(14)
       .border({ width: 1, color: this.c().border })
