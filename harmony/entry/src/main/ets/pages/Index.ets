@@ -3343,12 +3343,8 @@ struct Index {
         .align(Alignment.Top)
       }
 
-      // ---- 底部提交条：玻璃底 + 阻断原因 + 全部节点 + 渐变提交按钮 ----
-      Column() {
-        Row()
-          .width('100%')
-          .height(1)
-          .backgroundColor(this.c().border)
+      // ---- 底部提交条：悬浮玻璃胶囊（不再是铺满底部的整条） ----
+      Row() {
         Column({ space: 8 }) {
           if (this.submitNotice.length > 0 &&
             !this.isErrorDismissed(this.workflowScopeId('submit'), this.submitNotice)) {
@@ -3409,10 +3405,15 @@ struct Index {
           .alignItems(VerticalAlign.Center)
         }
         .width('100%')
-        .padding({ left: 18, right: 18, top: 10, bottom: 10 })
+        .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+        .borderRadius(24)
+        .backgroundColor(this.c().isDark ? 'rgba(22,24,32,0.72)' : 'rgba(255,255,255,0.78)')
+        .backgroundBlurStyle(this.c().isDark ? BlurStyle.COMPONENT_ULTRA_THICK : BlurStyle.COMPONENT_THICK)
+        .border({ width: 1, color: this.c().borderStrong })
+        .shadow({ radius: 26, color: 'rgba(0,0,0,0.38)', offsetX: 0, offsetY: 12 })
       }
       .width('100%')
-      .backgroundColor(this.c().isDark ? 'rgba(10,11,16,0.86)' : 'rgba(245,244,248,0.86)')
+      .padding({ left: 14, right: 14, bottom: 12 })
     }
     .width('100%')
     .height('100%')
