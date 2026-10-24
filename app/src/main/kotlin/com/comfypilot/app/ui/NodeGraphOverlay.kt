@@ -158,6 +158,15 @@ fun NodeGraphDialog(
         fitted = true
     }
 
+    fun zoomBy(factor: Float) {
+        if (viewport.width == 0) return
+        val nextScale = (scale * factor).coerceIn(0.02f, 3f)
+        val center = Offset(viewport.width / 2f, viewport.height / 2f)
+        val focus = (center - offset) / scale
+        offset = clamp(center - focus * nextScale, nextScale)
+        scale = nextScale
+    }
+
     fun centerOn(node: UiNode) {
         if (viewport.width == 0) return
         val nextScale = 0.85f
@@ -222,6 +231,8 @@ fun NodeGraphDialog(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    GhostButton(text = "－", onClick = { zoomBy(0.7f) }, height = 34.dp)
+                    GhostButton(text = "＋", onClick = { zoomBy(1.4f) }, height = 34.dp)
                     GhostButton(text = "适配全图", onClick = { fitToScreen() }, height = 34.dp)
                     GhostButton(text = "关闭", onClick = onDismiss, height = 34.dp)
                 }
