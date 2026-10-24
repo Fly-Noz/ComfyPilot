@@ -3414,8 +3414,8 @@ struct Index {
         .width('100%')
         .padding({ left: 12, right: 12, top: 7, bottom: 7 })
         .borderRadius(22)
-        .backgroundColor(this.c().isDark ? 'rgba(18,20,28,0.38)' : 'rgba(255,255,255,0.46)')
-        .backgroundBlurStyle(BlurStyle.BACKGROUND_THICK)
+        .backgroundColor(this.c().isDark ? 'rgba(24,26,34,0.42)' : 'rgba(255,255,255,0.62)')
+        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
         .border({ width: 1, color: this.c().borderStrong })
         .shadow({ radius: 16, color: this.c().isDark ? 'rgba(0,0,0,0.32)' : 'rgba(31,41,55,0.14)', offsetX: 0, offsetY: 5 })
       }
