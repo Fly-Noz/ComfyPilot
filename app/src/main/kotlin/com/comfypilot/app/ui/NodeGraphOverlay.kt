@@ -79,8 +79,8 @@ import kotlin.math.roundToInt
 @Composable
 fun NodeGraphDialog(
     raw: String,
-    /** 节点 id → 生效模式（文件里的 mode 叠加本次会话的逐节点开关）。 */
-    effectiveModes: Map<Int, Int>,
+    /** 本次提交里真正会执行的节点 id（生效模式 normal + 节点图已启用 + 连到了输出）。 */
+    activeNodeIds: Set<Int>,
     onDismiss: () -> Unit,
 ) {
     val c = Spectrum.colors
@@ -326,7 +326,7 @@ fun NodeGraphDialog(
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         drawScene(
                             graph = graph,
-                            modes = effectiveModes,
+                            activeIds = activeNodeIds,
                             scale = scale,
                             offset = offset,
                             selected = selected,
@@ -444,7 +444,7 @@ internal fun graphBounds(graph: UiGraph?): Rect? {
  */
 private fun DrawScope.drawScene(
     graph: UiGraph?,
-    modes: Map<Int, Int>,
+    activeIds: Set<Int>,
     scale: Float,
     offset: Offset,
     selected: Int?,
@@ -505,7 +505,9 @@ private fun DrawScope.drawScene(
 
     // 连线：源节点右中 → 目标节点左中，三次贝塞尔
     val byId = graph.byId
-    fun modeOf(node: UiNode): Int = modes[node.id] ?: node.mode
+    // 「亮」= 本次提交会执行：生效模式 normal、所在节点图已启用、并且连到了输出。
+    // 只看 mode 不够：图级关闭不改 mode；也不够判断孤立节点（它们不会被提交）。
+    fun isActive(node: UiNode): Boolean = node.id in activeIds
     graph.links.values.forEach { link ->
         val from = byId[link.originId] ?: return@forEach
         val to = byId[link.targetId] ?: return@forEach
@@ -518,7 +520,7 @@ private fun DrawScope.drawScene(
         }
         drawPath(
             path = path,
-            color = if (modeOf(from) == UiWorkflowParser.MODE_NORMAL && modeOf(to) == UiWorkflowParser.MODE_NORMAL) {
+            color = if (isActive(from) && isActive(to)) {
                 c.accent.copy(alpha = 0.55f)
             } else {
                 c.textDim.copy(alpha = 0.28f)
@@ -533,7 +535,7 @@ private fun DrawScope.drawScene(
         val topLeft = Offset(sx(node.x), sy(node.y))
         val size = Size(node.width.toFloat() * scale, node.height.toFloat() * scale)
         if (size.width < 1.5f || size.height < 1.5f) return@forEach
-        val active = modeOf(node) == UiWorkflowParser.MODE_NORMAL
+        val active = isActive(node)
         val alpha = if (active) 1f else 0.42f
         val radius = CornerRadius(6f.coerceAtLeast(min(10f, size.height * 0.25f)))
         // 节点本体：比分组框亮一档，形成"浮在画布上"的层次
