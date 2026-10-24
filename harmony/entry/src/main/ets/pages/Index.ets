@@ -4084,8 +4084,23 @@ struct Index {
       .width('100%')
       .alignItems(VerticalAlign.Bottom)
 
-      this.ProgressBar(this.liveCardPercent() / 100)
-    }
+      // 进度条直接内联：@Builder 的入参在 ArkUI 里不是响应式的，任务进度首次是 0，
+      // 之后即使百分比文字更新，带参 builder 也不会重绘，于是填充永远停在 0。
+      Row() {
+        Row()
+          .layoutWeight(this.progressWeight(this.liveCardPercent() / 100))
+          .height(7)
+          .backgroundColor(this.c().accent)
+        Row()
+          .layoutWeight(1000 - this.progressWeight(this.liveCardPercent() / 100))
+          .height(7)
+      }
+      .width('100%')
+      .height(7)
+      .borderRadius(999)
+      .backgroundColor(this.c().cardStrong)
+      .clip(true)
+      .animation({ duration: 320, curve: Curve.EaseOut })    }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
   }
@@ -4585,8 +4600,21 @@ struct Index {
       if (this.taskShowsProgress(task)) {
         Row({ space: 8 }) {
           Column() {
-            this.TaskProgressBar(task.percent / 100)
-          }
+            Row() {
+          Row()
+            .layoutWeight(this.progressWeight(task.percent / 100))
+            .height(5)
+            .backgroundColor(this.c().accent)
+          Row()
+            .layoutWeight(1000 - this.progressWeight(task.percent / 100))
+            .height(5)
+        }
+        .width('100%')
+        .height(5)
+        .borderRadius(999)
+        .backgroundColor(this.c().cardStrong)
+        .clip(true)
+        .animation({ duration: 320, curve: Curve.EaseOut })          }
           .layoutWeight(1)
           Text(`${task.percent}%`)
             .fontSize(9.5)
@@ -6130,11 +6158,45 @@ struct Index {
     .height('100%')
   }
 
+  /** 全局光谱光晕：根页面与整屏覆盖页共用同一份定义，保证底色完全一致。 */
+  @Builder
+  AppGlow() {
+    Column()
+      .width(460)
+      .height(460)
+      .borderRadius(230)
+      .radialGradient({
+        center: [230, 230],
+        radius: 230,
+        colors: [['rgba(139,92,246,0.38)', 0.0], ['rgba(139,92,246,0.12)', 0.55],
+          ['rgba(139,92,246,0)', 1.0]],
+      })
+      .position({ x: -150, y: -130 })
+    Column()
+      .width(400)
+      .height(400)
+      .borderRadius(200)
+      .radialGradient({
+        center: [200, 200],
+        radius: 200,
+        colors: [['rgba(94,234,212,0.26)', 0.0], ['rgba(94,234,212,0.08)', 0.55],
+          ['rgba(94,234,212,0)', 1.0]],
+      })
+      .position({ x: 190, y: 60 })
+    Column()
+      .width(380)
+      .height(380)
+      .borderRadius(190)
+      .radialGradient({
+        center: [190, 190],
+        radius: 190,
+        colors: [['rgba(244,114,182,0.24)', 0.0], ['rgba(244,114,182,0.07)', 0.55],
+          ['rgba(244,114,182,0)', 1.0]],
+      })
+      .position({ x: 20, y: 560 })
+  }
   /** 任务页：顶栏（关闭 / 标题 + 队列计数 / 连接状态 / 刷新）+ 正文，对应 Android TaskScreen。 */
-  /**
-   * 整屏覆盖页的底：纯色 + 与全局一致的三团径向光晕。
-   * 覆盖页若只铺 backgroundColor，浅色主题下就是一整块纯白，和其余页面完全脱节。
-   */
+  /** 整屏覆盖页的底：纯色 + 与根页面完全相同的光晕（复用 AppGlow）。 */
   @Builder
   OverlayBackdrop() {
     Stack() {
@@ -6142,41 +6204,11 @@ struct Index {
         .width('100%')
         .height('100%')
         .backgroundColor(this.c().background)
-      Column()
-        .width(520)
-        .height(520)
-        .borderRadius(260)
-        .radialGradient({
-          center: [260, 260],
-          radius: 260,
-          colors: [[this.c().glowPurple, 0.0], ['rgba(0,0,0,0)', 1.0]],
-        })
-        .position({ x: -140, y: -220 })
-      Column()
-        .width(460)
-        .height(460)
-        .borderRadius(230)
-        .radialGradient({
-          center: [230, 230],
-          radius: 230,
-          colors: [[this.c().glowTeal, 0.0], ['rgba(0,0,0,0)', 1.0]],
-        })
-        .position({ x: -180, y: 220 })
-      Column()
-        .width(520)
-        .height(520)
-        .borderRadius(260)
-        .radialGradient({
-          center: [260, 260],
-          radius: 260,
-          colors: [[this.c().glowPink, 0.0], ['rgba(0,0,0,0)', 1.0]],
-        })
-        .position({ x: 120, y: 420 })
+      this.AppGlow()
     }
     .width('100%')
     .height('100%')
   }
-
   @Builder
   TasksPanel() {
     Stack() {
@@ -6573,41 +6605,7 @@ struct Index {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      // 光谱底：用径向渐变（中心有色、边缘透明）做光晕。 
-      // 之前是「实心圆 + opacity + blur」，ArkUI 对空容器不生效 blur，所以看起来是三个硬边圆。 
-      Column()
-        .width(460)
-        .height(460)
-        .borderRadius(230)
-        .radialGradient({
-          center: [230, 230],
-          radius: 230,
-          colors: [['rgba(139,92,246,0.38)', 0.0], ['rgba(139,92,246,0.12)', 0.55],
-            ['rgba(139,92,246,0)', 1.0]],
-        })
-        .position({ x: -150, y: -130 })
-      Column()
-        .width(400)
-        .height(400)
-        .borderRadius(200)
-        .radialGradient({
-          center: [200, 200],
-          radius: 200,
-          colors: [['rgba(94,234,212,0.26)', 0.0], ['rgba(94,234,212,0.08)', 0.55],
-            ['rgba(94,234,212,0)', 1.0]],
-        })
-        .position({ x: 190, y: 60 })
-      Column()
-        .width(380)
-        .height(380)
-        .borderRadius(190)
-        .radialGradient({
-          center: [190, 190],
-          radius: 190,
-          colors: [['rgba(244,114,182,0.24)', 0.0], ['rgba(244,114,182,0.07)', 0.55],
-            ['rgba(244,114,182,0)', 1.0]],
-        })
-        .position({ x: 20, y: 560 })
+      this.AppGlow()
       if (this.artifactOpen) {
         this.ArtifactPanel()
       } else {
