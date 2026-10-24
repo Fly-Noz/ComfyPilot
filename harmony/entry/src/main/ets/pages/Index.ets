@@ -4090,7 +4090,7 @@ struct Index {
         Row()
           .layoutWeight(this.progressWeight(this.liveCardPercent() / 100))
           .height(7)
-          .backgroundColor(this.c().accent)
+          .linearGradient({ angle: 90, colors: Spectrum.gradientColors(this.c()) })
         Row()
           .layoutWeight(1000 - this.progressWeight(this.liveCardPercent() / 100))
           .height(7)
@@ -4604,7 +4604,7 @@ struct Index {
           Row()
             .layoutWeight(this.progressWeight(task.percent / 100))
             .height(5)
-            .backgroundColor(this.c().accent)
+            .linearGradient({ angle: 90, colors: Spectrum.gradientColors(this.c()) })
           Row()
             .layoutWeight(1000 - this.progressWeight(task.percent / 100))
             .height(5)
@@ -4780,8 +4780,21 @@ struct Index {
             .layoutWeight(1)
         }
         .width('100%')
-        Progress({ value: this.liveCardPercent(), total: 100, type: ProgressType.Linear })
-          .width('100%')
+        Row() {
+          Row()
+            .layoutWeight(this.progressWeight(this.liveCardPercent() / 100))
+            .height(7)
+            .linearGradient({ angle: 90, colors: Spectrum.gradientColors(this.c()) })
+          Row()
+            .layoutWeight(1000 - this.progressWeight(this.liveCardPercent() / 100))
+            .height(7)
+        }
+        .width('100%')
+        .height(7)
+        .borderRadius(999)
+        .backgroundColor(this.c().cardStrong)
+        .clip(true)
+        .animation({ duration: 320, curve: Curve.EaseOut })
       }
 
       if (this.liveCardStep().length > 0) {
