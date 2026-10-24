@@ -79,8 +79,10 @@ import kotlin.math.roundToInt
 @Composable
 fun NodeGraphDialog(
     raw: String,
-    /** 本次提交里真正会执行的节点 id（生效模式 normal + 节点图已启用 + 连到了输出）。 */
+    /** 生效模式为 normal 的节点 id（含 Note/Label 这类只做提示、不参与执行的节点）。 */
     activeNodeIds: Set<Int>,
+    /** 所属节点图被关闭的节点：它们不提交，图上显示成灰。 */
+    disabledNodeIds: Set<Int>,
     onDismiss: () -> Unit,
 ) {
     val c = Spectrum.colors
@@ -327,6 +329,7 @@ fun NodeGraphDialog(
                         drawScene(
                             graph = graph,
                             activeIds = activeNodeIds,
+                            disabledIds = disabledNodeIds,
                             scale = scale,
                             offset = offset,
                             selected = selected,
@@ -445,6 +448,7 @@ internal fun graphBounds(graph: UiGraph?): Rect? {
 private fun DrawScope.drawScene(
     graph: UiGraph?,
     activeIds: Set<Int>,
+    disabledIds: Set<Int>,
     scale: Float,
     offset: Offset,
     selected: Int?,
@@ -505,9 +509,17 @@ private fun DrawScope.drawScene(
 
     // 连线：源节点右中 → 目标节点左中，三次贝塞尔
     val byId = graph.byId
-    // 「亮」= 本次提交会执行：生效模式 normal、所在节点图已启用、并且连到了输出。
-    // 只看 mode 不够：图级关闭不改 mode；也不够判断孤立节点（它们不会被提交）。
-    fun isActive(node: UiNode): Boolean = node.id in activeIds
+    // 「亮」= 生效模式 normal 且所在节点图没被关闭。
+    // 刻意不看 reachable：Note/Label 这类只做提示、不参与执行的节点也该亮着，
+    // 否则用户会觉得"我明明有这个注释，怎么是灰的"。图级关闭则一定变灰。
+    fun isActive(node: UiNode): Boolean {
+        if (node.id !in activeIds) return false
+        // 没有任何数据输出的节点（Note / Label / 分组说明）本质是画布注释，
+        // 即使在未启用的节点图里也应该保持正常颜色，方便阅读。
+        if (node.outputs.isEmpty()) return true
+        return node.id !in disabledIds
+    }
+
     graph.links.values.forEach { link ->
         val from = byId[link.originId] ?: return@forEach
         val to = byId[link.targetId] ?: return@forEach

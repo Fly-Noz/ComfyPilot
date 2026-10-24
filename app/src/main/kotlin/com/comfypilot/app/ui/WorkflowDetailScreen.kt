@@ -756,12 +756,10 @@ private fun DetailBody(
     if (graphOpen) {
         NodeGraphDialog(
             raw = document.raw,
-            // 「亮」的判定和实际提交一致：生效模式 normal + 所在节点图启用 + 连到了输出。
-            // 图级关闭不改 mode、孤立节点 mode 也是 normal，所以这两个都得算进来。
-            activeNodeIds = fields.nodes
-                .filter { it.mode == 0 && it.reachable && it.id !in disabledNodeIds }
-                .map { it.id }
-                .toSet(),
+            // 生效模式为 normal 的节点都算"亮"：Note/Label 这类提示节点虽然不参与执行，
+            // 也应该保持正常颜色；只有所在节点图被关闭时才变灰。
+            activeNodeIds = fields.nodes.filter { it.mode == 0 }.map { it.id }.toSet(),
+            disabledNodeIds = disabledNodeIds,
             onDismiss = { graphOpen = false },
         )
     }
