@@ -2,15 +2,11 @@ package com.comfypilot.app.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.material3.Text
@@ -20,7 +16,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
@@ -121,55 +116,41 @@ fun ServerStatsStrip(
             .padding(horizontal = 12.dp, vertical = 9.dp),
     ) {
         val current = stats
-        Row(
-            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            StatCell(
-                label = "内存",
-                value = current?.let { "${gb(it.system.ramFree)} / ${gb(it.system.ramTotal)}" } ?: "—",
-                modifier = Modifier.weight(1f),
-            )
-            CellDivider()
-            StatCell(
-                label = "显存",
-                value = current?.devices?.firstOrNull()?.let { device ->
-                    "${gb(device.vramFree)} / ${gb(device.vramTotal)}"
-                } ?: "—",
-                modifier = Modifier.weight(1f),
-            )
-            CellDivider()
-            StatCell(
-                label = "队列",
-                value = queue?.let { "${it.running.size} / ${it.pending.size}" } ?: "—",
-                modifier = Modifier.weight(1f),
-            )
+        val metrics = crystools
+
+        // 百分比短，窄屏不会像 "8.5 GB / 16 GB" 那样被裁掉。总量为 0 视为未知，
+        // 此时用 Crystools 的百分比兜底；仍然缺就整格省略，不画 "--"。
+        val cells = buildList {
+            val ramPercent = current?.let { usedPercent(it.system.ramTotal, it.system.ramFree) }
+                ?: metrics?.ramPercent
+            if (ramPercent != null) add(StatValue("内存", percentText(ramPercent)))
+            val vramPercent = current?.devices?.firstOrNull()
+                ?.let { usedPercent(it.vramTotal, it.vramFree) }
+                ?: metrics?.vramPercent
+            if (vramPercent != null) add(StatValue("显存", percentText(vramPercent)))
+            queue?.let { add(StatValue("队列", "${it.running.size} / ${it.pending.size}")) }
+            current?.system?.comfyuiVersion?.takeIf { it.isNotBlank() }
+                ?.let { add(StatValue("版本", it)) }
+            // Crystools 指标：只有真正给出值时才加格子。
+            metrics?.cpuPercent?.let { add(StatValue("CPU", percentText(it))) }
+            metrics?.gpuPercent?.let { add(StatValue("GPU", percentText(it))) }
+            metrics?.temperature?.let { add(StatValue("温度", "${it.roundToInt()} °C")) }
         }
 
-        // 只有 Crystools 真正给出某个指标时才加对应格子；缺失的整个省略，不画 0%。
-        val metrics = crystools
-        val metricCells = buildList {
-            metrics?.cpuPercent?.let { add("CPU" to percentText(it)) }
-            metrics?.ramPercent?.let { add("内存" to percentText(it)) }
-            metrics?.gpuPercent?.let { add("GPU" to percentText(it)) }
-            metrics?.vramPercent?.let { add("显存" to percentText(it)) }
-            metrics?.temperature?.let { add("温度" to "${it.roundToInt()} °C") }
-        }
-        if (metricCells.isNotEmpty()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(IntrinsicSize.Min)
-                    .padding(top = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                metricCells.forEachIndexed { index, (label, value) ->
-                    if (index > 0) CellDivider()
-                    MetricCell(
-                        label = label,
-                        value = value,
-                        modifier = Modifier.weight(1f),
-                    )
+        // 固定两列 × N 行：每格等宽（weight 平分），文字不够放时换行而不是省略。
+        if (cells.isNotEmpty()) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                cells.chunked(2).forEach { rowCells ->
+                    Row(modifier = Modifier.fillMaxWidth()) {
+                        rowCells.forEach { cell ->
+                            StatCell(
+                                label = cell.label,
+                                value = cell.value,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        if (rowCells.size == 1) Spacer(Modifier.weight(1f))
+                    }
                 }
             }
         }
@@ -195,37 +176,18 @@ fun ServerStatsStrip(
     }
 }
 
+/** 一个格子的内容；未知的指标不进列表，因此不会渲染空占位。 */
+private data class StatValue(val label: String, val value: String)
+
+/**
+ * 状态格：上面 9sp 的 mono 标签，下面 12sp 的值。
+ * 不设固定宽度、不设 maxLines，空间不够时由 Compose 换行，绝不省略。
+ */
 @Composable
 private fun StatCell(label: String, value: String, modifier: Modifier = Modifier) {
     val c = Spectrum.colors
     Column(
-        modifier = modifier.padding(horizontal = 10.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        Text(
-            text = label,
-            color = c.textDim,
-            fontSize = 9.sp,
-            fontFamily = SpectrumMono,
-            letterSpacing = 0.9.sp,
-        )
-        Text(
-            text = value,
-            color = c.text,
-            fontSize = 11.sp,
-            fontFamily = SpectrumMono,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
-}
-
-/** Crystools 指标格：和基础状态同一套配色，值稍大一点便于扫读。 */
-@Composable
-private fun MetricCell(label: String, value: String, modifier: Modifier = Modifier) {
-    val c = Spectrum.colors
-    Column(
-        modifier = modifier.padding(horizontal = 10.dp),
+        modifier = modifier.padding(horizontal = 10.dp, vertical = 6.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         Text(
@@ -240,21 +202,15 @@ private fun MetricCell(label: String, value: String, modifier: Modifier = Modifi
             color = c.text,
             fontSize = 12.sp,
             fontFamily = SpectrumMono,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
-@Composable
-private fun CellDivider() {
-    val c = Spectrum.colors
-    Box(
-        modifier = Modifier
-            .width(1.dp)
-            .fillMaxHeight()
-            .background(c.border),
-    )
+/** 已用百分比；总量未知（<= 0）时返回 null，调用方据此省略格子。 */
+private fun usedPercent(total: Long, free: Long): Double? {
+    if (total <= 0L) return null
+    val used = (total - free).toDouble() / total * 100.0
+    return used.coerceIn(0.0, 100.0)
 }
 
 private suspend fun fetchStats(http: HttpTransport, baseUrl: String): SystemStats {
@@ -380,9 +336,3 @@ private fun percent(root: JsonObject, nested: JsonObject?, vararg aliases: Strin
     number(root, nested, *aliases)?.takeIf { it in 0.0..100.0 }
 
 private fun percentText(value: Double): String = "${value.roundToInt()}%"
-
-private fun gb(bytes: Long): String {
-    if (bytes <= 0L) return "—"
-    val value = bytes / (1024.0 * 1024.0 * 1024.0)
-    return "${(value * 10).roundToInt() / 10.0} GB"
-}
