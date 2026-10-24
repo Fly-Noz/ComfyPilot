@@ -307,8 +307,9 @@ export struct WorkflowGraphOverlay {
       // 标题：按宽度定字号，超宽时缩放
       if (headerH >= 6) {
         const title = node.title.length > 0 ? node.title : node.type;
-        // 全屏统一字号：跟缩放走但夹在可读区间，同一界面里所有标题一样大
-        const px = Math.min(15, Math.max(10, 30 * this.zoom));
+        // canvas 的绘制单位是物理像素，先按 vp 设计再乘 vp2px；
+        // 全屏统一：只保留可读下限，不设上限，放大会继续变大
+        const px = vp2px(Math.max(10, 15 * this.zoom));
         ctx.font = `${px}px sans-serif`;
         ctx.fillStyle = '#FFFFFF';
         ctx.textBaseline = 'middle';
@@ -444,8 +445,8 @@ export struct WorkflowGraphOverlay {
     if (name.length === 0 || stepPx < 6) {
       return;
     }
-    // 参数名与标题同一套规则：全屏一致，缩放时整体变化
-    const px = Math.min(11, Math.max(7, 22 * this.zoom));
+    // 参数名与标题同一套规则（同样换算到物理像素）
+    const px = vp2px(Math.max(7, 10 * this.zoom));
     if (stepPx < 5) {
       return;
     }
@@ -496,7 +497,7 @@ export struct WorkflowGraphOverlay {
           return;
         }
         if (stepPx >= 5) {
-          const px = Math.min(11, Math.max(7, 22 * this.zoom));
+          const px = vp2px(Math.max(7, 10 * this.zoom));
           this.ctx.font = `${px}px sans-serif`;
           const width = this.ctx.measureText(input.name).width;
           // 文字整行都算命中（左右留 8px），不用精确点在字上
@@ -516,7 +517,7 @@ export struct WorkflowGraphOverlay {
           return;
         }
         if (stepPx >= 5) {
-          const px = Math.min(11, Math.max(7, 22 * this.zoom));
+          const px = vp2px(Math.max(7, 10 * this.zoom));
           this.ctx.font = `${px}px sans-serif`;
           const width = this.ctx.measureText(output.name).width;
           if (x >= left + nw - 9 - width - 8 && x <= left + nw - 4 && Math.abs(y - cy) <= Math.max(9, stepPx / 2)) {
