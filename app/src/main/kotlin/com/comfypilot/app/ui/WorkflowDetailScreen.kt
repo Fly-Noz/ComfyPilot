@@ -326,6 +326,8 @@ private fun DetailBody(
     var submitFlash by remember { mutableStateOf(false) }
     // 节点图预览：只读浮层，从底栏入口打开。
     var graphOpen by remember(document.path) { mutableStateOf(false) }
+    // 从节点图点「查看参数」后要定位的节点 id（滚动完成即清空）。
+    var jumpNodeId by remember(document.path) { mutableStateOf<Int?>(null) }
     LaunchedEffect(submitFlash) {
         if (submitFlash) {
             kotlinx.coroutines.delay(1_200)
@@ -669,6 +671,8 @@ private fun DetailBody(
                     restExpanded = restExpanded,
                     overrides = overrides,
                     listState = listState,
+            jumpNodeId = jumpNodeId,
+            onJumpHandled = { jumpNodeId = null },
                     disabledNodeIds = disabledNodeIds,
                     pinnedNodeIds = pinnedNodeIds,
                     notes = nodeNotes,
@@ -756,6 +760,11 @@ private fun DetailBody(
     if (graphOpen) {
         NodeGraphDialog(
             raw = document.raw,
+            onOpenNode = { nodeId ->
+                graphOpen = false
+                jumpNodeId = nodeId
+                expandedOverride = expanded + nodeId
+            },
             // 生效模式为 normal 的节点都算"亮"：Note/Label 这类提示节点虽然不参与执行，
             // 也应该保持正常颜色；只有所在节点图被关闭时才变灰。
             activeNodeIds = fields.nodes.filter { it.mode == 0 }.map { it.id }.toSet(),
@@ -1033,6 +1042,8 @@ private fun InputPane(
     restExpanded: Boolean,
     overrides: Map<Int, Map<String, JsonElement>>,
     listState: LazyListState,
+    jumpNodeId: Int?,
+    onJumpHandled: () -> Unit,
     disabledNodeIds: Set<Int>,
     pinnedNodeIds: Set<Int>,
     notes: Map<Int, String>,
@@ -1086,6 +1097,16 @@ private fun InputPane(
                 if (restExpanded) restNodes.forEach { add(InputRow.NodeRow(it, nested = false)) }
             }
         }
+    }
+
+    // 从节点图跳过来：展开目标节点并滚动到它那一行。
+    LaunchedEffect(jumpNodeId, rows) {
+        val target = jumpNodeId ?: return@LaunchedEffect
+        val index = rows.indexOfFirst { it is InputRow.NodeRow && it.node.id == target }
+        if (index >= 0) {
+            listState.animateScrollToItem(index)
+        }
+        onJumpHandled()
     }
 
     if (sections.isEmpty() && restNodes.isEmpty()) {

@@ -83,6 +83,8 @@ fun NodeGraphDialog(
     activeNodeIds: Set<Int>,
     /** 所属节点图被关闭的节点：它们不提交，图上显示成灰。 */
     disabledNodeIds: Set<Int>,
+    /** 点「查看参数」时回到列表并定位到该节点的卡片。 */
+    onOpenNode: (Int) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val c = Spectrum.colors
@@ -399,6 +401,19 @@ fun NodeGraphDialog(
                                 )
                             }
                             Text(
+                                "查看参数",
+                                color = c.accent,
+                                fontSize = 11.sp,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        val id = current.id
+                                        selected = null
+                                        onOpenNode(id)
+                                    }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                            Text(
                                 "关闭",
                                 color = c.textMuted,
                                 fontSize = 11.sp,
@@ -462,6 +477,25 @@ private fun DrawScope.drawScene(
     fun sx(x: Double): Float = x.toFloat() * scale + offset.x
     fun sy(y: Double): Float = y.toFloat() * scale + offset.y
 
+    fun isActive(node: UiNode): Boolean {
+        if (node.id !in activeIds) return false
+        // 没有数据输出的节点（Note / Label / 分组说明）本质是画布注释，
+        // 即使在未启用的节点图里也保持正常颜色，方便阅读。
+        if (node.outputs.isEmpty()) return true
+        return node.id !in disabledIds
+    }
+
+    // 标题栏在世界坐标里的高度：与 ComfyUI 的 30 单位保持一致，小节点按比例收。
+    fun headerWorld(node: UiNode): Double = min(30.0, node.height * 0.4)
+
+    /** 第 index 个槽位在世界坐标里的纵向中心。 */
+    fun slotYWorld(node: UiNode, index: Int): Double {
+        val slots = max(node.inputs.size, node.outputs.size).coerceAtLeast(1)
+        val usable = (node.height - headerWorld(node)).coerceAtLeast(1.0)
+        val step = (usable / slots).coerceIn(4.0, 22.0)
+        return node.y + headerWorld(node) + step * (index + 0.5)
+    }
+
     // 分组框
     graph.groups.forEach { group ->
         val topLeft = Offset(sx(group.x), sy(group.y))
@@ -482,10 +516,8 @@ private fun DrawScope.drawScene(
             style = Stroke(width = 1f),
         )
         if (group.title.isNotBlank() && size.width >= 160f) {
-            val groupPx = (size.height * 0.05f).coerceIn(9f, 20f)
-            val b = groupPx.roundToInt()
-            val key = -group.id - 1 - b * 100000
-            val label = labels.getOrPut(key) {
+            val b = (12f * density).roundToInt()
+            val label = labels.getOrPut(-group.id - 1 - b * 100000) {
                 measurer.measure(
                     text = group.title,
                     style = TextStyle(color = c.textMuted, fontSize = (b / density).sp),
@@ -494,7 +526,6 @@ private fun DrawScope.drawScene(
                     constraints = Constraints(maxWidth = max(48, size.width.roundToInt() - 24)),
                 )
             }
-            // 标题给一块底衬，压在节点上方时仍然可读
             val pillW = (label.size.width + 10).toFloat().coerceAtMost(size.width)
             val pillH = label.size.height + 4f
             drawRoundRect(
@@ -507,24 +538,15 @@ private fun DrawScope.drawScene(
         }
     }
 
-    // 连线：源节点右中 → 目标节点左中，三次贝塞尔
+    // 连线：起点/终点落在真实的输出/输入槽位上（槽位序号来自工作流 links）
     val byId = graph.byId
-    // 「亮」= 生效模式 normal 且所在节点图没被关闭。
-    // 刻意不看 reachable：Note/Label 这类只做提示、不参与执行的节点也该亮着，
-    // 否则用户会觉得"我明明有这个注释，怎么是灰的"。图级关闭则一定变灰。
-    fun isActive(node: UiNode): Boolean {
-        if (node.id !in activeIds) return false
-        // 没有任何数据输出的节点（Note / Label / 分组说明）本质是画布注释，
-        // 即使在未启用的节点图里也应该保持正常颜色，方便阅读。
-        if (node.outputs.isEmpty()) return true
-        return node.id !in disabledIds
-    }
-
     graph.links.values.forEach { link ->
         val from = byId[link.originId] ?: return@forEach
         val to = byId[link.targetId] ?: return@forEach
-        val start = Offset(sx(from.x + from.width), sy(from.y + from.height / 2))
-        val end = Offset(sx(to.x), sy(to.y + to.height / 2))
+        val outIndex = link.originSlot.coerceIn(0, max(0, from.outputs.size - 1))
+        val inIndex = link.targetSlot.coerceIn(0, max(0, to.inputs.size - 1))
+        val start = Offset(sx(from.x + from.width), sy(slotYWorld(from, outIndex)))
+        val end = Offset(sx(to.x), sy(slotYWorld(to, inIndex)))
         val dx = max(20f, abs(end.x - start.x) / 2f)
         val path = Path().apply {
             moveTo(start.x, start.y)
@@ -537,8 +559,7 @@ private fun DrawScope.drawScene(
             } else {
                 c.textDim.copy(alpha = 0.28f)
             },
-            // 线宽不随缩放无限变细：缩到再小也保持 1.6px，看得见拓扑
-            style = Stroke(width = (1.8f * scale.coerceIn(0.8f, 1.4f))),
+            style = Stroke(width = 1.8f * scale.coerceIn(0.8f, 1.4f)),
         )
     }
 
@@ -550,26 +571,26 @@ private fun DrawScope.drawScene(
         val active = isActive(node)
         val alpha = if (active) 1f else 0.42f
         val radius = CornerRadius(6f.coerceAtLeast(min(10f, size.height * 0.25f)))
-        // 节点本体：比分组框亮一档，形成"浮在画布上"的层次
+
         drawRoundRect(
-            color = c.cardStrong.copy(alpha = (if (active) 0.97f else 0.55f)),
+            color = c.cardStrong.copy(alpha = if (active) 0.97f else 0.55f),
             topLeft = topLeft,
             size = size,
             cornerRadius = radius,
         )
-        // 顶部标题条：启用=强调色，旁路/静音=灰
-        // 标题条要容得下字号，否则文字会溢出到块外、被下一层盖掉半截
-        val titlePx = (size.height * 0.16f).coerceIn(9f, 26f)
-        val headerH = (titlePx + 6f).coerceAtLeast(14f).coerceAtMost(size.height * 0.42f)
+
+        // 标题栏：高度固定 28px（不随缩放变），标题字号也固定 10sp。
+        // 标题栏固定 ~30px 高、字号固定 8sp：不随缩放变化，也不会把文字裁掉。
+        val headerH = min(size.height * 0.5f, 30f).coerceAtLeast(10f)
+        val headerColor = (if (active) c.accent else c.textDim).copy(alpha = 0.85f * alpha)
         drawRoundRect(
-            color = (if (active) c.accent else c.textDim).copy(alpha = 0.85f * alpha),
+            color = headerColor,
             topLeft = topLeft,
             size = Size(size.width, headerH),
             cornerRadius = CornerRadius(min(radius.x, headerH / 2f)),
         )
-        // 下半部分把标题条盖回圆角，避免出现上下两截
         drawRect(
-            color = (if (active) c.accent else c.textDim).copy(alpha = 0.85f * alpha),
+            color = headerColor,
             topLeft = topLeft + Offset(0f, headerH * 0.6f),
             size = Size(size.width, headerH * 0.4f),
         )
@@ -580,40 +601,16 @@ private fun DrawScope.drawScene(
             cornerRadius = radius,
             style = Stroke(width = if (node.id == selected) 2.5f else 1f),
         )
-        // 身体里的两条槽位线：空矩形太像占位框，加两条短线才有"节点"的样子
-        if (size.height > headerH + 16f) {
-            val slotColor = c.borderStrong.copy(alpha = 0.5f * alpha)
-            val slotW = (size.width * 0.42f).coerceAtMost(90f)
-            val slotH = 3f.coerceAtLeast(size.height * 0.05f)
-            drawRoundRect(
-                color = slotColor,
-                topLeft = topLeft + Offset(6f, headerH + size.height * 0.16f),
-                size = Size(slotW, slotH),
-                cornerRadius = CornerRadius(slotH / 2f),
-            )
-            if (size.height > headerH + 44f) {
-                drawRoundRect(
-                    color = slotColor,
-                    topLeft = topLeft + Offset(6f, headerH + size.height * 0.34f),
-                    size = Size(slotW * 0.8f, slotH),
-                    cornerRadius = CornerRadius(slotH / 2f),
-                )
-            }
-        }
-        if (size.width >= 72f && size.height >= 26f) {
-            // 字号跟着块大小走：缩小时字也缩小，避免几十个标签互相压叠
-            val bucket = titlePx.roundToInt()
+
+        if (headerH >= 22f && size.width >= 60f) {
             val title = node.title?.takeIf { it.isNotBlank() } ?: node.type
-            val label = labels.getOrPut(node.id * 1000 + bucket) {
+            val label = labels.getOrPut(node.id) {
                 measurer.measure(
                     text = title,
-                    style = TextStyle(
-                        color = c.accentInk.copy(alpha = alpha),
-                        fontSize = (bucket / density).sp,
-                    ),
+                    style = TextStyle(color = c.accentInk.copy(alpha = alpha), fontSize = 8.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    constraints = Constraints(maxWidth = max(20, size.width.roundToInt() - 8)),
+                    constraints = Constraints(maxWidth = max(24, size.width.roundToInt() - 10)),
                 )
             }
             clipRect(
@@ -624,37 +621,54 @@ private fun DrawScope.drawScene(
             ) {
                 drawText(
                     label,
-                    topLeft = topLeft + Offset(4f, max(0f, (headerH - label.size.height) / 2f)),
+                    topLeft = topLeft + Offset(5f, max(0f, (headerH - label.size.height) / 2f)),
                 )
             }
         }
-        // 类型行：节点明显放大后才补，避免小方块里出现两行糊字
-        val displayTitle = node.title?.takeIf { it.isNotBlank() } ?: node.type
-        if (size.height >= 92f && size.width >= 150f && node.type != displayTitle) {
-            val typePx = (size.height * 0.14f).coerceIn(8f, 22f)
-            val typeBucket = typePx.roundToInt()
-            val typeKey = node.id * 1000 + 500 + typeBucket
-            val typeLabel = labels.getOrPut(typeKey) {
+
+        // 真实槽位：输入在左边缘、输出在右边缘；缩小时只画圆点，放大后补参数名。
+        val showNames = size.width >= 132f && scale >= 0.45f
+        val dotR = 2.6f
+        fun drawSlot(nodeId: Int, index: Int, input: Boolean, slotName: String) {
+            val y = sy(slotYWorld(node, index))
+            if (y < topLeft.y || y > topLeft.y + size.height) return
+            val x = if (input) topLeft.x else topLeft.x + size.width
+            drawCircle(
+                color = if (active) c.accent.copy(alpha = 0.9f) else c.textDim.copy(alpha = 0.6f),
+                radius = dotR,
+                center = Offset(x, y),
+            )
+            if (!showNames || slotName.isBlank()) return
+            val key = nodeId * 100 + index * 2 + (if (input) 0 else 1) + if (input) 0 else 500_000
+            val label = labels.getOrPut(key) {
                 measurer.measure(
-                    text = node.type,
-                    style = TextStyle(color = c.textDim, fontSize = (typeBucket / density).sp),
+                    text = slotName,
+                    style = TextStyle(color = c.textMuted.copy(alpha = alpha), fontSize = 7.sp),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    constraints = Constraints(maxWidth = max(20, size.width.roundToInt() - 8)),
+                    constraints = Constraints(maxWidth = max(24, size.width.roundToInt() / 2 - 10)),
                 )
             }
+            val textTop = y - label.size.height / 2f
+            // 裁在节点内部：节点挨得近时，参数名不会溢出到隔壁节点上。
             clipRect(
                 left = topLeft.x,
-                top = topLeft.y + headerH,
+                top = topLeft.y,
                 right = topLeft.x + size.width,
                 bottom = topLeft.y + size.height,
             ) {
-                drawText(typeLabel, topLeft = topLeft + Offset(4f, headerH + 3f))
+                if (input) {
+                    drawText(label, topLeft = Offset(topLeft.x + 9f, textTop))
+                } else {
+                    drawText(label, topLeft = Offset(topLeft.x + size.width - label.size.width - 9f, textTop))
+                }
             }
         }
+
+        node.inputs.forEachIndexed { index, input -> drawSlot(node.id, index, true, input.name) }
+        node.outputs.forEachIndexed { index, output -> drawSlot(node.id, index, false, output.name) }
     }
 }
-
 /** 小地图投影：把世界坐标映射到缩略图局部坐标（留 6% 内边距）。 */
 internal data class MapProjection(val s: Float, val ox: Float, val oy: Float)
 
