@@ -702,3 +702,31 @@ fun Dot(color: Color, size: Dp = 6.dp) {
         drawCircle(color = color)
     }
 }
+/**
+ * 空状态用的轻浮动：内容缓慢上下 3dp，透明度在 0.82~1 之间呼吸。
+ * 只在"没内容"的页面上用，避免满屏都在动。
+ */
+@Composable
+fun GentleFloat(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    val transition = rememberInfiniteTransition(label = "gentle-float")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2_600),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "gentle-float-phase",
+    )
+    Box(
+        modifier = modifier.graphicsLayer {
+            translationY = -3.dp.toPx() * phase
+            alpha = 0.82f + 0.18f * phase
+        },
+    ) {
+        content()
+    }
+}

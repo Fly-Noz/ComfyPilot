@@ -40,6 +40,8 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -55,6 +57,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -229,18 +232,36 @@ fun ArtifactDialog(
                         onDismiss = onDismiss,
                     )
                 } else {
-                    ArtifactPreview(
-                        output = current,
-                        baseUrl = baseUrl,
-                        knownSizes = knownSizes,
-                        onSizeKnown = { filename, bytes ->
-                            knownSizes = knownSizes + (filename to bytes)
+                    // 从列表进入单张预览时轻微放大淡入，返回列表时反向收缩。
+                    // 不做真正的共享元素（跨容器代价太大），但方向感是一致的。
+                    val zoom = remember(current.filename) { Animatable(0.92f) }
+                    val zoomAlpha = remember(current.filename) { Animatable(0f) }
+                    LaunchedEffect(current.filename) {
+                        zoom.animateTo(1f, tween(220))
+                    }
+                    LaunchedEffect(current.filename) {
+                        zoomAlpha.animateTo(1f, tween(180))
+                    }
+                    Box(
+                        modifier = Modifier.graphicsLayer {
+                            scaleX = zoom.value
+                            scaleY = zoom.value
+                            alpha = zoomAlpha.value
                         },
-                        downloadState = stateOf(current),
-                        onBack = { selected = null },
-                        onDownload = { requestDownload(current) },
-                        onDismiss = onDismiss,
-                    )
+                    ) {
+                        ArtifactPreview(
+                            output = current,
+                            baseUrl = baseUrl,
+                            knownSizes = knownSizes,
+                            onSizeKnown = { filename, bytes ->
+                                knownSizes = knownSizes + (filename to bytes)
+                            },
+                            downloadState = stateOf(current),
+                            onBack = { selected = null },
+                            onDownload = { requestDownload(current) },
+                            onDismiss = onDismiss,
+                        )
+                    }
                 }
             }
         }

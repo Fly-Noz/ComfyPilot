@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -124,24 +126,29 @@ fun ServerStatsStrip(
         // 百分比短，窄屏不会像 "8.5 GB / 16 GB" 那样被裁掉。总量为 0 视为未知，
         // 此时用 Crystools 的百分比兜底；仍然缺就整格省略，不画 "--"。
         // 内存/显存优先用 WebSocket 的实时采样，其次是 /system_stats，最后才是 HTTP 兜底。
-        val cells = buildList {
-            val ramPercent = live?.ramPercent
-                ?: current?.let { usedPercent(it.system.ramTotal, it.system.ramFree) }
-                ?: metrics?.ramPercent
-            if (ramPercent != null) add(StatValue("内存", percentText(ramPercent)))
-            val vramPercent = live?.vramPercent
-                ?: current?.devices?.firstOrNull()
-                    ?.let { usedPercent(it.vramTotal, it.vramFree) }
-                ?: metrics?.vramPercent
-            if (vramPercent != null) add(StatValue("显存", percentText(vramPercent)))
+        val ramPercent = live?.ramPercent
+            ?: current?.let { usedPercent(it.system.ramTotal, it.system.ramFree) }
+            ?: metrics?.ramPercent
+        val vramPercent = live?.vramPercent
+            ?: current?.devices?.firstOrNull()
+                ?.let { usedPercent(it.vramTotal, it.vramFree) }
+            ?: metrics?.vramPercent
+        val cpuPercent = live?.cpuPercent ?: metrics?.cpuPercent
+        val gpuPercent = live?.gpuPercent ?: metrics?.gpuPercent
+        val temperature = live?.temperatureC ?: metrics?.temperature
 
-            // CPU/GPU/温度：实时 WebSocket 采样优先，HTTP 兜底其次；只有真正给出值时才加格子。
-            val cpuPercent = live?.cpuPercent ?: metrics?.cpuPercent
-            val gpuPercent = live?.gpuPercent ?: metrics?.gpuPercent
-            val temperature = live?.temperatureC ?: metrics?.temperature
-            cpuPercent?.let { add(StatValue("CPU", percentText(it))) }
-            gpuPercent?.let { add(StatValue("GPU", percentText(it))) }
-            temperature?.let { add(StatValue("温度", "${it.roundToInt()}°C")) }
+        // 数值滚动：推送每秒一条，直接跳字会显得闪；320ms 补间更像仪表盘。
+        val ramShown = rememberAnimatedPercent(ramPercent)
+        val vramShown = rememberAnimatedPercent(vramPercent)
+        val cpuShown = rememberAnimatedPercent(cpuPercent)
+        val gpuShown = rememberAnimatedPercent(gpuPercent)
+
+        val cells = buildList {
+            if (ramPercent != null) add(StatValue("内存", percentText(ramShown)))
+            if (vramPercent != null) add(StatValue("显存", percentText(vramShown)))
+            cpuPercent?.let { add(StatValue("CPU", percentText(cpuShown))) }
+            gpuPercent?.let { add(StatValue("GPU", percentText(gpuShown))) }
+            temperature?.let { add(StatValue("温度", "${temperature.roundToInt()}°C")) }
             live?.gpuName?.takeIf { it.isNotBlank() }?.let { add(StatValue("显卡", it)) }
             // 队列/版本放最后：硬件指标更常用，先看到。
             queue?.let { add(StatValue("队列", "${it.running.size} / ${it.pending.size}")) }
@@ -403,3 +410,13 @@ private fun percent(root: JsonObject, nested: JsonObject?, vararg aliases: Strin
     number(root, nested, *aliases)?.takeIf { it in 0.0..100.0 }
 
 private fun percentText(value: Double): String = "${value.roundToInt()}%"
+/** 百分比数值补间：目标为空时保持 0，不做跨格动画。 */
+@Composable
+private fun rememberAnimatedPercent(target: Double?): Double {
+    val animated by animateFloatAsState(
+        targetValue = (target ?: 0.0).toFloat(),
+        animationSpec = tween(durationMillis = 320),
+        label = "stat-percent",
+    )
+    return if (target == null) 0.0 else animated.toDouble()
+}

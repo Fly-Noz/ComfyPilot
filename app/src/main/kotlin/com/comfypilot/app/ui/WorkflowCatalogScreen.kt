@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.comfypilot.app.ui.theme.Dot
+import com.comfypilot.app.ui.theme.GentleFloat
 import com.comfypilot.app.ui.theme.GhostButton
 import com.comfypilot.app.ui.theme.GlassCard
 import com.comfypilot.app.ui.theme.ShimmerBox
@@ -260,7 +261,9 @@ fun WorkflowCatalogScreen(
 private fun HintCard(text: String) {
     val c = Spectrum.colors
     GlassCard {
-        Text(text = text, color = c.textMuted, fontSize = 12.5.sp)
+        GentleFloat {
+            Text(text = text, color = c.textMuted, fontSize = 12.5.sp)
+        }
     }
 }
 
