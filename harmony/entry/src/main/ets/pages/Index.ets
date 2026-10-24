@@ -3,7 +3,7 @@ import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { util } from '@kit.ArkTS';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { promptAction } from '@kit.ArkUI';
+import { AnimatorOptions, AnimatorResult, promptAction } from '@kit.ArkUI';
 import { http } from '@kit.NetworkKit';
 import {
   BridgeCatalog,
@@ -29,6 +29,7 @@ import { VideoThumb } from '../artifact/VideoThumb';
 import { ImageUploader, PickedImage } from '../workflow/ImageUploader';
 import {
   BuildProblemView,
+  DisableImpactResponse,
   PromptResponse,
   WorkflowFieldView,
   WorkflowGraphView,
@@ -99,6 +100,8 @@ function emptyView(): WorkflowViewResponse {
     format: '',
     defaultGraphIds: [],
     selectedGraphIds: [],
+    bypassedNodeIds: [],
+    enabledNodeIds: [],
     graphs: [],
     nodes: [],
     commonFields: [],
@@ -112,14 +115,26 @@ function emptyView(): WorkflowViewResponse {
   };
 }
 
+/** 性能条百分比的补间显示值；-1 表示该指标缺失（整格省略，不补 0）。 */
+interface ShownStats {
+  ram: number;
+  vram: number;
+  cpu: number;
+  gpu: number;
+}
+
+function emptyShownStats(): ShownStats {
+  return { ram: -1, vram: -1, cpu: -1, gpu: -1 };
+}
+
 /** 缺失的监控指标按 -1 处理，性能条据此判断"这一格要不要画"。 */
 function shownNumber(value: number | null): number {
   return value === null || !Number.isFinite(value) ? -1 : Math.round(value);
 }
 
 /**
- * 只比较性能条真正会显示的数字（四舍五入后）。
- * 监控帧的 receivedAtMs 每秒都变，读数没变时就不该重绘整条性能条。
+ * 只比较性能条真正会显示的数字（四舍五入后）。 
+ * 监控帧的 receivedAtMs 每秒都变，读数没变时就不该重绘整条性能条。 
  */
 function sameMonitor(a: BridgeMonitor | null, b: BridgeMonitor | null): boolean {
   if (a === null || b === null) {
@@ -159,14 +174,27 @@ struct Index {
   /** 性能条的数据；拿不到的项保持 -1 / ''，页面直接跳过。 */
   @State serverStats: ServerStats = emptyServerStats();
   /**
-   * 状态帧顶层的 Crystools 监控采样（CPU/GPU/温度/内存/显存）。
+   * 状态帧顶层的 Crystools 监控采样（CPU/GPU/温度/内存/显存）。 
    *
-   * 它每秒都会变，所以单独存一份 @State 只给性能条读：summaryKey 里没有它，
-   * 不会触发 refreshView()，工作流视图不会被每秒重建。
+   * 它每秒都会变，所以单独存一份 @State 只给性能条读：summaryKey 里没有它， 
+   * 不会触发 refreshView()，工作流视图不会被每秒重建。 
    */
   @State monitor: BridgeMonitor | null = null;
   /** 性能条展开/收起；收起时只剩一行标题，纯界面状态，不进 summaryKey。 */
   @State statsExpanded: boolean = false;
+  /** 页面切换方向：true=进入下一层（从右侧滑入），false=返回（退出到右侧）。 */
+  @State navForward: boolean = true;
+  /** 当前被按住的控件 key；同一时刻只可能有一个手指按下，单值就够。 */
+  @State pressedKey: string = '';
+  /** 骨架屏呼吸相位（0.35↔0.7）。 */
+  @State skeletonPhase: number = 0.35;
+  /** 空状态轻浮相位（0→1，2.6s 往返）。 */
+  @State floatPhase: number = 0;
+  /** 性能条百分比的补间显示值；-1 表示缺失。 */
+  @State shownStats: ShownStats = emptyShownStats();
+  /** 分段页签滑动底板的轨道宽度与自身宽度（vp，由 onAreaChange 量出）。 */
+  @State tabTrackWidth: number = 0;
+  @State tabIndicatorWidth: number = 0;
   /** 被用户关掉的错误提示 key：`taskId|errorText`，按工作流持久化。 */
   @State dismissedErrorKey: string = '';
   @State running: boolean = false;
@@ -192,10 +220,30 @@ struct Index {
   @State viewError: string = '';
   @State graphIds: string[] = [];
   @State graphsInitialized: boolean = false;
+  /**
+   * 本次会话里被用户逐个关闭 / 重新启用的节点。 
+   *
+   * 和 `graphIds` 一样只存在于宿主内存，随每次视图/prompt 请求送给共享层；
+   * 切换工作流时清空（Android 侧这两个集合在共享会话状态里，语义一致）。 
+   * 两者互斥且关闭优先：同一个 id 不会同时出现在两个集合里。 
+   */
+  @State bypassedIds: number[] = [];
+  @State enabledIds: number[] = [];
+  /** 待确认的「关闭节点」：只有共享层判定会破坏工作流时才会 >= 0。 */
+  @State bypassConfirmNodeId: number = -1;
+  @State bypassConfirmReason: string = '';
   @State pinnedIds: number[] = [];
   @State pinnedWorkflowPaths: string[] = [];
   @State editTick: number = 0;
   @State submitting: boolean = false;
+  /** 提交成功后按钮短暂显示「已提交 ✓」。 */
+  @State submitFlash: boolean = false;
+  /** 任务状态轨旧颜色的淡出进度（1→0）与完成脉冲的透明度（1→0）。 */
+  @State railFade: number = 1;
+  @State railTick: number = 0;
+  @State railVisible: boolean = false;
+  @State donePulseAlpha: number = 0;
+  @State pulseTaskId: string = '';
   @State submitNotice: string = '';
   @State confirmOpen: boolean = false;
   @State confirmWarnings: string[] = [];
@@ -272,6 +320,16 @@ struct Index {
   private skipNextAppear: boolean = false;
   private viewSeq: number = 0;
   private summaryKey: string = '';
+  private skeletonStarted: boolean = false;
+  private floatStarted: boolean = false;
+  private submitFlashTimer: number = -1;
+  /** 性能条百分比补间：目标变化时用 UIContext 的 Animator 逐帧推进。 */
+  private statAnimator: AnimatorResult | null = null;
+  private statFrom: ShownStats = emptyShownStats();
+  private statTarget: ShownStats = emptyShownStats();
+  /** 任务状态快照：只用于识别状态切换（轨道颜色/完成脉冲），不参与渲染。 */
+  private taskStates: Map<string, string> = new Map();
+  private prevTaskStates: Map<string, string> = new Map();
   private catalogRequested: boolean = false;
   private reopenRequested: boolean = false;
   private scroller: Scroller = new Scroller();
@@ -281,15 +339,15 @@ struct Index {
   private previewBase64: util.Base64Helper = new util.Base64Helper();
 
   aboutToAppear(): void {
-    // 从相册选择器或后台回来时页面重新可见：恢复性能轮询（此时连接可能还活着）。
+    // 从相册选择器或后台回来时页面重新可见：恢复性能轮询（此时连接可能还活着）。 
     this.statsPaused = false;
     if (this.running) {
       this.startStatsPolling();
     }
     PersistentStorage.persistProp('appearanceMode', 'system');
     this.applyAppearance();
-    // 相册选择器会把页面短暂切到后台；回来时不要重建会话，否则正在进行的上传
-    // 会被停止，工作流和节点图选择也会被重置。
+    // 相册选择器会把页面短暂切到后台；回来时不要重建会话，否则正在进行的上传 
+    // 会被停止，工作流和节点图选择也会被重置。 
     if (this.skipNextAppear) {
       this.skipNextAppear = false;
       if (this.running) {
@@ -303,6 +361,10 @@ struct Index {
       if (text.startsWith('提交被拒绝') || text.startsWith('已提交')) {
         this.submitNotice = text;
       }
+      // 共享层确认服务器已接受后才算成功：只有这条路径点亮「已提交 ✓」。
+      if (text.startsWith('已提交')) {
+        this.flashSubmitSuccess();
+      }
       this.log(text);
     };
     this.bridge.onLog = (line: string) => this.log(line);
@@ -310,7 +372,11 @@ struct Index {
   }
 
   aboutToDisappear(): void {
-    // 先停掉性能轮询和复用的 HTTP 句柄，再走原来的离场逻辑。
+    if (this.submitFlashTimer !== -1) {
+      clearTimeout(this.submitFlashTimer);
+      this.submitFlashTimer = -1;
+    }
+    // 先停掉性能轮询和复用的 HTTP 句柄，再走原来的离场逻辑。 
     this.stopStatsPolling();
     if (this.pickerActive) {
       return;
@@ -335,6 +401,204 @@ struct Index {
     this.stopStatsPolling();
   }
 
+  /**
+   * 页面切换：先定方向再在 animateTo 里翻页状态，页面容器的 transition 负责滑动+淡入淡出。
+   * 只包裹导航本身，不改原来的 if/else 返回栈。
+   */
+  private goPage(forward: boolean, action: () => void): void {
+    this.navForward = forward;
+    animateTo({ duration: 260, curve: Curve.EaseOut }, action);
+  }
+
+  /**
+   * 页面进出：进入方向跟随 navForward（前进从右 1/4 屏滑入，返回从左滑入），
+   * 离开统一向右退出（返回方向）。方向在页面挂载时求值，避免退场页拿不到新方向。
+   */
+  private screenTransition(): TransitionEffect {
+    const enterX: string = this.navForward ? '25%' : '-25%';
+    return TransitionEffect.asymmetric(
+      TransitionEffect.OPACITY
+        .combine(TransitionEffect.translate({ x: enterX }))
+        .animation({ duration: 260, curve: Curve.EaseOut }),
+      TransitionEffect.OPACITY
+        .combine(TransitionEffect.translate({ x: '25%' }))
+        .animation({ duration: 220, curve: Curve.EaseOut }),
+    );
+  }
+
+  /** 任务浮层：从下方 1/3 屏高度滑入并淡入，关闭时滑回下方。 */
+  private openTasks(): void {
+    animateTo({ duration: 240, curve: Curve.EaseOut }, () => {
+      this.tasksOpen = true;
+    });
+  }
+
+  private closeTasks(): void {
+    animateTo({ duration: 200, curve: Curve.EaseOut }, () => {
+      this.tasksOpen = false;
+    });
+  }
+
+  /** 分段页签的单格宽度：两格 + 中间 3vp 间隔。 */
+  private tabItemWidth(): number {
+    return this.tabTrackWidth > 0 ? Math.max(0, (this.tabTrackWidth - 3) / 2) : 0;
+  }
+
+  private tabIndicatorOffset(): number {
+    return this.detailTab * (this.tabItemWidth() + 3);
+  }
+
+  /** 按压反馈的缩放值；按下 120ms 收进去，抬起 160ms 弹回。 */
+  private pressScale(key: string, pressed: number = 0.965): number {
+    return this.pressedKey === key ? pressed : 1;
+  }
+
+  private pressScaleOptions(key: string, pressed: number = 0.965): ScaleOptions {
+    const value: number = this.pressScale(key, pressed);
+    return { x: value, y: value };
+  }
+
+  private onPressTouch(event: TouchEvent, key: string): void {
+    if (event.type === TouchType.Down) {
+      animateTo({ duration: 120, curve: Curve.EaseOut }, () => {
+        this.pressedKey = key;
+      });
+    } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+      animateTo({ duration: 160, curve: Curve.EaseOut }, () => {
+        if (this.pressedKey === key) {
+          this.pressedKey = '';
+        }
+      });
+    }
+  }
+
+  /** 骨架屏呼吸：透明度 0.35↔0.7，900ms 一次往返；只启动一次。 */
+  private startSkeletonPulse(): void {
+    if (this.skeletonStarted) {
+      return;
+    }
+    this.skeletonStarted = true;
+    this.skeletonPhase = 0.35;
+    animateTo({
+      duration: 900,
+      curve: Curve.EaseInOut,
+      iterations: -1,
+      playMode: PlayMode.Alternate,
+    }, () => {
+      this.skeletonPhase = 0.7;
+    });
+  }
+
+  /** 空状态轻浮：上下 3vp、透明度 0.82↔1，2.6s 一次往返。 */
+  private startGentleFloat(): void {
+    if (this.floatStarted) {
+      return;
+    }
+    this.floatStarted = true;
+    this.floatPhase = 0;
+    animateTo({
+      duration: 2600,
+      curve: Curve.EaseInOut,
+      iterations: -1,
+      playMode: PlayMode.Alternate,
+    }, () => {
+      this.floatPhase = 1;
+    });
+  }
+
+  /** 提交成功：按钮标签切到「已提交 ✓」，1.2s 后由定时器恢复。 */
+  private flashSubmitSuccess(): void {
+    if (this.submitFlashTimer !== -1) {
+      clearTimeout(this.submitFlashTimer);
+    }
+    this.submitFlash = true;
+    this.submitFlashTimer = setTimeout(() => {
+      this.submitFlashTimer = -1;
+      this.submitFlash = false;
+    }, 1200);
+  }
+
+  /** 任务状态轨：旧颜色叠层从 1 淡到 0，280ms 后清理旧状态。 */
+  private startRailFade(): void {
+    if (this.railFade < 0.99) {
+      return;
+    }
+    animateTo({ duration: 280, curve: Curve.EaseOut }, () => {
+      this.railFade = 0;
+    });
+  }
+
+  /** 完成脉冲：绿色描边从 1 淡到 0（900ms），结束后卸载叠层。 */
+  private startDonePulse(): void {
+    if (this.donePulseAlpha < 0.99) {
+      return;
+    }
+    const id: string = this.pulseTaskId;
+    animateTo({ duration: 900, curve: Curve.EaseOut }, () => {
+      this.donePulseAlpha = 0;
+    });
+    setTimeout(() => {
+      if (this.pulseTaskId === id) {
+        this.pulseTaskId = '';
+      }
+    }, 940);
+  }
+
+  /** 任务状态切换：记录旧状态给轨道颜色淡出用，并在进入「已完成」时触发一次脉冲。 */
+  private syncTaskAnimations(next: BridgeTask[]): void {
+    let railChanged: boolean = false;
+    let completedId: string = '';
+    const seen: Map<string, boolean> = new Map();
+    next.forEach((task: BridgeTask) => {
+      seen.set(task.id, true);
+      const before: string | undefined = this.taskStates.get(task.id);
+      if (before !== undefined && before !== task.state) {
+        if (this.taskRailColor(before) !== this.taskRailColor(task.state)) {
+          this.prevTaskStates.set(task.id, before);
+          railChanged = true;
+        }
+        if (task.state === 'Completed') {
+          completedId = task.id;
+        }
+      }
+      this.taskStates.set(task.id, task.state);
+    });
+    const stale: string[] = [];
+    this.taskStates.forEach((state: string, id: string) => {
+      if (seen.get(id) === undefined) {
+        stale.push(id);
+      }
+    });
+    stale.forEach((id: string) => {
+      this.taskStates.delete(id);
+      this.prevTaskStates.delete(id);
+    });
+    if (railChanged) {
+      // visible 控制叠层挂载；fade 只驱动 opacity，两者分开，淡出期间叠层不会被立刻卸载。
+      this.railVisible = true;
+      this.railFade = 1;
+      this.railTick++;
+      setTimeout(() => {
+        this.prevTaskStates.clear();
+        this.railVisible = false;
+        this.railTick++;
+      }, 320);
+    }
+    if (completedId.length > 0) {
+      this.pulseTaskId = completedId;
+      this.donePulseAlpha = 1;
+    }
+  }
+
+  /** 状态轨的旧颜色；没有过渡需求时返回空串（不渲染叠层）。 */
+  private taskRailPrevious(task: BridgeTask): string {
+    if (this.railTick < 0 || !this.railVisible) {
+      return '';
+    }
+    const before: string | undefined = this.prevTaskStates.get(task.id);
+    return before === undefined ? '' : this.taskRailColor(before);
+  }
+
   private async bootstrap(): Promise<void> {
     const host = this.getUIContext().getHostContext();
     if (host === undefined) {
@@ -348,14 +612,14 @@ struct Index {
     const pinnedReady: boolean = await this.pinnedStore.open(context);
     const notesReady: boolean = await this.noteStore.open(context);
     const workflowPinsReady: boolean = await this.pinnedWorkflowStore.open(context);
-    // 地址历史和错误关闭状态都必须在第一次连接前就绪。
+    // 地址历史和错误关闭状态都必须在第一次连接前就绪。 
     const addressReady: boolean = await this.addressStore.load(context);
     const dismissedReady: boolean = await this.dismissedStore.open(context);
     if (workflowPinsReady) {
       this.pinnedWorkflowPaths = this.pinnedWorkflowStore.load();
     }
     if (addressReady) {
-      // 冷启动优先恢复上次连通过的地址；没有记录时保留默认的 127.0.0.1:8188。
+      // 冷启动优先恢复上次连通过的地址；没有记录时保留默认的 127.0.0.1:8188。 
       this.lastUsedUrl = this.addressStore.lastUrl();
       this.addressHistory = this.addressStore.history();
       if (this.lastUsedUrl.length > 0) {
@@ -396,11 +660,14 @@ struct Index {
     this.generation = state.generation;
     this.network = state.validated ? `${state.network}（已验证）` : state.network;
     this.tasks = state.tasks;
+    this.syncTaskAnimations(state.tasks);
     this.queueRunning = state.queueRunning ?? 0;
     this.queuePending = state.queuePending ?? 0;
-    // 监控采样只喂性能条：单独一份 @State，summaryKey 不读它，工作流视图不受影响。
+    // 监控采样只喂性能条：单独一份 @State，summaryKey 不读它，工作流视图不受影响。 
     const monitor: BridgeMonitor | null = state.monitor ?? null;
     this.monitor = sameMonitor(this.monitor, monitor) ? this.monitor : monitor;
+    // 监控帧或 HTTP 轮询都可能更新百分比：每次状态帧后对齐一次补间目标。
+    this.syncStatsTargets();
     this.catalog = state.catalog;
     this.workflow = state.workflow;
     this.livePreviewMeta = state.preview ?? null;
@@ -413,7 +680,7 @@ struct Index {
     }
 
     if (this.running && state.phase === 'Connected') {
-      // 共享层确认连上（随后会拉工作流目录）才算“成功连接”：这时才记住地址。
+      // 共享层确认连上（随后会拉工作流目录）才算“成功连接”：这时才记住地址。 
       this.rememberAddress(this.normalizedBaseUrl());
       this.startStatsPolling();
       if (!this.catalogRequested) {
@@ -655,7 +922,7 @@ struct Index {
   /** 点历史里的地址：填回输入框并收起面板，连不连由「连接」按钮决定。 */
   private pickAddress(url: string): void {
     if (this.running) {
-      // 连接期间输入框锁着，历史也不能偷偷换掉正在用的地址。
+      // 连接期间输入框锁着，历史也不能偷偷换掉正在用的地址。 
       this.addressMenuOpen = false;
       return;
     }
@@ -676,7 +943,7 @@ struct Index {
       try {
         this.statsRequest = http.createHttp();
       } catch (err) {
-        // 创建句柄失败时静默放弃性能条，连接与其它功能不受影响。
+        // 创建句柄失败时静默放弃性能条，连接与其它功能不受影响。 
         this.statsRequest = null;
         return;
       }
@@ -684,7 +951,7 @@ struct Index {
     this.statsTimer = setInterval(() => {
       this.pollServerStats();
     }, STATS_POLL_MS);
-    // 首帧不等 2 秒，连上就显示。
+    // 首帧不等 2 秒，连上就显示。 
     this.pollServerStats();
   }
 
@@ -699,10 +966,15 @@ struct Index {
       try {
         request.destroy();
       } catch (err) {
-        // 句柄可能已随失败的请求销毁，这里忽略。
+        // 句柄可能已随失败的请求销毁，这里忽略。 
       }
     }
     this.clearServerStats();
+    // 页面离场/断开：停掉补间并清空显示值，不在后台继续跑动画。
+    this.cancelStatAnimator();
+    this.shownStats = emptyShownStats();
+    this.statTarget = emptyShownStats();
+    this.statFrom = emptyShownStats();
   }
 
   private clearServerStats(): void {
@@ -712,7 +984,7 @@ struct Index {
   }
 
   private hasServerStats(): boolean {
-    // 监控帧只要有一项读数（或显卡名）就算"有数据"：/system_stats 拿不到时性能条照样要出。
+    // 监控帧只要有一项读数（或显卡名）就算"有数据"：/system_stats 拿不到时性能条照样要出。 
     const live: BridgeMonitor | null = this.monitor;
     if (live !== null &&
       (this.monitorValue(live.cpu) >= 0 || this.monitorValue(live.ram) >= 0 ||
@@ -781,29 +1053,21 @@ struct Index {
     return name.trim();
   }
 
-  /** 收起时右侧箭头：展开 ▾，收起 ▸。 */
-  private statsChevron(): string {
-    return this.statsExpanded ? '▾' : '▸';
-  }
-
   /**
-   * 收起时右侧的一行摘要：内存/显存优先，两者都没有才退回 CPU/温度。
-   * 一个数都没有就返回空字符串，标题行只留箭头（不写 --，也不补 0）。
+   * 收起时右侧的一行摘要：内存/显存优先，两者都没有才退回 CPU/温度。 
+   * 一个数都没有就返回空字符串，标题行只留箭头（不写 --，也不补 0）。 
    */
   private statsSummary(): string {
     const parts: string[] = [];
-    const ram = this.stripRam();
-    if (ram >= 0) {
-      parts.push(`内存 ${Math.round(ram)}%`);
+    if (this.stripRam() >= 0) {
+      parts.push(`内存 ${this.statPercentText(this.shownStats.ram)}`);
     }
-    const vram = this.stripVram();
-    if (vram >= 0) {
-      parts.push(`显存 ${Math.round(vram)}%`);
+    if (this.stripVram() >= 0) {
+      parts.push(`显存 ${this.statPercentText(this.shownStats.vram)}`);
     }
     if (parts.length === 0) {
-      const cpu = this.stripCpu();
-      if (cpu >= 0) {
-        parts.push(`CPU ${Math.round(cpu)}%`);
+      if (this.stripCpu() >= 0) {
+        parts.push(`CPU ${this.statPercentText(this.shownStats.cpu)}`);
       }
       const temperature = this.stripTemp();
       if (temperature >= 0) {
@@ -813,9 +1077,101 @@ struct Index {
     return parts.join(' · ');
   }
 
+  private statPercentText(value: number): string {
+    return value < 0 ? '' : `${Math.round(value)}%`;
+  }
+
+  private mixStat(from: number, to: number, progress: number): number {
+    if (from < 0 || to < 0) {
+      return to;
+    }
+    return from + (to - from) * progress;
+  }
+
+  private cancelStatAnimator(): void {
+    const animator = this.statAnimator;
+    this.statAnimator = null;
+    if (animator !== null) {
+      try {
+        animator.cancel();
+      } catch (err) {
+        // 动画可能已经结束，句柄失效时忽略。
+      }
+    }
+  }
+
+  /**
+   * 性能条百分比补间：目标变化后 320ms 逐帧推进显示值。
+   *
+   * ArkUI 的 animateTo 只补间组件属性，不逐帧改 @State 数值，因此这里用
+   * UIContext 的 Animator 在 onFrame 里更新 shownStats 再渲染文本，数值是真实补间。
+   */
+  private syncStatsTargets(): void {
+    const target: ShownStats = {
+      ram: this.stripRam(),
+      vram: this.stripVram(),
+      cpu: this.stripCpu(),
+      gpu: this.stripGpu(),
+    };
+    if (target.ram === this.statTarget.ram && target.vram === this.statTarget.vram &&
+      target.cpu === this.statTarget.cpu && target.gpu === this.statTarget.gpu) {
+      return;
+    }
+    this.statTarget = target;
+    const from: ShownStats = {
+      ram: this.shownStats.ram >= 0 && target.ram >= 0 ? this.shownStats.ram : target.ram,
+      vram: this.shownStats.vram >= 0 && target.vram >= 0 ? this.shownStats.vram : target.vram,
+      cpu: this.shownStats.cpu >= 0 && target.cpu >= 0 ? this.shownStats.cpu : target.cpu,
+      gpu: this.shownStats.gpu >= 0 && target.gpu >= 0 ? this.shownStats.gpu : target.gpu,
+    };
+    this.cancelStatAnimator();
+    this.statFrom = from;
+    if (from.ram === target.ram && from.vram === target.vram &&
+      from.cpu === target.cpu && from.gpu === target.gpu) {
+      this.shownStats = target;
+      return;
+    }
+    try {
+      const options: AnimatorOptions = {
+        duration: 320,
+        easing: 'ease-out',
+        delay: 0,
+        fill: 'forwards',
+        direction: 'normal',
+        iterations: 1,
+        begin: 0,
+        end: 1,
+      };
+      const animator: AnimatorResult = this.getUIContext().createAnimator(options);
+      animator.onFrame = (progress: number) => {
+        const p: number = progress < 0 ? 0 : (progress > 1 ? 1 : progress);
+        const stats: ShownStats = {
+          ram: this.mixStat(from.ram, target.ram, p),
+          vram: this.mixStat(from.vram, target.vram, p),
+          cpu: this.mixStat(from.cpu, target.cpu, p),
+          gpu: this.mixStat(from.gpu, target.gpu, p),
+        };
+        this.shownStats = stats;
+      };
+      animator.onFinish = () => {
+        this.shownStats = target;
+        if (this.statAnimator === animator) {
+          this.statAnimator = null;
+        }
+      };
+      this.statAnimator = animator;
+      this.shownStats = from;
+      animator.play();
+    } catch (err) {
+      // 极端情况下拿不到 UI 上下文：退回直接显示目标值，绝不卡在旧数字上。
+      this.shownStats = target;
+      this.log(`性能百分比补间不可用：${this.errorText(err)}`);
+    }
+  }
+
   private async pollServerStats(): Promise<void> {
     if (this.statsBusy) {
-      // 上一次请求还没回来（服务器慢），跳过这一拍，别把请求堆起来。
+      // 上一次请求还没回来（服务器慢），跳过这一拍，别把请求堆起来。 
       return;
     }
     const request = this.statsRequest;
@@ -826,17 +1182,18 @@ struct Index {
     this.statsBusy = true;
     try {
       const stats: ServerStats | null = await fetchServerStats(request, url);
-      // 轮询期间可能已经断开或换了地址：旧句柄的结果直接丢弃。
+      // 轮询期间可能已经断开或换了地址：旧句柄的结果直接丢弃。 
       if (this.statsRequest !== request) {
         return;
       }
       if (stats === null) {
-        // 两个接口都失败（服务器离线 / 没有该扩展）：整块消失，不留永久红字。
         this.clearServerStats();
+        this.syncStatsTargets();
         return;
       }
       if (!sameServerStats(this.serverStats, stats)) {
         this.serverStats = stats;
+        this.syncStatsTargets();
       }
     } catch (err) {
       if (this.statsRequest === request) {
@@ -862,7 +1219,7 @@ struct Index {
     this.reopenRequested = false;
     this.summaryKey = '';
     this.clearLivePreview();
-    // 旧地址的性能数据不能留在界面上；连上后 applyState 会重新开轮询。
+    // 旧地址的性能数据不能留在界面上；连上后 applyState 会重新开轮询。 
     this.stopStatsPolling();
     this.log(`开始连接 ${url}`);
     this.running = true;
@@ -885,6 +1242,11 @@ struct Index {
     this.catalog = emptyCatalog();
     this.selectedPath = '';
     this.view = emptyView();
+    // 断开后没有“当前工作流”，单节点开关和待确认的关闭框一起作废。 
+    this.bypassedIds = [];
+    this.enabledIds = [];
+    this.bypassConfirmNodeId = -1;
+    this.bypassConfirmReason = '';
     this.catalogRequested = false;
     this.reopenRequested = false;
     this.resetUploadState();
@@ -902,18 +1264,23 @@ struct Index {
     this.detailTab = 0;
     this.graphsInitialized = false;
     this.graphIds = [];
+    // 单节点开关只属于当前打开的工作流：换文档就清空，避免把旧 id 套到新图上。 
+    this.bypassedIds = [];
+    this.enabledIds = [];
+    this.bypassConfirmNodeId = -1;
+    this.bypassConfirmReason = '';
     this.edits.clear();
     this.editTick++;
     this.view = emptyView();
     this.viewError = '';
     this.submitNotice = '';
-    // 上一次提交的拒绝通知还留在顶部，打开新工作流时不应该继续误导。
+    // 上一次提交的拒绝通知还留在顶部，打开新工作流时不应该继续误导。 
     this.notice = '';
     this.resetUploadState();
     this.pinnedIds = this.pinnedStore.load(path);
     this.notes = this.noteStore.load(path);
-    // 同一个工作流上次关掉的错误块重新打开时保持关闭（key 由 taskId|errorText 组成，
-    // 换了错误文案就不再匹配，会自动重新显示）。
+    // 同一个工作流上次关掉的错误块重新打开时保持关闭（key 由 taskId|errorText 组成， 
+    // 换了错误文案就不再匹配，会自动重新显示）。 
     this.dismissedErrorKey = this.dismissedStore.load(path);
     this.nodeNotesVersion++;
     this.previewUris.clear();
@@ -952,6 +1319,11 @@ struct Index {
     this.detailTab = 0;
     this.graphsInitialized = false;
     this.graphIds = [];
+    // 单节点开关只属于当前打开的工作流：换文档就清空，避免把旧 id 套到新图上。 
+    this.bypassedIds = [];
+    this.enabledIds = [];
+    this.bypassConfirmNodeId = -1;
+    this.bypassConfirmReason = '';
     this.edits.clear();
     this.editTick++;
     this.view = emptyView();
@@ -978,17 +1350,21 @@ struct Index {
         return;
       }
       this.viewError = '';
-      // 节点定义还没到时，共享层会返回空图列表；这时不能把“空选择”记成用户显式
-      // 关闭了所有图，否则定义加载完后会把所有节点都判成不可达。
+      // 节点定义还没到时，共享层会返回空图列表；这时不能把“空选择”记成用户显式 
+      // 关闭了所有图，否则定义加载完后会把所有节点都判成不可达。 
       if (!this.graphsInitialized && response.graphs.length > 0) {
         this.graphIds = response.selectedGraphIds;
         this.graphsInitialized = true;
       }
       this.view = response;
+      // 共享层是开关状态的裁判：响应里带回的就是这次实际生效的覆盖集合， 
+      // 宿主的本地副本跟着对齐，不会出现“界面关了但提交没关”的分叉。 
+      this.bypassedIds = response.bypassedNodeIds ?? [];
+      this.enabledIds = response.enabledNodeIds ?? [];
       this.pruneEdits();
       if (scrollTop) {
-        // 等一帧让新的节点顺序完成布局，否则滚动仍会停在旧位置。
-        // 预览标签页下节点列表没有挂载（Scroller 未绑定），此时不滚动。
+        // 等一帧让新的节点顺序完成布局，否则滚动仍会停在旧位置。 
+        // 预览标签页下节点列表没有挂载（Scroller 未绑定），此时不滚动。 
         setTimeout(() => {
           if (this.detailTab === 0) {
             this.scroller.scrollEdge(Edge.Top);
@@ -1005,9 +1381,9 @@ struct Index {
   }
 
   /**
-   * 节点定义还没到齐、且连节点图都还识别不出来。此时共享层只能给出空图列表，
+   * 节点定义还没到齐、且连节点图都还识别不出来。此时共享层只能给出空图列表， 
    * 所有节点都会被标成 missing，图名也只会退化成“其他节点”；先显示加载提示，
-   * 等定义（至少是输出节点的定义）到齐后再渲染真正的节点图和字段。
+   * 等定义（至少是输出节点的定义）到齐后再渲染真正的节点图和字段。 
    */
   private definitionsPending(): boolean {
     return this.view.ok &&
@@ -1020,13 +1396,18 @@ struct Index {
     return this.view.pendingNodeClasses.includes(nodeType);
   }
 
-  private requestJson(op: string, runToken: string = ''): string {
+  private requestJson(op: string, runToken: string = '', nodeId: number = -1): string {
     const graphs = this.graphsInitialized
       ? `[${this.graphIds.map((id: string) => JSON.stringify(id)).join(',')}]`
       : 'null';
     const pinned = `[${this.pinnedIds.join(',')}]`;
     const run = runToken.length > 0 ? `,"run":${JSON.stringify(runToken)}` : '';
-    return `{"op":${JSON.stringify(op)},"graphs":${graphs},"pinned":${pinned}${run},"overrides":${this.overridesJson()}}`;
+    // 节点级开关和节点图选择走同一条路：覆盖集合随请求送，共享层回填生效状态。 
+    const bypass = this.bridge.nodeBypassJson(this.bypassedIds, this.enabledIds);
+    // `op=disable_impact` 只关心要试关的那一个节点；其余请求不带这个字段。 
+    const target = nodeId >= 0 ? `,"nodeId":${nodeId}` : '';
+    return `{"op":${JSON.stringify(op)},"graphs":${graphs},"pinned":${pinned}${run},` +
+      `"overrides":${this.overridesJson()},${bypass}${target}}`;
   }
 
   private overridesJson(): string {
@@ -1185,14 +1566,14 @@ struct Index {
 
   private setFieldText(field: WorkflowFieldView, text: string): void {
     // TextInput 首次渲染也会触发 onChange；只有值真的变了才算用户编辑，
-    // 否则每个字段都会被记成 override，切到会把它变成连线的节点图时就会挡住提交。
+    // 否则每个字段都会被记成 override，切到会把它变成连线的节点图时就会挡住提交。 
     const key = this.editKey(field.nodeId, field.inputName);
     const current = this.fieldText(field);
     if (text === current) {
       return;
     }
-    // 保存原文而不是每个按键都 Number()，否则输入 "0." 会被回写成 "0"，
-    // 小数点根本打不出来。提交前由 overrideValue() 按字段类型转换。
+    // 保存原文而不是每个按键都 Number()，否则输入 "0." 会被回写成 "0"， 
+    // 小数点根本打不出来。提交前由 overrideValue() 按字段类型转换。 
     this.edits.set(key, text);
     this.editTick++;
     this.scheduleEditRefresh();
@@ -1210,9 +1591,9 @@ struct Index {
 
   /**
    * 节点图切换或节点定义补齐后，字段的可编辑性会变：
-   * - 字段现在由连线驱动，之前的值不能再当 override；
-   * - 字段已经不存在（节点定义缺失等），override 没有意义。
-   * 不清理的话，一次无意的首次渲染编辑会永久挡住提交。
+   * - 字段现在由连线驱动，之前的值不能再当 override； 
+   * - 字段已经不存在（节点定义缺失等），override 没有意义。 
+   * 不清理的话，一次无意的首次渲染编辑会永久挡住提交。 
    */
   private pruneEdits(): void {
     const fields = new Map<string, WorkflowFieldView>();
@@ -1259,7 +1640,7 @@ struct Index {
       this.pinnedIds = this.pinnedIds.filter((id: number) => id !== node.id);
     } else {
       this.pinnedIds = [...this.pinnedIds, node.id];
-      // 新置顶的节点默认展开，和 Android 的 togglePin 行为一致。
+      // 新置顶的节点默认展开，和 Android 的 togglePin 行为一致。 
       if (node.reachable) {
         if (!this.expandedSeed) {
           this.expandedIds = this.autoExpandedIds();
@@ -1330,10 +1711,109 @@ struct Index {
       this.graphIds = [...this.graphIds, graph.id];
     }
     this.graphsInitialized = true;
-    // 切换节点图后回到自动展开，和 Android toggleGraph 里 expandedOverride = null 一致。
+    // 切换节点图后回到自动展开，和 Android toggleGraph 里 expandedOverride = null 一致。 
     this.expandedSeed = false;
     this.expandedIds = [];
     this.refreshView(true);
+  }
+
+  /**
+   * 节点开关，对应 Android 的 toggleBypass。 
+   *
+   * 已关闭（文件里是静音/旁路，或本次会话关过）→ 立刻启用，不需要探测：
+   * 打开一个节点不会让工作流更坏。还开着 → 先让共享层试关一次，只有它判定 
+   * 会破坏工作流时才弹确认框，普通节点直接关。 
+   */
+  private toggleNodeBypass(node: WorkflowNodeView): void {
+    // 开关在展开区里：关闭后节点会变成不可达，自动展开会把它收起来， 
+    // 所以先把手动展开固定住，保证用户还能原地再点回来。 
+    if (!this.expandedSeed) {
+      this.expandedIds = this.autoExpandedIds();
+      this.expandedSeed = true;
+    }
+    if (!this.expandedIds.includes(node.id)) {
+      this.expandedIds = [...this.expandedIds, node.id];
+    }
+    if (!node.enabled) {
+      this.applyNodeBypass(node.id, false);
+      return;
+    }
+    const impact = this.probeNodeDisable(node.id);
+    if (impact === null) {
+      return;
+    }
+    if (!impact.ok) {
+      const message = impact.message !== undefined && impact.message.length > 0
+        ? impact.message : '无法确认关闭该节点的影响';
+      promptAction.showToast({ message: message, duration: 1600 });
+      return;
+    }
+    if (impact.breaking) {
+      this.bypassConfirmNodeId = node.id;
+      this.bypassConfirmReason = impact.reason;
+      return;
+    }
+    this.applyNodeBypass(node.id, true);
+  }
+
+  /** 同步问一次共享层：关掉这个节点会不会让工作流构建失败或没有可执行输出。 */
+  private probeNodeDisable(nodeId: number): DisableImpactResponse | null {
+    try {
+      return JSON.parse(
+        this.bridge.workflow(this.requestJson('disable_impact', '', nodeId)),
+      ) as DisableImpactResponse;
+    } catch (err) {
+      this.log(`关闭影响探测失败：${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
+   * 落地一次开关：两份集合互斥且关闭优先，然后只重取视图。 
+   *
+   * 这里不排序、不滚动：节点顺序由共享层按工作流原文给出，关掉一个节点 
+   * 不能让它跳到列表底部（`orderReachable` 在共享层已经处理好了）。 
+   */
+  private applyNodeBypass(nodeId: number, bypassed: boolean): void {
+    if (bypassed) {
+      if (!this.bypassedIds.includes(nodeId)) {
+        this.bypassedIds = [...this.bypassedIds, nodeId];
+      }
+      this.enabledIds = this.enabledIds.filter((id: number) => id !== nodeId);
+    } else {
+      if (!this.enabledIds.includes(nodeId)) {
+        this.enabledIds = [...this.enabledIds, nodeId];
+      }
+      this.bypassedIds = this.bypassedIds.filter((id: number) => id !== nodeId);
+    }
+    this.bypassConfirmNodeId = -1;
+    this.bypassConfirmReason = '';
+    this.refreshView();
+  }
+
+  /** 确认框里的「仍要关闭」：共享层已经给过原因，直接关。 */
+  private confirmNodeBypass(): void {
+    const nodeId = this.bypassConfirmNodeId;
+    if (nodeId < 0) {
+      return;
+    }
+    this.applyNodeBypass(nodeId, true);
+  }
+
+  /** 确认框里的「取消」：什么都不改，节点仍然是启用状态。 */
+  private cancelNodeBypass(): void {
+    this.bypassConfirmNodeId = -1;
+    this.bypassConfirmReason = '';
+  }
+
+  /** 节点被关闭后，卡片里的字段只读：控件还在，但不再接受输入。 */
+  private nodeFieldEnabled(nodeId: number): boolean {
+    for (let i = 0; i < this.view.nodes.length; i++) {
+      if (this.view.nodes[i].id === nodeId) {
+        return this.view.nodes[i].enabled;
+      }
+    }
+    return true;
   }
 
   /** 图选择器药丸上的「已启用 / 全部输出图」计数。 */
@@ -1500,6 +1980,10 @@ struct Index {
     if (node.missing) {
       return '缺少定义';
     }
+    // 生效状态优先于可达性：被关掉的节点即使原本会提交，也应该显示“已关闭”。 
+    if (!node.enabled) {
+      return '已关闭';
+    }
     if (!node.reachable) {
       return '不会提交';
     }
@@ -1626,8 +2110,8 @@ struct Index {
     this.submitNotice = '';
     this.notice = '';
     try {
-      // 每次提交一个唯一短 token，共享层会把它追加到 SaveImage 的 filename_prefix，
-      // 避免工作流前缀（如 %date:...%）不被 ComfyUI 识别时反复覆盖同一份产物。
+      // 每次提交一个唯一短 token，共享层会把它追加到 SaveImage 的 filename_prefix， 
+      // 避免工作流前缀（如 %date:...%）不被 ComfyUI 识别时反复覆盖同一份产物。 
       const runToken = `${Date.now().toString(36)}${(this.submitNonce++).toString(36)}`;
       const response = JSON.parse(this.bridge.workflow(this.requestJson('prompt', runToken))) as PromptResponse;
       if (!response.ok || response.prompt === null) {
@@ -1636,8 +2120,8 @@ struct Index {
         this.submitNotice = lines.length > 0 ? lines.join('\n') : (response.message ?? '不能提交');
         return;
       }
-      // 这里只说明“请求发出去了”。服务器接受后会回 submit_accepted，
-      // 校验失败会回 submit_rejected；不能在这一步就显示“已提交”。
+      // 这里只说明“请求发出去了”。服务器接受后会回 submit_accepted， 
+      // 校验失败会回 submit_rejected；不能在这一步就显示“已提交”。 
       const warnings = response.warnings !== undefined ? response.warnings : [];
       if (warnings.length > 0) {
         // Same as Android: warnings do not block, but ask before submitting.
@@ -1691,7 +2175,7 @@ struct Index {
 
   /** 按钮禁用时，把“为什么不能提交”放在按钮正上方，避免只看到灰按钮没有提示。 */
   private blockReason(): string {
-    // 原因由共享决策层生成，ArkTS 只负责渲染。
+    // 原因由共享决策层生成，ArkTS 只负责渲染。 
     return this.view.blockReason.length > 0
       ? this.view.blockReason
       : '不可提交：工作流还没有就绪';
@@ -1706,7 +2190,7 @@ struct Index {
 
   private workflowScopeId(surface: string): string {
     // 工作流级错误没有 taskId，用「工作流 + 错误来源」当作用域，避免不同错误文案
-    // 恰好相同时互相顶掉对方的关闭状态。
+    // 恰好相同时互相顶掉对方的关闭状态。 
     return `${this.selectedPath}#${surface}`;
   }
 
@@ -1720,8 +2204,8 @@ struct Index {
   }
 
   /**
-   * 关掉一条错误提示：只影响展示，不改错误来源。key 里带错误原文，
-   * 下一条不同的错误依然会显示；按工作流持久化，重开工作流仍然保持关闭。
+   * 关掉一条错误提示：只影响展示，不改错误来源。key 里带错误原文， 
+   * 下一条不同的错误依然会显示；按工作流持久化，重开工作流仍然保持关闭。 
    */
   private dismissError(scopeId: string, text: string): void {
     if (text.length === 0) {
@@ -1748,7 +2232,7 @@ struct Index {
   private closeArtifacts(): void {
     this.artifactOpen = false;
     this.previewOpen = false;
-    // 下载可能还在后台跑；保留 downloadingKey，重新打开时不会重复点同一份。
+    // 下载可能还在后台跑；保留 downloadingKey，重新打开时不会重复点同一份。 
     this.downloadNotice = '';
     this.downloadFailedKey = '';
   }
@@ -1781,7 +2265,7 @@ struct Index {
         this.downloadNotice = result.message;
       } else {
         this.downloadNotice = `保存失败：${result.message}`;
-        // 行内用 err 文案 + 一个 ghost 重试，和 Android DownloadStatusLine 一致。
+        // 行内用 err 文案 + 一个 ghost 重试，和 Android DownloadStatusLine 一致。 
         this.downloadFailedKey = key;
       }
       this.log(result.message);
@@ -1825,8 +2309,8 @@ struct Index {
   // ---- 任务页：分组、配色与卡片文案（对应 Android TaskList.kt） ----
 
   /**
-   * 任务按最近更新时间倒序，和 Android `sortedByDescending { it.createdAtMs }` 一致。
-   * 鸿蒙侧桥接只给 updatedAtMs（没有创建时间），用更新时间排同一目的。
+   * 任务按最近更新时间倒序，和 Android `sortedByDescending { it.createdAtMs }` 一致。 
+   * 鸿蒙侧桥接只给 updatedAtMs（没有创建时间），用更新时间排同一目的。 
    */
   private tasksNewestFirst(list: BridgeTask[]): BridgeTask[] {
     const sorted: BridgeTask[] = list.slice();
@@ -1945,7 +2429,7 @@ struct Index {
 
   /** 方形小图标按钮：备注 / 置顶 / 展开，对应 Android 的 NodeIconButton。 */
   @Builder
-  NodeIconButton(glyph: string, active: boolean, action: () => void) {
+  NodeIconButton(glyph: string, active: boolean, pressKey: string, action: () => void) {
     Row() {
       Text(glyph)
         .fontSize(13)
@@ -1957,6 +2441,8 @@ struct Index {
     .borderRadius(10)
     .backgroundColor(active ? this.c().accentSoft : Color.Transparent)
     .border({ width: 1, color: active ? this.c().accentBorder : this.c().border })
+    .scale(this.pressScaleOptions(pressKey, 0.9))
+    .onTouch((event: TouchEvent) => this.onPressTouch(event, pressKey))
     .onClick(() => action())
   }
 
@@ -1990,6 +2476,8 @@ struct Index {
       .borderRadius(999)
       .backgroundColor(selected ? this.c().accent : this.c().card)
       .border({ width: 1, color: selected ? this.c().accent : this.c().border })
+      .scale(this.pressScaleOptions(`chip-${label}`))
+      .onTouch((event: TouchEvent) => this.onPressTouch(event, `chip-${label}`))
       .onClick(() => action())
   }
 
@@ -2008,7 +2496,7 @@ struct Index {
             Text(this.nodeTitle(node))
               .fontSize(13.5)
               .fontWeight(FontWeight.Bold)
-              .fontColor(this.c().text)
+              .fontColor(node.enabled ? this.c().text : this.c().textDim)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .layoutWeight(1)
@@ -2029,9 +2517,10 @@ struct Index {
         if (node.needsInput) {
           this.StatusTag('待填写', this.c().err, this.c().errSoft)
         }
-        this.NodeIconButton('✎', this.noteOf(node.id).length > 0, () => this.openNoteEditor(node))
-        this.NodeIconButton('⇧', node.pinned, () => this.togglePin(node))
-        this.NodeIconButton(this.isNodeExpanded(node) ? '▴' : '▾', false,
+        this.NodeIconButton('✎', this.noteOf(node.id).length > 0, `note-${node.id}`,
+          () => this.openNoteEditor(node))
+        this.NodeIconButton('⇧', node.pinned, `pin-${node.id}`, () => this.togglePin(node))
+        this.NodeIconButton(this.isNodeExpanded(node) ? '▴' : '▾', false, `expand-${node.id}`,
           () => this.toggleNodeExpanded(node))
       }
       .width('100%')
@@ -2040,7 +2529,7 @@ struct Index {
 
       if (node.missing) {
         if (this.classPending(node.type)) {
-          // 定义还在路上：不要说成“服务端没有”，否则首帧会误报整个工作流缺节点。
+          // 定义还在路上：不要说成“服务端没有”，否则首帧会误报整个工作流缺节点。 
           Text('正在加载该节点的定义…')
             .fontSize(11)
             .lineHeight(16)
@@ -2055,6 +2544,14 @@ struct Index {
             .width('100%')
             .padding({ left: 13, right: 13, top: 2, bottom: 2 })
         }
+      } else if (!node.enabled) {
+        // 关闭状态优先解释：即使节点本身不可达，用户先要知道“是我关的”。 
+        Text('已关闭，提交时会跳过该节点。')
+          .fontSize(11)
+          .lineHeight(16)
+          .fontColor(this.c().textMuted)
+          .width('100%')
+          .padding({ left: 13, right: 13, top: 2, bottom: 2 })
       } else if (!node.reachable) {
         Text('未连接到输出节点，不会被提交。')
           .fontSize(11)
@@ -2066,32 +2563,103 @@ struct Index {
 
       if (this.isNodeExpanded(node)) {
         Column({ space: 10 }) {
-          ForEach(node.fields, (field: WorkflowFieldView) => {
-            this.FieldRow(field)
-          }, (field: WorkflowFieldView) =>
-            `${node.id}:${field.inputName}:${field.linked}:${field.widget}:${field.needsInput}:${field.type}`)
-          if (node.fields.length === 0) {
-            Text('没有可调参数。')
-              .fontSize(11)
-              .fontColor(this.c().textDim)
+          // 关闭的节点整块字段降透明度，控件同时 enabled(false)：看得见、改不了。 
+          Column({ space: 10 }) {
+            ForEach(node.fields, (field: WorkflowFieldView, index: number) => {
+              this.FieldRow(field, index)
+            }, (field: WorkflowFieldView) =>
+              `${node.id}:${field.inputName}:${field.linked}:${field.widget}:${field.needsInput}:${field.type}`)
+            if (node.fields.length === 0) {
+              Text('没有可调参数。')
+                .fontSize(11)
+                .fontColor(this.c().textDim)
+            }
           }
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+          .opacity(node.enabled ? 1 : 0.55)
+
+          // 开关放在展开内容最底部、右对齐：收起时整行不渲染，不会误触。 
+          this.NodeBypassRow(node)
         }
         .alignItems(HorizontalAlign.Start)
         .width('100%')
         .padding({ left: 13, right: 13, top: 2, bottom: 13 })
+        .transition(TransitionEffect.OPACITY
+          .combine(TransitionEffect.translate({ y: 6 }))
+          .animation({ duration: 220, curve: Curve.EaseOut }))
       }
     }
     .alignItems(HorizontalAlign.Start)
     .width('100%')
-    .backgroundColor(this.c().card)
+    // 关闭的卡片不再用卡片底色，退回到页面底色：整张卡“沉下去”，但仍保留边框可辨。 
+    .backgroundColor(node.enabled ? this.c().card : this.c().background)
     .borderRadius(18)
     .border({ width: 1, color: node.pinned ? this.c().accentBorder : this.c().border })
     .clip(true)
   }
 
+  /**
+   * 节点开关行，对应 Android 的 BypassIconButton：左边一行说明，右边 36vp 图标按钮。 
+   *
+   * 只在展开内容的最底部出现；收起时整行不渲染，滚动列表里不会误触。 
+   */
+  @Builder
+  NodeBypassRow(node: WorkflowNodeView) {
+    Row({ space: 8 }) {
+      Blank()
+      Text(node.enabled ? '关闭该节点' : '启用该节点')
+        .fontSize(11)
+        .fontColor(node.enabled ? this.c().textDim : this.c().textMuted)
+      this.NodeBypassButton(node.enabled, `bypass-${node.id}`, () => this.toggleNodeBypass(node))
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Center)
+  }
+
+  /**
+   * 开关本体：36vp 点击区 + 纯图元画的电源图标（不引图标库）。 
+   *
+   * 启用 = 强调色描边 + accentSoft 底色；关闭 = 暗色描边并压到 55% 透明度。 
+   * 图标只由「圆角边框的容器 + 一根竖杆」叠出来：全是通用属性（border/
+   * borderRadius/backgroundColor），不依赖 Shape 的 fill/stroke（那组 API
+   * 在当前兼容的 SDK 12 上会报版本告警）。 
+   */
+  @Builder
+  NodeBypassButton(enabled: boolean, pressKey: string, action: () => void) {
+    Stack({ alignContent: Alignment.Center }) {
+      Stack({ alignContent: Alignment.Top }) {
+        // 圆环：透明填充 + 圆角边框，就是一个空心的电源圆环。 
+        Row()
+          .width(12)
+          .height(12)
+          .borderRadius(6)
+          .border({ width: 1.8, color: enabled ? this.c().accent : this.c().textDim })
+          .margin({ top: 3 })
+        // 竖杆从圆环顶部穿出：电源符号的标志，和圆环叠成完整图标。 
+        Row()
+          .width(1.8)
+          .height(9)
+          .borderRadius(1)
+          .backgroundColor(enabled ? this.c().accent : this.c().textDim)
+      }
+      .width(16)
+      .height(16)
+      .opacity(enabled ? 1 : 0.55)
+    }
+    .width(36)
+    .height(36)
+    .borderRadius(10)
+    .backgroundColor(enabled ? this.c().accentSoft : '#00000000')
+    .border({ width: 1, color: enabled ? this.c().accentBorder : this.c().border })
+    .scale(this.pressScaleOptions(pressKey, 0.9))
+    .onTouch((event: TouchEvent) => this.onPressTouch(event, pressKey))
+    .onClick(() => action())
+  }
+
   /** 字段行，对应 Android FieldEditor：标签 + 类型 + 控件 + 必填提示。 */
   @Builder
-  FieldRow(field: WorkflowFieldView) {
+  FieldRow(field: WorkflowFieldView, index: number) {
     Column({ space: 4 }) {
       Row() {
         Text(field.label.length > 0 ? field.label : field.inputName)
@@ -2123,12 +2691,15 @@ struct Index {
         this.OptionField(field)
       } else if (field.type === 'BOOLEAN') {
         Toggle({ type: ToggleType.Switch, isOn: this.fieldBool(field) })
+          // 节点被关闭后字段只读：外观保留，但不再接受点击。 
+          .enabled(this.nodeFieldEnabled(field.nodeId))
           .selectedColor(this.c().accent)
           .switchPointColor(this.c().accentInk)
           .onChange((value: boolean) => this.setFieldBool(field, value))
       } else if (field.type === 'STRING') {
-        // 提示词这类长文本用 TextArea：自动换行，超出高度内部滚动。
+        // 提示词这类长文本用 TextArea：自动换行，超出高度内部滚动。 
         TextArea({ text: this.fieldText(field), placeholder: '' })
+          .enabled(this.nodeFieldEnabled(field.nodeId))
           .fontSize(12.5)
           .fontColor(this.c().text)
           .placeholderColor(this.c().textDim)
@@ -2142,6 +2713,7 @@ struct Index {
           .onChange((value: string) => this.setFieldText(field, value))
       } else {
         TextInput({ text: this.fieldText(field), placeholder: '' })
+          .enabled(this.nodeFieldEnabled(field.nodeId))
           .fontSize(12.5)
           .fontFamily('monospace')
           .fontColor(this.c().text)
@@ -2166,6 +2738,9 @@ struct Index {
     }
     .alignItems(HorizontalAlign.Start)
     .width('100%')
+    .transition(TransitionEffect.OPACITY
+      .combine(TransitionEffect.translate({ y: 8 }))
+      .animation({ duration: 200, curve: Curve.EaseOut, delay: Math.min(index, 10) * 22 }))
   }
 
   /** LoadImage 的 image 控件：缩略图 + 上传按钮 + 上传结果提示。 */
@@ -2185,7 +2760,7 @@ struct Index {
           this.uploadingField === this.editKey(field.nodeId, field.inputName)
             ? '上传中…'
             : (this.fieldText(field).length > 0 ? '更换图片' : '从相册选择'),
-          this.running && this.uploadingField.length === 0,
+          this.running && this.uploadingField.length === 0 && this.nodeFieldEnabled(field.nodeId),
           () => {
             this.pickAndUpload(field);
           },
@@ -2222,6 +2797,7 @@ struct Index {
   @Builder
   OptionField(field: WorkflowFieldView) {
     Select(this.selectOptions(field))
+      .enabled(this.nodeFieldEnabled(field.nodeId))
       .selected(field.options.indexOf(this.fieldText(field)))
       .value(this.fieldText(field).length > 0 ? this.fieldText(field) : '选择…')
       .font({ size: 11.5, family: 'monospace' })
@@ -2318,22 +2894,35 @@ struct Index {
 
   @Builder
   WorkflowCatalog() {
-    // 与 Android WorkflowCatalogScreen 的 when(catalog) 一一对应：Idle / Loading / Failed / Ready。
+    // 与 Android WorkflowCatalogScreen 的 when(catalog) 一一对应：Idle / Loading / Failed / Ready。 
     if (this.catalog.state === 'loading') {
-      Row({ space: 10 }) {
-        LoadingProgress()
-          .width(18)
-          .height(18)
-          .color(this.c().accent)
-        Text('正在读取服务器 workflows 目录…')
-          .fontSize(12)
-          .fontColor(this.c().textMuted)
+      // 骨架屏：和真实条目卡一样的形状，数据到达时整页不跳动；透明度呼吸代替转圈。
+      Column({ space: 10 }) {
+        ForEach([0, 1, 2, 3], (index: number) => {
+          Column({ space: 8 }) {
+            Row()
+              .width(`${Math.round((0.62 - index * 0.07) * 100)}%`)
+              .height(13)
+              .borderRadius(6)
+              .backgroundColor(this.c().cardStrong)
+            Row()
+              .width('34%')
+              .height(10)
+              .borderRadius(5)
+              .backgroundColor(this.c().cardStrong)
+          }
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+          .padding(14)
+          .backgroundColor(this.c().card)
+          .borderRadius(18)
+          .border({ width: 1, color: this.c().border })
+          .opacity(this.skeletonPhase)
+          .onAppear(() => this.startSkeletonPulse())
+        }, (index: number) => `skeleton-${index}`)
       }
       .width('100%')
-      .padding(14)
-      .backgroundColor(this.c().card)
-      .borderRadius(18)
-      .border({ width: 1, color: this.c().border })
+      .transition(TransitionEffect.OPACITY.animation({ duration: 260, curve: Curve.EaseOut }))
     } else if (this.catalog.state === 'failed') {
       Column() {
         Text(`读取失败：${this.catalogError()}`)
@@ -2341,7 +2930,7 @@ struct Index {
           .lineHeight(18)
           .fontColor(this.c().err)
           .width('100%')
-        // 对应 Kotlin 的 GhostButton("重试", width = 96.dp)。
+        // 对应 Kotlin 的 GhostButton("重试", width = 96.dp)。 
         Button('重试')
           .fontSize(12.5)
           .fontColor(this.c().textMuted)
@@ -2354,6 +2943,8 @@ struct Index {
           .enabled(this.running)
           .opacity(this.running ? 1 : 0.45)
           .margin({ top: 10 })
+          .scale(this.pressScaleOptions('catalog-retry'))
+          .onTouch((event: TouchEvent) => this.onPressTouch(event, 'catalog-retry'))
           .onClick(() => {
             this.catalogRequested = true;
             this.bridge.refreshWorkflows();
@@ -2371,7 +2962,10 @@ struct Index {
           .fontSize(12.5)
           .fontColor(this.c().textMuted)
           .width('100%')
-        // 对应 Kotlin 的 GhostButton("刷新", width = 96.dp)。
+          .translate({ y: -3 * this.floatPhase })
+          .opacity(0.82 + 0.18 * this.floatPhase)
+          .onAppear(() => this.startGentleFloat())
+        // 对应 Kotlin 的 GhostButton("刷新", width = 96.dp)。 
         Button('刷新')
           .fontSize(12.5)
           .fontColor(this.c().textMuted)
@@ -2382,6 +2976,8 @@ struct Index {
           .backgroundColor(this.c().card)
           .border({ width: 1, color: this.c().borderStrong })
           .margin({ top: 10 })
+          .scale(this.pressScaleOptions('catalog-refresh'))
+          .onTouch((event: TouchEvent) => this.onPressTouch(event, 'catalog-refresh'))
           .onClick(() => {
             this.catalogRequested = true;
             this.bridge.refreshWorkflows();
@@ -2399,11 +2995,12 @@ struct Index {
         .fontColor(this.c().textDim)
         .fontFamily('monospace')
         .width('100%')
+        .transition(TransitionEffect.OPACITY.animation({ duration: 260, curve: Curve.EaseOut }))
 
       Scroll(this.catalogScroller) {
         Column({ space: 9 }) {
           ForEach(this.orderedCatalogEntries(), (entry: CatalogEntry) => {
-            // 对应 Android EntryCard：置顶时左侧 3vp 强调色条 + accentBorder 描边。
+            // 对应 Android EntryCard：置顶时左侧 3vp 强调色条 + accentBorder 描边。 
             Column() {
               Row({ space: 8 }) {
                 Column({ space: 4 }) {
@@ -2443,7 +3040,7 @@ struct Index {
                         .fontColor(this.c().accent)
                         .fontFamily('monospace')
                     }
-                    // 对应 Kotlin 带描边的置顶切换文本；点它只切换置顶，不打开工作流。
+                    // 对应 Kotlin 带描边的置顶切换文本；点它只切换置顶，不打开工作流。 
                     Text(this.isWorkflowPinned(entry.path) ? '取消置顶' : '置顶')
                       .fontSize(10)
                       .fontColor(this.c().textMuted)
@@ -2472,7 +3069,7 @@ struct Index {
               color: this.isWorkflowPinned(entry.path) ? this.c().accentBorder : this.c().border,
               radius: 18
             })
-            .onClick(() => this.openWorkflow(entry.path, entry.name))
+            .onClick(() => this.goPage(true, () => this.openWorkflow(entry.path, entry.name)))
           }, (entry: CatalogEntry) =>
             `${entry.path}:${this.isWorkflowPinned(entry.path)}:${entry.size}`)
         }
@@ -2482,13 +3079,17 @@ struct Index {
       .layoutWeight(1)
       .width('100%')
       .scrollBar(BarState.Off)
+      .transition(TransitionEffect.OPACITY.animation({ duration: 260, curve: Curve.EaseOut }))
     } else {
-      // Idle（以及未知状态）：对应 Kotlin 的 HintCard。
+      // Idle（以及未知状态）：对应 Kotlin 的 HintCard。 
       Column() {
         Text(this.running ? '准备读取服务器工作流…' : '尚未连接 ComfyUI。')
           .fontSize(12.5)
           .fontColor(this.c().textMuted)
           .width('100%')
+          .translate({ y: -3 * this.floatPhase })
+          .opacity(0.82 + 0.18 * this.floatPhase)
+          .onAppear(() => this.startGentleFloat())
       }
       .width('100%')
       .padding(14)
@@ -2508,7 +3109,7 @@ struct Index {
           .fontColor(this.c().textMuted)
           .padding({ left: 7, right: 7, top: 7, bottom: 7 })
           .borderRadius(8)
-          .onClick(() => this.closeWorkflow())
+          .onClick(() => this.goPage(false, () => this.closeWorkflow()))
         Column({ space: 2 }) {
           Text(this.view.name.length > 0 ? this.view.name : (this.workflow.name ?? this.selectedPath))
             .fontSize(15)
@@ -2543,7 +3144,7 @@ struct Index {
           .padding({ left: 7, right: 7, top: 7, bottom: 7 })
           .borderRadius(8)
           .onClick(() => {
-            this.tasksOpen = true;
+            this.openTasks();
           })
       }
       .width('100%')
@@ -2634,7 +3235,7 @@ struct Index {
             },
           })
         } else if (this.definitionsPending()) {
-          // 定义还没到齐时图列表一定是空的，不能显示成“没有可切换的节点图”。
+          // 定义还没到齐时图列表一定是空的，不能显示成“没有可切换的节点图”。 
           Text('正在识别节点图…')
             .fontSize(11)
             .fontColor(this.c().textDim)
@@ -2729,7 +3330,7 @@ struct Index {
         .padding({ left: 4, right: 4 })
       }
 
-      // 节点备注面板（Android 是 SpectrumDialog，这里作为内容面板嵌在详情里）。
+      // 节点备注面板（Android 是 SpectrumDialog，这里作为内容面板嵌在详情里）。 
       if (this.noteEditorId >= 0) {
         this.NoteEditor()
       }
@@ -2746,11 +3347,11 @@ struct Index {
             }
             if (this.definitionsPending()) {
               // 定义没到齐时每行都会被标成“缺少定义”，图名也会退化成“其他节点”；
-              // 先显示加载提示，等共享层给出完整视图后再一次性渲染。
+              // 先显示加载提示，等共享层给出完整视图后再一次性渲染。 
               this.InlineNote('正在加载节点定义，字段和节点图稍后显示…')
             } else {
-              // missing/fields/节点图归属都会在节点定义落地后变化；键里必须带上这些，
-              // 否则 ForEach 会复用旧组件，界面一直停在“服务端没有该节点的定义”。
+              // missing/fields/节点图归属都会在节点定义落地后变化；键里必须带上这些， 
+              // 否则 ForEach 会复用旧组件，界面一直停在“服务端没有该节点的定义”。 
               ForEach(this.view.nodes, (node: WorkflowNodeView, index: number) => {
                 if (this.isSectionStart(index)) {
                   this.SectionHeader(node)
@@ -2758,7 +3359,7 @@ struct Index {
                 this.NodeCard(node)
               }, (node: WorkflowNodeView) =>
                 `${node.id}:${this.graphKeyOfNode(node)}:${node.missing}:${node.fields.length}:` +
-                  `${node.pinned}:${node.reachable}:${node.needsInput}`)
+                  `${node.pinned}:${node.reachable}:${node.needsInput}:${node.enabled}:${node.bypassed}`)
             }
           }
           .width('100%')
@@ -2819,6 +3420,8 @@ struct Index {
               .borderRadius(14)
               .backgroundColor(this.c().card)
               .border({ width: 1, color: this.c().borderStrong })
+              .scale(this.pressScaleOptions('all-nodes'))
+              .onTouch((event: TouchEvent) => this.onPressTouch(event, 'all-nodes'))
               .onClick(() => {
                 this.allNodesOpen = true;
               })
@@ -2828,7 +3431,7 @@ struct Index {
               .fontFamily('monospace')
               .fontColor(this.c().textDim)
               .textAlign(TextAlign.End)
-            Button(this.submitting ? '提交中…' : '提交任务')
+            Button(this.submitFlash ? '已提交 ✓' : (this.submitting ? '提交中…' : '提交任务'))
               .fontSize(14)
               .fontWeight(FontWeight.Bold)
               .fontColor(this.c().accentInk)
@@ -2839,6 +3442,8 @@ struct Index {
               .linearGradient({ angle: 120, colors: Spectrum.gradientColors(this.c()) })
               .enabled(this.running && !this.submitting && this.view.canSubmit)
               .opacity(this.running && !this.submitting && this.view.canSubmit ? 1 : 0.42)
+              .scale(this.pressScaleOptions('submit'))
+              .onTouch((event: TouchEvent) => this.onPressTouch(event, 'submit'))
               .onClick(() => this.submitWorkflow())
           }
           .width('100%')
@@ -2858,36 +3463,69 @@ struct Index {
   @Builder
   SegmentedTabs() {
     Column() {
-      Row({ space: 3 }) {
-        Row() {
-          Text(`输入 (${this.fieldCount()})`)
-            .fontSize(12.5)
-            .fontWeight(this.detailTab === 0 ? FontWeight.Bold : FontWeight.Normal)
-            .fontColor(this.detailTab === 0 ? this.c().text : this.c().textMuted)
-            .maxLines(1)
+      Column() {
+        Stack({ alignContent: Alignment.TopStart }) {
+          // 一块共享底板跟着选中项滑动，而不是每个页签自己换底色。
+          Row()
+            .width(this.tabIndicatorWidth)
+            .height(36)
+            .borderRadius(11)
+            .backgroundColor(this.c().cardStrong)
+            .translate({ x: this.tabIndicatorOffset() })
+          Row({ space: 3 }) {
+            Row() {
+              Text(`输入 (${this.fieldCount()})`)
+                .fontSize(12.5)
+                .fontWeight(this.detailTab === 0 ? FontWeight.Bold : FontWeight.Normal)
+                .fontColor(this.detailTab === 0 ? this.c().text : this.c().textMuted)
+                .maxLines(1)
+            }
+            .layoutWeight(1)
+            .height(36)
+            .justifyContent(FlexAlign.Center)
+            .scale(this.pressScaleOptions('tab-input', 0.94))
+            .onTouch((event: TouchEvent) => this.onPressTouch(event, 'tab-input'))
+            .onClick(() => {
+              animateTo({ duration: 220, curve: Curve.Friction }, () => {
+                this.detailTab = 0;
+              });
+            })
+            Row() {
+              Text('预览')
+                .fontSize(12.5)
+                .fontWeight(this.detailTab === 1 ? FontWeight.Bold : FontWeight.Normal)
+                .fontColor(this.detailTab === 1 ? this.c().text : this.c().textMuted)
+                .maxLines(1)
+            }
+            .layoutWeight(1)
+            .height(36)
+            .justifyContent(FlexAlign.Center)
+            .scale(this.pressScaleOptions('tab-preview', 0.94))
+            .onTouch((event: TouchEvent) => this.onPressTouch(event, 'tab-preview'))
+            .onClick(() => {
+              animateTo({ duration: 220, curve: Curve.Friction }, () => {
+                this.detailTab = 1;
+              });
+            })
+          }
+          .width('100%')
         }
-        .layoutWeight(1)
+        .width('100%')
         .height(36)
-        .justifyContent(FlexAlign.Center)
-        .borderRadius(11)
-        .backgroundColor(this.detailTab === 0 ? this.c().cardStrong : Color.Transparent)
-        .onClick(() => {
-          this.detailTab = 0;
-        })
-        Row() {
-          Text('预览')
-            .fontSize(12.5)
-            .fontWeight(this.detailTab === 1 ? FontWeight.Bold : FontWeight.Normal)
-            .fontColor(this.detailTab === 1 ? this.c().text : this.c().textMuted)
-            .maxLines(1)
-        }
-        .layoutWeight(1)
-        .height(36)
-        .justifyContent(FlexAlign.Center)
-        .borderRadius(11)
-        .backgroundColor(this.detailTab === 1 ? this.c().cardStrong : Color.Transparent)
-        .onClick(() => {
-          this.detailTab = 1;
+        .onAreaChange((oldValue: Area, newValue: Area) => {
+          const width: number = newValue.width as number;
+          if (!Number.isFinite(width) || width <= 0 || Math.abs(width - this.tabTrackWidth) <= 0.5) {
+            return;
+          }
+          if (this.tabTrackWidth <= 0) {
+            this.tabTrackWidth = width;
+            this.tabIndicatorWidth = Math.max(0, (width - 3) / 2);
+          } else {
+            animateTo({ duration: 220, curve: Curve.Friction }, () => {
+              this.tabTrackWidth = width;
+              this.tabIndicatorWidth = Math.max(0, (width - 3) / 2);
+            });
+          }
         })
       }
       .width('100%')
@@ -2895,6 +3533,7 @@ struct Index {
       .borderRadius(14)
       .backgroundColor(this.c().card)
       .border({ width: 1, color: this.c().border })
+      .clip(true)
     }
     .width('100%')
     .padding({ left: 4, right: 4, top: 6, bottom: 2 })
@@ -3147,14 +3786,14 @@ struct Index {
   }
 
   /**
-   * 服务器性能条（对应 Android ServerStatsStrip）。
+   * 服务器性能条（对应 Android ServerStatsStrip）。 
    *
-   * 默认收成一行标题：左边「主机状态」，右边 ▾/▸ 加两个最有用的读数
+   * 默认收成一行标题：左边「主机状态」，右边 ▾/▸ 加两个最有用的读数 
    * （内存·显存，两者都没有才退回 CPU·温度），整条 38vp 左右，不再占掉半屏；
-   * 整行标题就是展开/收起的热区。展开后是两列网格：每格宽 50% 自动换行，
-   * 标签在上、数值在下，Crystools 没给的指标不画格子、不写 `--`。
-   * 监控帧（CPU/GPU/温度/内存/显存/显卡名）优先，/system_stats 的百分比兜底；
-   * 一个数都没有时整块不渲染（离线时页面不会多一条空卡片）。
+   * 整行标题就是展开/收起的热区。展开后是两列网格：每格宽 50% 自动换行， 
+   * 标签在上、数值在下，Crystools 没给的指标不画格子、不写 `--`。 
+   * 监控帧（CPU/GPU/温度/内存/显存/显卡名）优先，/system_stats 的百分比兜底； 
+   * 一个数都没有时整块不渲染（离线时页面不会多一条空卡片）。 
    */
   @Builder
   ServerStatsStrip() {
@@ -3174,31 +3813,34 @@ struct Index {
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .constraintSize({ maxWidth: '72%' })
           }
-          Text(this.statsChevron())
+          Text('▸')
             .fontSize(12)
             .fontColor(this.c().textDim)
+            .rotate({ angle: this.statsExpanded ? 90 : 0 })
         }
         .width('100%')
         .height(36)
         .padding({ left: 10, right: 10 })
         .alignItems(VerticalAlign.Center)
         .onClick(() => {
-          this.statsExpanded = !this.statsExpanded;
+          animateTo({ duration: 200, curve: Curve.EaseOut }, () => {
+            this.statsExpanded = !this.statsExpanded;
+          });
         })
 
         if (this.statsExpanded) {
           Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap, alignItems: ItemAlign.Start }) {
             if (this.stripRam() >= 0) {
-              this.ServerStatCell('内存', `${Math.round(this.stripRam())}%`)
+              this.ServerStatCell('内存', this.statPercentText(this.shownStats.ram))
             }
             if (this.stripVram() >= 0) {
-              this.ServerStatCell('显存', `${Math.round(this.stripVram())}%`)
+              this.ServerStatCell('显存', this.statPercentText(this.shownStats.vram))
             }
             if (this.stripCpu() >= 0) {
-              this.ServerStatCell('CPU', `${Math.round(this.stripCpu())}%`)
+              this.ServerStatCell('CPU', this.statPercentText(this.shownStats.cpu))
             }
             if (this.stripGpu() >= 0) {
-              this.ServerStatCell('GPU', `${Math.round(this.stripGpu())}%`)
+              this.ServerStatCell('GPU', this.statPercentText(this.shownStats.gpu))
             }
             if (this.stripTemp() >= 0) {
               this.ServerStatCell('温度', `${Math.round(this.stripTemp())}°C`)
@@ -3213,6 +3855,9 @@ struct Index {
           }
           .width('100%')
           .padding({ left: 2, right: 2, bottom: 4 })
+          .transition(TransitionEffect.OPACITY
+            .combine(TransitionEffect.translate({ y: -6 }))
+            .animation({ duration: 200, curve: Curve.EaseOut }))
         }
       }
       .width('100%')
@@ -3223,9 +3868,9 @@ struct Index {
   }
 
   /**
-   * 性能条里的一格：9sp 等宽小标签在上，12sp 等宽数值在下。
-   * 宽度固定半行、高度由内容撑开；数值不设 maxLines/textOverflow，
-   * 放不下就换行，绝不裁字。
+   * 性能条里的一格：9sp 等宽小标签在上，12sp 等宽数值在下。 
+   * 宽度固定半行、高度由内容撑开；数值不设 maxLines/textOverflow， 
+   * 放不下就换行，绝不裁字。 
    */
   @Builder
   ServerStatCell(label: string, value: string) {
@@ -3260,7 +3905,7 @@ struct Index {
             })
           this.GhostAction('查看全部任务', true, () => {
             this.tab = 1;
-            this.tasksOpen = true;
+            this.openTasks();
           })
         }
         .width('100%')
@@ -3394,6 +4039,9 @@ struct Index {
           .height('100%')
           .justifyContent(FlexAlign.Center)
           .alignItems(HorizontalAlign.Center)
+          .translate({ y: -3 * this.floatPhase })
+          .opacity(0.82 + 0.18 * this.floatPhase)
+          .onAppear(() => this.startGentleFloat())
         }
         .width('100%')
         .height(300)
@@ -3423,7 +4071,7 @@ struct Index {
           Blank()
           this.GhostAction('查看全部任务', true, () => {
             this.tab = 1;
-            this.tasksOpen = true;
+            this.openTasks();
           })
         }
         .width('100%')
@@ -3531,7 +4179,7 @@ struct Index {
             })
             this.GhostAction('查看全部任务', true, () => {
               this.tab = 1;
-              this.tasksOpen = true;
+              this.openTasks();
             })
           }
           .width('100%')
@@ -3768,7 +4416,7 @@ struct Index {
       }
       .width('100%')
       .height('78%')
-      // 面板贴底，最后一行不能被导航条盖住。
+      // 面板贴底，最后一行不能被导航条盖住。 
       .padding({ bottom: px2vp(this.navBarPx) })
       .backgroundColor(this.c().dialog)
       .borderRadius({ topLeft: 22, topRight: 22 })
@@ -3795,13 +4443,14 @@ struct Index {
   }
 
   /**
-   * 任务卡：对应 Android TaskCard —— 左侧 3vp 状态色轨、等宽任务名 + 状态胶囊、
-   * 工作流路径、产物缩略图与「输出：…」摘要、细进度条 + 百分比、可关闭的错误行，
-   * 以及底部「查看产物」（产物面板入口，行为与改造前一致）。
+   * 任务卡：对应 Android TaskCard —— 左侧 3vp 状态色轨、等宽任务名 + 状态胶囊、 
+   * 工作流路径、产物缩略图与「输出：…」摘要、细进度条 + 百分比、可关闭的错误行， 
+   * 以及底部「查看产物」（产物面板入口，行为与改造前一致）。 
    */
   @Builder
   TaskCard(task: BridgeTask) {
-    Column({ space: 7 }) {
+    Stack({ alignContent: Alignment.TopStart }) {
+      Column({ space: 7 }) {
       Row({ space: 8 }) {
         Text(this.taskLabel(task))
           .fontSize(11.5)
@@ -3887,14 +4536,15 @@ struct Index {
         .alignItems(VerticalAlign.Top)
       }
 
-      // 运行中/提交中的卡片可以取消；还没拿到 promptId 的草稿任务只显示禁用态。
+      // 运行中/提交中的卡片可以取消；还没拿到 promptId 的草稿任务只显示禁用态。 
       if (task.outputRefs.length > 0 || this.taskCancelVisible(task)) {
         Row({ space: 8 }) {
           if (this.taskCancelVisible(task)) {
-            this.GhostAction('取消', this.taskCancellable(task), () => this.cancelTask(task))
+            this.GhostAction('取消', this.taskCancellable(task), () => this.cancelTask(task),
+              `cancel-${task.id}`)
           }
           if (task.outputRefs.length > 0) {
-            this.GhostAction('查看产物', true, () => this.openArtifacts(task))
+            this.GhostAction('查看产物', true, () => this.openArtifacts(task), `outputs-${task.id}`)
           }
         }
         .width('100%')
@@ -3919,6 +4569,31 @@ struct Index {
         this.openArtifacts(task);
       }
     })
+
+      // 状态轨颜色过渡：旧颜色叠在左轨上淡出，露出下面的新状态色。
+      if (this.taskRailPrevious(task) !== '') {
+        Row()
+          .width(3)
+          .height('100%')
+          .backgroundColor(this.taskRailPrevious(task))
+          .borderRadius({ topLeft: 16, bottomLeft: 16 })
+          .opacity(this.railFade)
+          .hitTestBehavior(HitTestMode.None)
+          .onAppear(() => this.startRailFade())
+      }
+      // 完成脉冲：一圈绿色描边从 0.75 透明度淡出，只叠一层，不改内部布局。
+      if (this.pulseTaskId === task.id) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .borderRadius(16)
+          .border({ width: 1.5, color: this.c().ok })
+          .opacity(this.donePulseAlpha * 0.75)
+          .hitTestBehavior(HitTestMode.None)
+          .onAppear(() => this.startDonePulse())
+      }
+    }
+    .width('100%')
   }
 
   /** 预览卡当前使用的任务：任务页看全局，工作流详情看当前工作流。 */
@@ -3941,8 +4616,8 @@ struct Index {
   }
 
   /**
-   * 预览卡不接收 task 对象参数：@Builder 的对象参数在 ArkUI 里不会随任务快照刷新，
-   * 进度和采样图会停在首次渲染的值。这里每次都直接读 @State tasks。
+   * 预览卡不接收 task 对象参数：@Builder 的对象参数在 ArkUI 里不会随任务快照刷新， 
+   * 进度和采样图会停在首次渲染的值。这里每次都直接读 @State tasks。 
    */
   @Builder
   LivePreviewCard() {
@@ -4058,16 +4733,19 @@ struct Index {
     .backgroundColor(this.c().card)
     .borderRadius(18)
     .border({ width: 1, color: this.c().border })
+    .translate({ y: -3 * this.floatPhase })
+    .opacity(0.82 + 0.18 * this.floatPhase)
+    .onAppear(() => this.startGentleFloat())
   }
 
   /**
-   * 任务页正文：连接信息行 + 最近事件 + 进行中卡片，然后按
-   * 进行中 / 排队中 / 已结束 分组列出任务卡；没有任务时给 Android 同款空状态。
+   * 任务页正文：连接信息行 + 最近事件 + 进行中卡片，然后按 
+   * 进行中 / 排队中 / 已结束 分组列出任务卡；没有任务时给 Android 同款空状态。 
    */
   @Builder
   TasksTab() {
     Column({ space: 10 }) {
-      // Dot + 连接标签 + 「· transport · 第 N 代」，同 Android TaskScreen 顶部那行。
+      // Dot + 连接标签 + 「· transport · 第 N 代」，同 Android TaskScreen 顶部那行。 
       Row({ space: 7 }) {
         Column()
           .width(6)
@@ -4107,7 +4785,7 @@ struct Index {
         .alignItems(VerticalAlign.Top)
       }
 
-      // 进行中任务保留采样预览卡（Harmony 既有实现，Android 放在详情页）。
+      // 进行中任务保留采样预览卡（Harmony 既有实现，Android 放在详情页）。 
       if (this.liveCardTask() !== null) {
         this.LivePreviewCard()
       }
@@ -4170,8 +4848,8 @@ struct Index {
   }
 
   /**
-   * 面板玻璃底：`dialog` token 叠在页面同一层光谱光晕上。
-   * 深色 0.88 / 浅色 0.84，同 Android `c.dialog.copy(alpha = ...)`；不是一块实心底板。
+   * 面板玻璃底：`dialog` token 叠在页面同一层光谱光晕上。 
+   * 深色 0.88 / 浅色 0.84，同 Android `c.dialog.copy(alpha = ...)`；不是一块实心底板。 
    */
   private glassPanelColor(): string {
     const base: string = this.c().dialog;
@@ -4179,7 +4857,7 @@ struct Index {
     if (base.startsWith('#') && base.length === 7) {
       const value: number = Math.round(alpha * 255);
       const hex: string = value < 16 ? `0${value.toString(16)}` : value.toString(16);
-      // ArkUI 的 8 位十六进制颜色是 #AARRGGBB，Alpha 放最前面。
+      // ArkUI 的 8 位十六进制颜色是 #AARRGGBB，Alpha 放最前面。 
       return `#${hex.toUpperCase()}${base.substring(1)}`;
     }
     return base;
@@ -4224,7 +4902,9 @@ struct Index {
 
   private openPreview(output: BridgeOutput): void {
     this.previewOutput = output;
-    this.previewOpen = true;
+    animateTo({ duration: 220, curve: Curve.EaseOut }, () => {
+      this.previewOpen = true;
+    });
     this.previewError = false;
   }
 
@@ -4277,7 +4957,7 @@ struct Index {
 
   /** 36 高的渐变动作按钮，同 Android GradientButton(height = 36.dp)（产物行的「下载」）。 */
   @Builder
-  ArtifactActionButton(label: string, enabled: boolean, action: () => void) {
+  ArtifactActionButton(label: string, enabled: boolean, action: () => void, pressKey: string = '') {
     Button(label)
       .fontSize(12)
       .fontWeight(FontWeight.Medium)
@@ -4288,14 +4968,17 @@ struct Index {
       .backgroundColor(Color.Transparent)
       .linearGradient({ angle: 120, colors: Spectrum.gradientColors(this.c()) })
       .enabled(enabled)
+      .scale(this.pressScaleOptions(pressKey.length > 0 ? pressKey : `artifact-${label}`))
+      .onTouch((event: TouchEvent) =>
+        this.onPressTouch(event, pressKey.length > 0 ? pressKey : `artifact-${label}`))
       .onClick(() => action())
   }
 
   /**
    * 视频首帧占位：鸿蒙侧没有 MediaMetadataRetriever，`/view` 对视频只回视频本体，
-   * 没有可用的抽帧通道；这里按 Android 抽帧失败时的退路画哑光底 + 播放键 + 「视频」胶囊。
+   * 没有可用的抽帧通道；这里按 Android 抽帧失败时的退路画哑光底 + 播放键 + 「视频」胶囊。 
    * 颜色都用调色板里深浅两套都够亮的 token（gradientStart / accentSoft），
-   * 因为这块底板永远是近黑色，不能用会随主题翻转的正文色。
+   * 因为这块底板永远是近黑色，不能用会随主题翻转的正文色。 
    */
   @Builder
   VideoArtifactPlaceholder(label: string) {
@@ -4350,7 +5033,7 @@ struct Index {
           .height('100%')
           .objectFit(contain ? ImageFit.Contain : ImageFit.Cover)
       } else if (output.video && this.artifactUrl(output).length > 0) {
-        // 视频首帧：抽到帧就画 PixelMap，抽不到自动退回哑光占位（点击行为在外层 Stack）。
+        // 视频首帧：抽到帧就画 PixelMap，抽不到自动退回哑光占位（点击行为在外层 Stack）。 
         VideoThumb({ url: this.artifactUrl(output), isDark: this.isDark, hint: '点击播放' })
       } else {
         Text('该类型暂不支持内置预览，可下载后用系统应用打开。')
@@ -4412,7 +5095,7 @@ struct Index {
           .width('100%')
       }
 
-      // 失败时只留一个「重试」（ghost），不再同时出现第二个重试按钮。
+      // 失败时只留一个「重试」（ghost），不再同时出现第二个重试按钮。 
       if (this.downloadFailedKey === this.artifactKey(output)) {
         Row({ space: 8 }) {
           Text(`下载失败：${this.downloadErrorLine()}`)
@@ -4508,7 +5191,7 @@ struct Index {
             })
         }
       } else if (this.previewOutput.video) {
-        // 预览区同列表行：首帧抽到就 Cover 铺满，抽不到退回原占位。
+        // 预览区同列表行：首帧抽到就 Cover 铺满，抽不到退回原占位。 
         VideoThumb({ url: this.artifactUrl(this.previewOutput), isDark: this.isDark, hint: '点击播放' })
       } else {
         Text('该类型暂不支持内置预览，请下载后打开。')
@@ -4526,7 +5209,7 @@ struct Index {
     .clip(true)
     .border({ width: 1, color: this.c().border })
 
-    // 没有播放器接入，文案放在哑光区外，普通背景上才看得清。
+    // 没有播放器接入，文案放在哑光区外，普通背景上才看得清。 
     if (this.previewOutput.video && this.artifactUrl(this.previewOutput).length > 0) {
       Text('鸿蒙暂未接入内置播放器，可先保存到相册后用系统应用播放。')
         .fontSize(10.5)
@@ -4543,7 +5226,7 @@ struct Index {
         .width('100%')
     }
 
-    // 和列表行一致：失败时只留一个 ghost「重试」，不再叠一个渐变下载按钮。
+    // 和列表行一致：失败时只留一个 ghost「重试」，不再叠一个渐变下载按钮。 
     if (this.downloadFailedKey === this.artifactKey(this.previewOutput)) {
       Row({ space: 8 }) {
         Text(`下载失败：${this.downloadErrorLine()}`)
@@ -4570,15 +5253,24 @@ struct Index {
   }
 
   /**
-   * 产物面板：玻璃底（dialog 0.88/0.84 + 22 圆角 + 1px borderStrong）浮在页面同一层光晕上，
-   * 列表 / 预览 / 空态三态同 Android ArtifactDialog。
+   * 产物面板：玻璃底（dialog 0.88/0.84 + 22 圆角 + 1px borderStrong）浮在页面同一层光晕上， 
+   * 列表 / 预览 / 空态三态同 Android ArtifactDialog。 
    */
   @Builder
   ArtifactPanel() {
     Column() {
       Column({ space: 8 }) {
         if (this.previewOpen) {
-          this.ArtifactPreview()
+          // 单张产物预览：0.92→1 的缩放 + 淡入，和面板列表区分开。
+          Column() {
+            this.ArtifactPreview()
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+          .transition(TransitionEffect.OPACITY
+            .combine(TransitionEffect.scale({ x: 0.92, y: 0.92 }))
+            .animation({ duration: 220, curve: Curve.EaseOut }))
         } else {
           Row({ space: 8 }) {
             Column({ space: 2 }) {
@@ -4691,6 +5383,68 @@ struct Index {
     .backgroundColor('#66000000')
   }
 
+  /**
+   * 关闭关键节点前的确认框，对应 Android 的 BypassConfirm + SpectrumDialog。 
+   *
+   * 只有共享层判定 `breaking` 才会走到这里：提示语固定，原因逐字显示共享层给的 
+   * `reason`（宿主不自己编原因）。取消 = 什么都不改，节点仍然启用。 
+   */
+  @Builder
+  BypassConfirmDialog() {
+    Column() {
+      Column({ space: 10 }) {
+        Text('关闭节点')
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.c().text)
+        Text('关闭该节点可能导致工作流无法运行，是否确认关闭')
+          .fontSize(12)
+          .lineHeight(18)
+          .fontColor(this.c().textMuted)
+          .width('100%')
+        if (this.bypassConfirmReason.length > 0) {
+          Text(this.bypassConfirmReason)
+            .fontSize(11)
+            .lineHeight(16)
+            .fontColor(this.c().err)
+            .width('100%')
+        }
+        Row({ space: 8 }) {
+          Button('取消')
+            .fontSize(12.5)
+            .fontColor(this.c().textMuted)
+            .height(38)
+            .padding({ left: 16, right: 16 })
+            .borderRadius(12)
+            .backgroundColor(this.c().card)
+            .border({ width: 1, color: this.c().borderStrong })
+            .onClick(() => this.cancelNodeBypass())
+          Button('仍要关闭')
+            .fontSize(12.5)
+            .fontColor(this.c().err)
+            .height(38)
+            .padding({ left: 16, right: 16 })
+            .borderRadius(12)
+            .backgroundColor(this.c().errSoft)
+            .border({ width: 1, color: this.c().err })
+            .onClick(() => this.confirmNodeBypass())
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.End)
+      }
+      .padding(18)
+      .width('84%')
+      .alignItems(HorizontalAlign.Start)
+      .backgroundColor(this.c().dialog)
+      .borderRadius(18)
+      .border({ width: 1, color: this.c().borderStrong })
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor('#66000000')
+  }
+
   c(): Palette {
     return Spectrum.palette(this.isDark);
   }
@@ -4717,7 +5471,7 @@ struct Index {
     });
   }
   @Builder
-  GradientAction(label: string, enabled: boolean, action: () => void) {
+  GradientAction(label: string, enabled: boolean, action: () => void, pressKey: string = '') {
     Button(label)
       .fontSize(13)
       .fontWeight(FontWeight.Medium)
@@ -4728,11 +5482,14 @@ struct Index {
       .backgroundColor(Color.Transparent)
       .linearGradient({ angle: 120, colors: Spectrum.gradientColors(this.c()) })
       .enabled(enabled)
+      .scale(this.pressScaleOptions(pressKey.length > 0 ? pressKey : `grad-${label}`))
+      .onTouch((event: TouchEvent) =>
+        this.onPressTouch(event, pressKey.length > 0 ? pressKey : `grad-${label}`))
       .onClick(() => action())
   }
 
   @Builder
-  GhostAction(label: string, enabled: boolean, action: () => void) {
+  GhostAction(label: string, enabled: boolean, action: () => void, pressKey: string = '') {
     Button(label)
       .fontSize(12)
       .fontColor(this.c().textMuted)
@@ -4742,6 +5499,9 @@ struct Index {
       .backgroundColor(this.c().card)
       .border({ width: 1, color: this.c().border })
       .enabled(enabled)
+      .scale(this.pressScaleOptions(pressKey.length > 0 ? pressKey : `ghost-${label}`))
+      .onTouch((event: TouchEvent) =>
+        this.onPressTouch(event, pressKey.length > 0 ? pressKey : `ghost-${label}`))
       .onClick(() => action())
   }
 
@@ -4823,8 +5583,8 @@ struct Index {
   @Builder
   ConnectPanel() {
     Column() {
-      // 顶栏：对应 Android SpectrumTopBar(titleOverride = Wordmark, actions = 设置 / 诊断)。
-      // Android 的「诊断」是独立 DebugScreen；鸿蒙把诊断日志并进了设置页，这里两个入口都进设置。
+      // 顶栏：对应 Android SpectrumTopBar(titleOverride = Wordmark, actions = 设置 / 诊断)。 
+      // Android 的「诊断」是独立 DebugScreen；鸿蒙把诊断日志并进了设置页，这里两个入口都进设置。 
       Row({ space: 2 }) {
         Row() {
           Text('Comfy')
@@ -4832,7 +5592,7 @@ struct Index {
             .fontWeight(FontWeight.Bold)
             .letterSpacing(-0.3)
             .fontColor(this.c().text)
-          // Wordmark 在 Android 上是渐变字；ArkUI 文本不支持渐变画刷，用强调色近似。
+          // Wordmark 在 Android 上是渐变字；ArkUI 文本不支持渐变画刷，用强调色近似。 
           Text('Pilot')
             .fontSize(16)
             .fontWeight(FontWeight.Bold)
@@ -4848,7 +5608,9 @@ struct Index {
           .padding({ left: 7, right: 7, top: 7, bottom: 7 })
           .borderRadius(8)
           .onClick(() => {
-            this.settingsOpen = true;
+            this.goPage(true, () => {
+              this.settingsOpen = true;
+            });
           })
         Text('诊断')
           .fontSize(12)
@@ -4856,7 +5618,9 @@ struct Index {
           .padding({ left: 7, right: 7, top: 7, bottom: 7 })
           .borderRadius(8)
           .onClick(() => {
-            this.settingsOpen = true;
+            this.goPage(true, () => {
+              this.settingsOpen = true;
+            });
           })
       }
       .width('100%')
@@ -4877,7 +5641,7 @@ struct Index {
             .fontColor(this.c().textMuted)
             .width('100%')
 
-          // 地址卡：GlassCard(padding = 14.dp)。
+          // 地址卡：GlassCard(padding = 14.dp)。 
           Column() {
             Text('COMFYUI 地址')
               .fontSize(9.5)
@@ -4886,7 +5650,7 @@ struct Index {
               .letterSpacing(1.1)
               .width('100%')
 
-            // 对应 AddressField：输入框 + 右侧 ▾ 历史下拉。空输入时占位显示上次连通的地址。
+            // 对应 AddressField：输入框 + 右侧 ▾ 历史下拉。空输入时占位显示上次连通的地址。 
             Row() {
               TextInput({ text: this.baseUrl, placeholder: this.addressPlaceholder() })
                 .fontSize(12.5)
@@ -4916,7 +5680,7 @@ struct Index {
                   color: this.addressMenuOpen ? this.c().accentBorder : this.c().border,
                 })
                 .margin({ left: 6 })
-                // 输入框在连接期间是锁住的，历史下拉也不该能改地址。
+                // 输入框在连接期间是锁住的，历史下拉也不该能改地址。 
                 .enabled(!this.running)
                 .opacity(this.running ? 0.45 : 1)
                 .onClick(() => {
@@ -4944,7 +5708,7 @@ struct Index {
             .alignItems(VerticalAlign.Center)
 
             Row({ space: 9 }) {
-              // GradientButton(weight = 1f, height = 46.dp)。
+              // GradientButton(weight = 1f, height = 46.dp)。 
               Button(this.running ? '重新连接' : '连接')
                 .fontSize(14)
                 .fontWeight(FontWeight.Bold)
@@ -4955,13 +5719,15 @@ struct Index {
                 .backgroundColor(Color.Transparent)
                 .linearGradient({ angle: 120, colors: Spectrum.gradientColors(this.c()) })
                 .layoutWeight(1)
+                .scale(this.pressScaleOptions('connect'))
+                .onTouch((event: TouchEvent) => this.onPressTouch(event, 'connect'))
                 .onClick(() => {
-                  animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+                  this.goPage(true, () => {
                     this.connect();
                     this.connectView = false;
                   });
                 })
-              // GhostButton("断开", width = 84.dp, enabled = hasLease)。
+              // GhostButton("断开", width = 84.dp, enabled = hasLease)。 
               Button('断开')
                 .fontSize(12.5)
                 .fontColor(this.c().textMuted)
@@ -4973,6 +5739,8 @@ struct Index {
                 .border({ width: 1, color: this.c().borderStrong })
                 .enabled(this.running)
                 .opacity(this.running ? 1 : 0.45)
+                .scale(this.pressScaleOptions('disconnect'))
+                .onTouch((event: TouchEvent) => this.onPressTouch(event, 'disconnect'))
                 .onClick(() => this.disconnect())
             }
             .width('100%')
@@ -4980,7 +5748,7 @@ struct Index {
             .margin({ top: 12 })
 
             if (this.running) {
-              // 对应 Kotlin 里有租约时通栏的「选择工作流」。
+              // 对应 Kotlin 里有租约时通栏的「选择工作流」。 
               Button('选择工作流')
                 .fontSize(12.5)
                 .fontColor(this.c().textMuted)
@@ -4991,9 +5759,13 @@ struct Index {
                 .backgroundColor(this.c().card)
                 .border({ width: 1, color: this.c().borderStrong })
                 .margin({ top: 9 })
+                .scale(this.pressScaleOptions('select-workflow'))
+                .onTouch((event: TouchEvent) => this.onPressTouch(event, 'select-workflow'))
                 .onClick(() => {
-                  this.selectedPath = '';
-                  this.connectView = false;
+                  this.goPage(true, () => {
+                    this.selectedPath = '';
+                    this.connectView = false;
+                  });
                 })
             }
           }
@@ -5003,7 +5775,7 @@ struct Index {
           .borderRadius(18)
           .border({ width: 1, color: this.c().border })
 
-          // SessionStatusCard：玻璃卡 / 状态点 / 连接标签 / GEN / 等宽信息行。
+          // SessionStatusCard：玻璃卡 / 状态点 / 连接标签 / GEN / 等宽信息行。 
           Column() {
             Row({ space: 7 }) {
               Column()
@@ -5044,8 +5816,8 @@ struct Index {
             .padding({ top: 17 })
             .alignItems(VerticalAlign.Top)
 
-            // Android 的 clientId / 队列两行需要租约与服务器队列快照；鸿蒙状态里没有，
-            // 这里保留 clientId 占位（未连接时为 —），队列行暂不渲染。
+            // Android 的 clientId / 队列两行需要租约与服务器队列快照；鸿蒙状态里没有， 
+            // 这里保留 clientId 占位（未连接时为 —），队列行暂不渲染。 
             Row() {
               Text('clientId')
                 .fontSize(9.5)
@@ -5069,13 +5841,13 @@ struct Index {
           .borderRadius(18)
           .border({ width: 1, color: this.c().border })
 
-          // 已连接时顺手显示服务器性能；拿不到就整块不渲染。
+          // 已连接时顺手显示服务器性能；拿不到就整块不渲染。 
           if (this.running) {
             this.ServerStatsStrip()
           }
 
           if (this.notice.length > 0) {
-            // notice?.let { 最近事件 … }：等宽小标签 + 正文。
+            // notice?.let { 最近事件 … }：等宽小标签 + 正文。 
             Row({ space: 6 }) {
               Text('最近事件')
                 .fontSize(10)
@@ -5104,8 +5876,8 @@ struct Index {
             .margin({ top: 2, bottom: 24 })
         }
         .width('100%')
-        // MainPanel 已给 14vp 外边距，这里补 4vp，对齐 Android 内容区的 18vp。
-        // 顶部 20vp = Kotlin 的 Spacer(6) + spacedBy(14)。
+        // MainPanel 已给 14vp 外边距，这里补 4vp，对齐 Android 内容区的 18vp。 
+        // 顶部 20vp = Kotlin 的 Spacer(6) + spacedBy(14)。 
         .padding({ left: 4, right: 4, top: 20 })
       }
       .layoutWeight(1)
@@ -5119,7 +5891,7 @@ struct Index {
   @Builder
   CatalogPanel() {
     Column() {
-      // 顶栏：对应 Android SpectrumTopBar(返回 + 工作流 + 设置 / 刷新 / 任务 / 断开)。
+      // 顶栏：对应 Android SpectrumTopBar(返回 + 工作流 + 设置 / 刷新 / 任务 / 断开)。 
       Row({ space: 2 }) {
         Text('返回')
           .fontSize(12)
@@ -5128,7 +5900,9 @@ struct Index {
           .borderRadius(8)
           .margin({ right: 2 })
           .onClick(() => {
-            this.connectView = true;
+            this.goPage(false, () => {
+              this.connectView = true;
+            });
           })
         Text('工作流')
           .fontSize(15)
@@ -5144,7 +5918,9 @@ struct Index {
           .padding({ left: 7, right: 7, top: 7, bottom: 7 })
           .borderRadius(8)
           .onClick(() => {
-            this.settingsOpen = true;
+            this.goPage(true, () => {
+              this.settingsOpen = true;
+            });
           })
         Text('刷新')
           .fontSize(12)
@@ -5162,7 +5938,7 @@ struct Index {
           .padding({ left: 7, right: 7, top: 7, bottom: 7 })
           .borderRadius(8)
           .onClick(() => {
-            this.tasksOpen = true;
+            this.openTasks();
           })
         Text('断开')
           .fontSize(12)
@@ -5171,7 +5947,9 @@ struct Index {
           .borderRadius(8)
           .enabled(this.running)
           .onClick(() => {
-            this.disconnect();
+            this.goPage(false, () => {
+              this.disconnect();
+            });
           })
       }
       .width('100%')
@@ -5179,7 +5957,7 @@ struct Index {
       .alignItems(VerticalAlign.Center)
 
       Column({ space: 10 }) {
-        // Dot + 连接标签 + 「· transport · 第 N 代」。
+        // Dot + 连接标签 + 「· transport · 第 N 代」。 
         Row({ space: 7 }) {
           Column()
             .width(6)
@@ -5203,7 +5981,7 @@ struct Index {
       }
       .width('100%')
       .layoutWeight(1)
-      // 同 ConnectPanel：补 4vp 对齐 Android 的 18vp 内容边距。
+      // 同 ConnectPanel：补 4vp 对齐 Android 的 18vp 内容边距。 
       .padding({ left: 4, right: 4 })
     }
     .width('100%')
@@ -5222,7 +6000,7 @@ struct Index {
           .borderRadius(8)
           .margin({ right: 2 })
           .onClick(() => {
-            this.tasksOpen = false;
+            this.closeTasks();
           })
         Column({ space: 2 }) {
           Text('任务')
@@ -5231,7 +6009,7 @@ struct Index {
             .letterSpacing(-0.2)
             .fontColor(this.c().text)
             .maxLines(1)
-          // 队列计数只在连接时可信（Android 同理：queue 为 null 时不显示队列行）。
+          // 队列计数只在连接时可信（Android 同理：queue 为 null 时不显示队列行）。 
           Text(this.running
             ? `队列：运行 ${this.queueRunning} / 等待 ${this.queuePending}`
             : `历史任务 ${this.tasks.length} 个`)
@@ -5262,7 +6040,7 @@ struct Index {
 
       this.TasksTab()
     }
-    // 任务面板是整屏覆盖层，不在 MainPanel 的内边距里，需要自己避开系统栏。
+    // 任务面板是整屏覆盖层，不在 MainPanel 的内边距里，需要自己避开系统栏。 
     .padding({
       left: 14,
       right: 14,
@@ -5272,6 +6050,9 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor(this.c().background)
+    .transition(TransitionEffect.OPACITY
+      .combine(TransitionEffect.translate({ y: 120 }))
+      .animation({ duration: 240, curve: Curve.EaseOut }))
   }
 
   @Builder
@@ -5282,7 +6063,9 @@ struct Index {
         .fontWeight(FontWeight.Bold)
         .layoutWeight(1)
       this.GhostAction('返回', true, () => {
-        this.settingsOpen = false;
+        this.goPage(false, () => {
+          this.settingsOpen = false;
+        });
       })
     }
     .width('100%')
@@ -5297,6 +6080,8 @@ struct Index {
         .backgroundColor(this.appearanceMode === 'system' ? this.c().accentSoft : this.c().card)
         .fontColor(this.appearanceMode === 'system' ? this.c().text : this.c().textDim)
         .border({ width: 1, color: this.appearanceMode === 'system' ? this.c().accentBorder : this.c().border })
+        .scale(this.pressScaleOptions('appearance-system'))
+        .onTouch((event: TouchEvent) => this.onPressTouch(event, 'appearance-system'))
         .onClick(() => this.setAppearance('system'))
       Button('深色')
         .layoutWeight(1)
@@ -5306,6 +6091,8 @@ struct Index {
         .backgroundColor(this.appearanceMode === 'dark' ? this.c().accentSoft : this.c().card)
         .fontColor(this.appearanceMode === 'dark' ? this.c().text : this.c().textDim)
         .border({ width: 1, color: this.appearanceMode === 'dark' ? this.c().accentBorder : this.c().border })
+        .scale(this.pressScaleOptions('appearance-dark'))
+        .onTouch((event: TouchEvent) => this.onPressTouch(event, 'appearance-dark'))
         .onClick(() => this.setAppearance('dark'))
       Button('浅色')
         .layoutWeight(1)
@@ -5315,6 +6102,8 @@ struct Index {
         .backgroundColor(this.appearanceMode === 'light' ? this.c().accentSoft : this.c().card)
         .fontColor(this.appearanceMode === 'light' ? this.c().text : this.c().textDim)
         .border({ width: 1, color: this.appearanceMode === 'light' ? this.c().accentBorder : this.c().border })
+        .scale(this.pressScaleOptions('appearance-light'))
+        .onTouch((event: TouchEvent) => this.onPressTouch(event, 'appearance-light'))
         .onClick(() => this.setAppearance('light'))
     }
     .width('100%')
@@ -5335,7 +6124,7 @@ struct Index {
     Text('诊断日志').fontSize(11).fontColor(this.c().textDim)
     this.LogsTab()
 
-    // 设置页底部的「关于」入口；点进去后 aboutOpen 打开关于页，返回仍回到设置。
+    // 设置页底部的「关于」入口；点进去后 aboutOpen 打开关于页，返回仍回到设置。 
     Row({ space: 8 }) {
       Text('关于')
         .fontSize(14)
@@ -5355,7 +6144,9 @@ struct Index {
     .borderRadius(16)
     .border({ width: 1, color: this.c().border })
     .onClick(() => {
-      this.aboutOpen = true;
+      this.goPage(true, () => {
+        this.aboutOpen = true;
+      });
     })
   }
 
@@ -5427,7 +6218,9 @@ struct Index {
             .padding({ left: 7, right: 7, top: 7, bottom: 7 })
             .borderRadius(8)
             .onClick(() => {
-              this.aboutOpen = false;
+              this.goPage(false, () => {
+                this.aboutOpen = false;
+              });
             })
           Text('关于')
             .fontSize(15)
@@ -5511,7 +6304,7 @@ struct Index {
       .height('100%')
 
       if (this.licenseOpen) {
-        // 遮罩用背景色加透明度，不写死颜色，深/浅色下都能压暗底层。
+        // 遮罩用背景色加透明度，不写死颜色，深/浅色下都能压暗底层。 
         Column()
           .width('100%')
           .height('100%')
@@ -5527,28 +6320,55 @@ struct Index {
   @Builder
   MainPanel() {
     Stack() {
-      Column({ space: 10 }) {
+      // 页面容器放在 Stack 里：切换时新旧两页重叠做滑动/淡出，而不是在 Column 里上下排开。
+      Stack({ alignContent: Alignment.TopStart }) {
         if (this.aboutOpen) {
-          this.AboutPanel()
+          Column() {
+            this.AboutPanel()
+          }
+          .width('100%')
+          .height('100%')
+          .transition(this.screenTransition())
         } else if (this.settingsOpen) {
-          this.SettingsPanel()
+          // 设置页是多段内容，保留原来的 10vp 段间距。
+          Column({ space: 10 }) {
+            this.SettingsPanel()
+          }
+          .width('100%')
+          .height('100%')
+          .transition(this.screenTransition())
         } else if (!this.running || this.connectView) {
-          this.ConnectPanel()
+          Column() {
+            this.ConnectPanel()
+          }
+          .width('100%')
+          .height('100%')
+          .transition(this.screenTransition())
         } else if (this.selectedPath.length > 0) {
           // 详情页自带滚动区与底部提交条，不能再套一层 Scroll。
-          this.WorkflowDetail()
+          Column() {
+            this.WorkflowDetail()
+          }
+          .width('100%')
+          .height('100%')
+          .transition(this.screenTransition())
         } else {
-          this.CatalogPanel()
+          Column() {
+            this.CatalogPanel()
+          }
+          .width('100%')
+          .height('100%')
+          .transition(this.screenTransition())
         }
       }
+      .width('100%')
+      .height('100%')
       .padding({
         left: 14,
         right: 14,
         top: 14 + px2vp(this.statusBarPx),
         bottom: 14 + px2vp(this.navBarPx),
       })
-      .width('100%')
-      .height('100%')
 
       if (this.tasksOpen) {
         this.TasksPanel()
@@ -5560,8 +6380,8 @@ struct Index {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      // 光谱底：用径向渐变（中心有色、边缘透明）做光晕。
-      // 之前是「实心圆 + opacity + blur」，ArkUI 对空容器不生效 blur，所以看起来是三个硬边圆。
+      // 光谱底：用径向渐变（中心有色、边缘透明）做光晕。 
+      // 之前是「实心圆 + opacity + blur」，ArkUI 对空容器不生效 blur，所以看起来是三个硬边圆。 
       Column()
         .width(460)
         .height(460)
@@ -5606,11 +6426,14 @@ struct Index {
       if (this.confirmOpen) {
         this.SubmitConfirmDialog()
       }
+      if (this.bypassConfirmNodeId >= 0) {
+        this.BypassConfirmDialog()
+      }
     }
     .width('100%')
     .height('100%')
     .backgroundColor(this.c().background)
-    // 背景与光晕画到状态栏/导航条下面；文字内容由 MainPanel 的内边距避开系统栏。
+    // 背景与光晕画到状态栏/导航条下面；文字内容由 MainPanel 的内边距避开系统栏。 
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 }

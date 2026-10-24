@@ -345,9 +345,30 @@ export class ComfyBridge {
   /**
    * 按需工作流视图/构建 prompt。共享层负责字段、节点图和 overrides 校验；
    * 宿主只把 ArkTS 的 JSON 请求原样送过去。
+   *
+   * `op` 一共三种，宿主不需要别的入口：
+   *  - `view`：节点卡片、字段、节点图；每个节点带生效的 `enabled`/`mode`/`bypassed`，
+   *    顶层带回本次采用的 `bypassedNodeIds`/`enabledNodeIds`；
+   *  - `prompt`：真正提交，同样吃 `bypassedNodeIds`/`enabledNodeIds`；
+   *  - `disable_impact`：关闭单个节点前的同步影响探测，只构建 prompt，返回
+   *    `{breaking, reason}`，不落盘也不发请求。
    */
   workflow(requestJson: string): string {
     return nativeSessionWorkflow(requestJson);
+  }
+
+  /**
+   * 节点级启用/关闭（S12.0）的协议片段。
+   *
+   * 和节点图选择（`graphs`）是同一套做法：两份覆盖集合随每次 `workflow()` 请求一起送，
+   * 共享层把「生效状态」回填到每个节点的 `enabled`/`mode` 里，界面只读回填值。
+   * 两份集合互斥且关闭优先：`bypassedNodeIds` 里的节点不会再执行，`enabledNodeIds`
+   * 里的节点即使工作流文件里保存的是静音/旁路也会恢复执行。
+   */
+  nodeBypassJson(bypassedNodeIds: number[], enabledNodeIds: number[]): string {
+    const bypassed: string = bypassedNodeIds.map((id: number) => `${id}`).join(',');
+    const enabled: string = enabledNodeIds.map((id: number) => `${id}`).join(',');
+    return `"bypassedNodeIds":[${bypassed}],"enabledNodeIds":[${enabled}]`;
   }
 
   /** 按需取最新采样预览；返回带 base64 图片的 JSON，不进状态帧。 */
