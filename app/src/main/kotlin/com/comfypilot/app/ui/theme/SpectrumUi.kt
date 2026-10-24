@@ -79,7 +79,7 @@ fun SpectrumBackdrop(modifier: Modifier = Modifier) {
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 4_200),
+            animation = tween(durationMillis = 6_500),
             repeatMode = RepeatMode.Reverse,
         ),
         label = "backdrop-breathe",
@@ -101,28 +101,27 @@ fun SpectrumBackdrop(modifier: Modifier = Modifier) {
             )
         }
 
-        // 三层各自不同的相位与幅度：最亮的两层涨缩明显，底层只轻微起伏。
-        // 参数是照着"静置 3 秒能看出在动、但不会觉得闪"调出来的。
+        // 呼吸幅度刻意收着：半径 ±6% 左右、亮度 0.82~1.0 倍、中心漂移 2-3% 屏宽。
+        // 目标是"放着不动也能看出在缓缓流动"，但不会让人一会儿觉得背景发青、一会儿发紫。
         val t1 = breathe
-        val t2 = (1f - breathe) * (1f - breathe)
-        val t3 = breathe * breathe
+        val t2 = 1f - breathe
         glow(
-            color = c.glowTop.copy(alpha = (c.glowTop.alpha * (0.55f + 0.75f * t1)).coerceIn(0f, 1f)),
-            cx = w * (0.86f - 0.10f * (1f - t1)),
-            cy = -h * 0.01f + h * 0.06f * t1,
-            radius = w * (0.95f + 0.45f * t1),
+            color = c.glowTop.copy(alpha = (c.glowTop.alpha * (0.82f + 0.18f * t1)).coerceIn(0f, 1f)),
+            cx = w * (0.86f - 0.02f * t1),
+            cy = -h * 0.01f + h * 0.015f * t1,
+            radius = w * (1.0f + 0.06f * t1),
         )
         glow(
-            color = c.glowSide.copy(alpha = (c.glowSide.alpha * (0.45f + 0.85f * t2)).coerceIn(0f, 1f)),
-            cx = w * (0.02f + 0.08f * t2),
-            cy = h * (0.13f + 0.05f * t2),
-            radius = w * (0.85f + 0.40f * t2),
+            color = c.glowSide.copy(alpha = (c.glowSide.alpha * (0.82f + 0.18f * t2)).coerceIn(0f, 1f)),
+            cx = w * (0.02f + 0.025f * t2),
+            cy = h * (0.13f + 0.02f * t2),
+            radius = w * (0.95f + 0.06f * t2),
         )
         glow(
-            color = c.glowBottom.copy(alpha = (c.glowBottom.alpha * (0.6f + 0.6f * t3)).coerceIn(0f, 1f)),
-            cx = w * (0.55f + 0.06f * t3),
-            cy = h * (1.02f - 0.05f * t3),
-            radius = w * (1.0f + 0.25f * t3),
+            color = c.glowBottom.copy(alpha = (c.glowBottom.alpha * (0.86f + 0.14f * t1)).coerceIn(0f, 1f)),
+            cx = w * (0.55f + 0.02f * t2),
+            cy = h * (1.02f - 0.015f * t1),
+            radius = w * (1.1f + 0.05f * t2),
         )
     }
 }
