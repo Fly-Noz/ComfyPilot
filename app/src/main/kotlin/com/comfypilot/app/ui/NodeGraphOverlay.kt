@@ -363,7 +363,7 @@ fun NodeGraphDialog(
                                 onTap = { tap ->
 
                                     // 先判参数槽位（连线入口），再判节点体
-                                    val slot = if (graph == null) null else hitSlot(graph, tap, scale, offset)
+                                    val slot = if (graph == null) null else hitSlot(graph, tap, scale, offset, measurer, density)
                                     val start = linkStart
                                     if (start != null && slot != null) {
                                         val out = if (!start.input) start else if (!slot.input) slot else null
@@ -1361,60 +1361,84 @@ private fun slotScreenPoint(
 }
 
 /**
- * 命中参数：点在节点内部时按"行 + 左/右半边"判定（点参数文字也能选中），
- * 节点很小或点在节点外时退回圆点 22px 邻近判定。
+ * 命中参数：按参数文字的实际排版尺寸判定（不是整行整块），
+ * 文字/圆点之外一律返回 null，由调用方落到"点节点卡片"。
  */
 private fun hitSlot(
     graph: UiGraph,
     tap: Offset,
     scale: Float,
     offset: Offset,
-    threshold: Float = 22f,
+    measurer: TextMeasurer,
+    density: Float,
 ): SlotRef? {
-    val worldX = (tap.x - offset.x) / scale
-    val worldY = (tap.y - offset.y) / scale
+    val margin = 4f
     graph.nodes.forEach { node ->
-        val inside = worldX >= node.x && worldX <= node.x + node.width &&
-            worldY >= node.y && worldY <= node.y + node.height
-        if (inside) {
-            val header = node.height * 0.26
-            val slots = max(node.inputs.size, node.outputs.size)
-            if (slots > 0) {
-                val usable = (node.height - header).coerceAtLeast(1.0)
-                val step = (usable / slots).coerceIn(4.0, 22.0)
-                val relative = worldY - (node.y + header)
-                if (relative >= 0 && relative < step * slots) {
-                    val index = (relative / step).toInt().coerceIn(0, slots - 1)
-                    val inputSide = worldX < node.x + node.width / 2
-                    if (inputSide && index < node.inputs.size) return SlotRef(node.id, index, true)
-                    if (!inputSide && index < node.outputs.size) return SlotRef(node.id, index, false)
-                    // 该侧数量少时，落回另一侧的同编号参数
-                    if (index < node.inputs.size) return SlotRef(node.id, index, true)
-                    if (index < node.outputs.size) return SlotRef(node.id, index, false)
+        val nodeW = node.width.toFloat() * scale
+        val nodeH = node.height.toFloat() * scale
+        if (nodeW < 2f || nodeH < 2f) return@forEach
+        val slots = max(node.inputs.size, node.outputs.size)
+        if (slots <= 0) return@forEach
+        val header = node.height * 0.26
+        val usable = (node.height - header).coerceAtLeast(1.0)
+        val stepWorld = (usable / slots).coerceIn(4.0, 22.0)
+        val stepPx = stepWorld.toFloat() * scale
+
+        node.inputs.forEachIndexed { index, input ->
+            val name = input.name
+            if (name.isNotBlank() && stepPx >= 4f) {
+                val propPx = (nodeW * 0.055f).coerceAtMost(stepPx * 0.8f).coerceAtLeast(5f)
+                val maxWidth = nodeW / 2f - 12f
+                val layout = measurer.measure(
+                    text = name,
+                    style = TextStyle(fontSize = (propPx / density).sp),
+                    maxLines = 1,
+                )
+                val width = if (layout.size.width > maxWidth && layout.size.width > 0) {
+                    maxWidth
+                } else {
+                    layout.size.width.toFloat()
+                }
+                val height = layout.size.height.toFloat()
+                val p = slotScreenPoint(node, index, input = true, scale = scale, offset = offset)
+                val left = p.x + 9f
+                val top = p.y - height / 2f
+                if (tap.x in left - margin..left + width + margin && tap.y in top - margin..top + height + margin) {
+                    return SlotRef(node.id, index, true)
                 }
             }
+            // 圆点本身也算
+            val dot = slotScreenPoint(node, index, input = true, scale = scale, offset = offset)
+            if ((tap - dot).getDistance() <= 9f) return SlotRef(node.id, index, true)
+        }
+
+        node.outputs.forEachIndexed { index, output ->
+            val name = output.name
+            if (name.isNotBlank() && stepPx >= 4f) {
+                val propPx = (nodeW * 0.055f).coerceAtMost(stepPx * 0.8f).coerceAtLeast(5f)
+                val maxWidth = nodeW / 2f - 12f
+                val layout = measurer.measure(
+                    text = name,
+                    style = TextStyle(fontSize = (propPx / density).sp),
+                    maxLines = 1,
+                )
+                val width = if (layout.size.width > maxWidth && layout.size.width > 0) {
+                    maxWidth
+                } else {
+                    layout.size.width.toFloat()
+                }
+                val height = layout.size.height.toFloat()
+                val p = slotScreenPoint(node, index, input = false, scale = scale, offset = offset)
+                val right = p.x - 9f
+                val left = right - width
+                val top = p.y - height / 2f
+                if (tap.x in left - margin..right + margin && tap.y in top - margin..top + height + margin) {
+                    return SlotRef(node.id, index, false)
+                }
+            }
+            val dot = slotScreenPoint(node, index, input = false, scale = scale, offset = offset)
+            if ((tap - dot).getDistance() <= 9f) return SlotRef(node.id, index, false)
         }
     }
-    // 圆点邻近兜底
-    var best: SlotRef? = null
-    var bestDistance = threshold
-    graph.nodes.forEach { node ->
-        node.inputs.forEachIndexed { index, _ ->
-            val p = slotScreenPoint(node, index, input = true, scale = scale, offset = offset)
-            val d = (tap - p).getDistance()
-            if (d < bestDistance) {
-                bestDistance = d
-                best = SlotRef(node.id, index, input = true)
-            }
-        }
-        node.outputs.forEachIndexed { index, _ ->
-            val p = slotScreenPoint(node, index, input = false, scale = scale, offset = offset)
-            val d = (tap - p).getDistance()
-            if (d < bestDistance) {
-                bestDistance = d
-                best = SlotRef(node.id, index, input = false)
-            }
-        }
-    }
-    return best
+    return null
 }
