@@ -171,6 +171,10 @@ struct Index {
   @State addressHistory: AddressEntry[] = [];
   @State lastUsedUrl: string = '';
   @State addressMenuOpen: boolean = false;
+  /** 当前展开子图面板的父图 id（空串表示没有展开）。 */
+  @State openChildGraphId: string = '';
+  /** 地址输入框实测宽度（vp）：历史下拉按它对齐，不再用固定 300vp。 */
+  @State addressFieldWidth: number = 0;
   /** 性能条的数据；拿不到的项保持 -1 / ''，页面直接跳过。 */
   @State serverStats: ServerStats = emptyServerStats();
   /**
@@ -182,6 +186,9 @@ struct Index {
   @State monitor: BridgeMonitor | null = null;
   /** 性能条展开/收起；收起时只剩一行标题，纯界面状态，不进 summaryKey。 */
   @State statsExpanded: boolean = false;
+  /** 进度条轨道实测宽度（vp）；填充按它算绝对宽度，不用百分比。 */
+  @State progressTrackWidth: number = 0;
+  @State taskTrackWidth: number = 0;
   /** 页面切换方向：true=进入下一层（从右侧滑入），false=返回（退出到右侧）。 */
   @State navForward: boolean = true;
   /** 当前被按住的控件 key；同一时刻只可能有一个手指按下，单值就够。 */
@@ -3194,70 +3201,41 @@ struct Index {
         this.InlineNote('正在生成字段视图…')
       }
 
-      // ---- 图选择器：药丸按钮（已启用计数 + chevron）+ 下拉面板 ----
-      Row() {
-        if (this.parentGraphs().length > 0) {
-          Row({ space: 6 }) {
-            Text('节点图')
-              .fontSize(9)
-              .fontFamily('monospace')
-              .letterSpacing(0.6)
+      // ---- 图选择器：每个父图一个药丸，点药丸切换是否纳入提交；
+      //      有子图的药丸右侧分出一个 ▾，展开子图勾选面板。与 Android GraphSelector 一致。 ----
+      Scroll() {
+        Row({ space: 6 }) {
+          if (this.parentGraphs().length > 0) {
+            ForEach(this.parentGraphs(), (graph: WorkflowGraphView) => {
+              this.GraphChip(graph)
+            }, (graph: WorkflowGraphView) => `${graph.id}:${graph.selected}:${this.childGraphs(graph.id).length}`)
+          } else if (this.definitionsPending()) {
+            // 定义还没到齐时图列表一定是空的，不能显示成“没有可切换的节点图”。
+            Text('正在识别节点图…')
+              .fontSize(11)
               .fontColor(this.c().textDim)
-            Text(`${this.enabledGraphCount()}/${this.parentGraphs().length}`)
-              .fontSize(11.5)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(this.enabledGraphCount() > 0 ? this.c().text : this.c().textMuted)
-            Text(this.graphMenuOpen ? '▴' : '▾')
-              .fontSize(9)
-              .fontColor(this.enabledGraphCount() > 0 ? this.c().textMuted : this.c().textDim)
+              .padding({ left: 13, right: 13, top: 7, bottom: 7 })
+              .borderRadius(999)
+              .backgroundColor(this.c().card)
+              .border({ width: 1, color: this.c().border })
+          } else {
+            Text('没有可切换的节点图')
+              .fontSize(11)
+              .fontColor(this.c().textDim)
+              .padding({ left: 13, right: 13, top: 7, bottom: 7 })
+              .borderRadius(999)
+              .backgroundColor(this.c().card)
+              .border({ width: 1, color: this.c().border })
           }
-          .height(32)
-          .padding({ left: 13, right: 11 })
-          .borderRadius(999)
-          .backgroundColor(this.enabledGraphCount() > 0 ? this.c().accentSoft : this.c().card)
-          .border({
-            width: 1,
-            color: this.enabledGraphCount() > 0 ? this.c().accentBorder : this.c().border
-          })
-          .onClick(() => {
-            this.graphMenuOpen = !this.graphMenuOpen;
-          })
-          .bindPopup(this.graphMenuOpen, {
-            builder: this.GraphMenuPanel,
-            placement: Placement.Bottom,
-            popupColor: this.c().dialog,
-            enableArrow: false,
-            radius: 18,
-            onStateChange: (event: PopupStateEvent) => {
-              if (!event.isVisible) {
-                this.graphMenuOpen = false;
-              }
-            },
-          })
-        } else if (this.definitionsPending()) {
-          // 定义还没到齐时图列表一定是空的，不能显示成“没有可切换的节点图”。 
-          Text('正在识别节点图…')
-            .fontSize(11)
-            .fontColor(this.c().textDim)
-            .padding({ left: 13, right: 13, top: 7, bottom: 7 })
-            .borderRadius(999)
-            .backgroundColor(this.c().card)
-            .border({ width: 1, color: this.c().border })
-        } else {
-          Text('没有可切换的节点图')
-            .fontSize(11)
-            .fontColor(this.c().textDim)
-            .padding({ left: 13, right: 13, top: 7, bottom: 7 })
-            .borderRadius(999)
-            .backgroundColor(this.c().card)
-            .border({ width: 1, color: this.c().border })
         }
+        .padding({ left: 4, right: 4, top: 2 })
+        .constraintSize({ minHeight: 34 })
+        .alignItems(VerticalAlign.Center)
       }
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
       .width('100%')
-      .padding({ left: 4, right: 4, top: 2 })
       .constraintSize({ minHeight: 34 })
-      .alignItems(VerticalAlign.Center)
-
       // ---- 输入 / 预览 分段 tabs，对应 Android SpectrumTabs ----
       this.SegmentedTabs()
 
@@ -3268,13 +3246,7 @@ struct Index {
       if (this.uploadingField.length > 0) {
         this.InlineNote('正在上传图片…')
       }
-      if (this.view.missingNodeClasses.length > 0) {
-        Text(`服务端缺少节点：${this.view.missingNodeClasses.join('、')}`)
-          .fontSize(10.5)
-          .fontColor(this.c().err)
-          .width('100%')
-          .padding({ left: 4, right: 4 })
-      }
+
       if (this.view.problems.length > 0 &&
         !this.isErrorDismissed(this.workflowScopeId('build'), this.buildErrorText())) {
         Column() {
@@ -3313,22 +3285,7 @@ struct Index {
         .width('100%')
         .padding({ left: 4, right: 4, top: 2, bottom: 2 })
       }
-      if (this.view.warnings.length > 0) {
-        Column({ space: 2 }) {
-          Text('提交提示')
-            .fontSize(10)
-            .fontFamily('monospace')
-            .fontColor(this.c().warn)
-          ForEach(this.view.warnings, (warning: string, index: number) => {
-            Text(`· ${warning}`)
-              .fontSize(11)
-              .fontColor(this.c().warn)
-          }, (warning: string, index: number) => `${index}:${warning}`)
-        }
-        .alignItems(HorizontalAlign.Start)
-        .width('100%')
-        .padding({ left: 4, right: 4 })
-      }
+
 
       // 节点备注面板（Android 是 SpectrumDialog，这里作为内容面板嵌在详情里）。 
       if (this.noteEditorId >= 0) {
@@ -3637,7 +3594,7 @@ struct Index {
         }, (graph: WorkflowGraphView) => `${graph.id}:${graph.selected}`)
       }
     }
-    .width(300)
+    .width(this.addressFieldWidth > 0 ? this.addressFieldWidth : 300)
     .padding({ top: 6, bottom: 6, left: 6, right: 6 })
     .backgroundColor(this.c().dialog)
     .borderRadius(18)
@@ -3645,6 +3602,113 @@ struct Index {
     .shadow({ radius: 22, color: 'rgba(0,0,0,0.45)', offsetX: 0, offsetY: 10 })
   }
 
+  /** 单个父图药丸：左边点标题切换启用，右边（仅有子图时）点 ▾ 展开子图勾选面板。 */
+  @Builder
+  GraphChip(graphItem: WorkflowGraphView) {
+    Row() {
+      Text(graphItem.title)
+        .fontSize(11.5)
+        .fontWeight(graphItem.selected ? FontWeight.Medium : FontWeight.Normal)
+        .fontColor(graphItem.selected ? this.c().accentInk : this.c().textMuted)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .constraintSize({ maxWidth: 190 })
+        .padding({
+          left: 13,
+          right: this.childGraphs(graphItem.id).length > 0 ? 9 : 13,
+          top: 7,
+          bottom: 7,
+        })
+        .onClick(() => {
+          this.toggleGraph(graphItem);
+        })
+      if (this.childGraphs(graphItem.id).length > 0) {
+        Row()
+          .width(1)
+          .height(16)
+          .backgroundColor(graphItem.selected ? this.c().accentInk : this.c().border)
+          .opacity(graphItem.selected ? 0.3 : 1)
+        Row() {
+          Text(this.openChildGraphId === graphItem.id ? '▴' : '▾')
+            .fontSize(9)
+            .fontColor(graphItem.selected ? this.c().accentInk : this.c().textDim)
+        }
+        .width(28)
+        .height(32)
+        .justifyContent(FlexAlign.Center)
+        .onClick(() => {
+          this.openChildGraphId = this.openChildGraphId === graphItem.id ? '' : graphItem.id;
+        })
+        .bindPopup(this.openChildGraphId === graphItem.id, {
+          builder: () => {
+            this.ChildGraphPanel(graphItem)
+          },
+          placement: Placement.Bottom,
+          popupColor: this.c().dialog,
+          enableArrow: false,
+          radius: 18,
+          onStateChange: (event: PopupStateEvent) => {
+            if (!event.isVisible) {
+              this.openChildGraphId = '';
+            }
+          },
+        })
+      }
+    }
+    .height(32)
+    .borderRadius(999)
+    .backgroundColor(graphItem.selected ? this.c().accentSoft : this.c().card)
+    .border({ width: 1, color: graphItem.selected ? this.c().accentBorder : this.c().border })
+    .clip(true)
+  }
+
+  /** 子图勾选面板：只列这个父图下的辅助图组，标题与 Android DropdownPanel 一致。 */
+  @Builder
+  ChildGraphPanel(parentGraph: WorkflowGraphView) {
+    Column() {
+      Text(`子节点图 · ${parentGraph.title}`)
+        .fontSize(9)
+        .fontFamily('monospace')
+        .letterSpacing(0.8)
+        .fontColor(this.c().textDim)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 4, bottom: 6 })
+
+      if (this.childGraphs(parentGraph.id).length === 0) {
+        Text('这个节点图没有子图。')
+          .fontSize(11)
+          .fontColor(this.c().textMuted)
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 6, bottom: 10 })
+      } else {
+        ForEach(this.childGraphs(parentGraph.id), (child: WorkflowGraphView, index: number) => {
+          if (index > 0) {
+            Column() {
+              Row()
+                .width('100%')
+                .height(1)
+                .backgroundColor(this.c().border)
+            }
+            .width('100%')
+            .padding({ left: 8, right: 8, top: 2, bottom: 2 })
+          }
+          this.GraphMenuRow(child.title,
+            `${child.nodeIds.length} 个节点 · 参考图槽位`,
+            child.selected, false, () => {
+              this.toggleGraph(child);
+            })
+        }, (child: WorkflowGraphView) => `${child.id}:${child.selected}`)
+      }
+    }
+    .width(256)
+    .padding({ top: 6, bottom: 6, left: 6, right: 6 })
+    .backgroundColor(this.c().dialog)
+    .borderRadius(18)
+    .border({ width: 1, color: this.c().border })
+    .shadow({ radius: 22, color: 'rgba(0,0,0,0.45)', offsetX: 0, offsetY: 10 })
+  }
   /** 下拉面板里的一行：勾选态 + 名称/副标题 + 启用标签。 */
   @Builder
   GraphMenuRow(title: string, subtitle: string, checked: boolean, indent: boolean, action: () => void) {
@@ -3726,7 +3790,7 @@ struct Index {
         }, (entry: AddressEntry) => `${entry.url}:${entry.usedAt}`)
       }
     }
-    .width(300)
+    .width(this.addressFieldWidth > 0 ? this.addressFieldWidth : 300)
     .padding({ top: 6, bottom: 6, left: 6, right: 6 })
     .backgroundColor(this.c().dialog)
     .borderRadius(18)
@@ -4243,7 +4307,12 @@ struct Index {
     .height('100%')
   }
 
-  /** 渐变进度条，对应 Android SpectrumProgress。 */
+  /**
+   * 渐变进度条，对应 Android SpectrumProgress。
+   * 填充不能用百分比宽度：Stack 子元素的 '%' 依赖父容器已确定的尺寸，
+   * 在按内容撑开的布局里会解析成 0——之前"轨道在、填充永远空白"就是这个原因。
+   * 现在量出轨道实际宽度（vp），按比例换算成绝对宽度。
+   */
   @Builder
   ProgressBar(fraction: number) {
     Stack({ alignContent: Alignment.Start }) {
@@ -4252,11 +4321,18 @@ struct Index {
         .height(7)
         .borderRadius(999)
         .backgroundColor(this.c().cardStrong)
+        .onAreaChange((_old: Area, area: Area) => {
+          const width: number = Number(area.width);
+          if (width > 0 && width !== this.progressTrackWidth) {
+            this.progressTrackWidth = width;
+          }
+        })
       Row()
-        .width(`${Math.max(0, Math.min(100, fraction * 100))}%`)
+        .width(`${this.progressFillWidth(fraction, this.progressTrackWidth)}vp`)
         .height(7)
         .borderRadius(999)
         .linearGradient({ angle: 90, colors: Spectrum.gradientColors(this.c()) })
+        .animation({ duration: 320, curve: Curve.EaseOut })
     }
     .width('100%')
     .height(7)
@@ -4271,14 +4347,30 @@ struct Index {
         .height(5)
         .borderRadius(999)
         .backgroundColor(this.c().cardStrong)
+        .onAreaChange((_old: Area, area: Area) => {
+          const width: number = Number(area.width);
+          if (width > 0 && width !== this.taskTrackWidth) {
+            this.taskTrackWidth = width;
+          }
+        })
       Row()
-        .width(`${Math.max(0, Math.min(100, fraction * 100))}%`)
+        .width(`${this.progressFillWidth(fraction, this.taskTrackWidth)}vp`)
         .height(5)
         .borderRadius(999)
         .linearGradient({ angle: 90, colors: Spectrum.gradientColors(this.c()) })
+        .animation({ duration: 320, curve: Curve.EaseOut })
     }
     .width('100%')
     .height(5)
+  }
+
+  /** 把 0~1 的比例换算成绝对宽度；轨道尚未量出时给 0，避免 NaN 或负值。 */
+  private progressFillWidth(fraction: number, trackWidth: number): number {
+    if (!(trackWidth > 0) || !(fraction > 0)) {
+      return 0;
+    }
+    const clamped: number = fraction > 1 ? 1 : fraction;
+    return trackWidth * clamped;
   }
 
   /** 全部节点底部面板：搜索 + 特征筛选 + 节点列表，对应 Android ModalBottomSheet。 */
@@ -5686,21 +5778,29 @@ struct Index {
                 .onClick(() => {
                   this.addressMenuOpen = !this.addressMenuOpen;
                 })
-                .bindPopup(this.addressMenuOpen, {
-                  builder: this.AddressMenuPanel,
-                  placement: Placement.Bottom,
-                  popupColor: this.c().dialog,
-                  enableArrow: false,
-                  radius: 18,
-                  onStateChange: (event: PopupStateEvent) => {
-                    if (!event.isVisible) {
-                      this.addressMenuOpen = false;
-                    }
-                  },
-                })
             }
             .width('100%')
             .padding({ left: 12, right: 12, top: 4, bottom: 4 })
+            // 弹层挂在整张地址框上而不是右下角的 ▾，这样下拉的左边缘/宽度与输入框一致；
+            // 面板宽度用实测的输入框宽度，避免固定 300vp 与窄屏/宽屏对不齐。
+            .onAreaChange((_old: Area, area: Area) => {
+              const width: number = Number(area.width);
+              if (width > 0 && Math.abs(width - this.addressFieldWidth) > 0.5) {
+                this.addressFieldWidth = width;
+              }
+            })
+            .bindPopup(this.addressMenuOpen, {
+              builder: this.AddressMenuPanel,
+              placement: Placement.Bottom,
+              popupColor: this.c().dialog,
+              enableArrow: false,
+              radius: 18,
+              onStateChange: (event: PopupStateEvent) => {
+                if (!event.isVisible) {
+                  this.addressMenuOpen = false;
+                }
+              },
+            })
             .backgroundColor(this.c().card)
             .borderRadius(12)
             .border({ width: 1, color: this.c().border })
