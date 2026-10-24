@@ -127,6 +127,7 @@ import com.comfypilot.app.ui.theme.pressFeedback
 import com.comfypilot.app.ui.theme.SpectrumTopBar
 import com.comfypilot.app.ui.theme.TopBarAction
 import com.comfypilot.core.api.ApiPaths
+import com.comfypilot.core.api.ArtifactNames
 import com.comfypilot.core.api.ImageUpload
 import com.comfypilot.core.api.ImageUploadResult
 import com.comfypilot.core.api.ViewRequest
@@ -1834,6 +1835,8 @@ private fun PreviewPane(
         return
     }
     var showArtifacts by remember(latest.id) { mutableStateOf(false) }
+    // 从视频首帧进产物弹窗时，直接停在该视频并自动播放。
+    var autoVideo by remember(latest.id) { mutableStateOf(false) }
     val c = Spectrum.colors
 
     Column(
@@ -1850,9 +1853,26 @@ private fun PreviewPane(
                 ApiPaths.viewUrl(base, ViewRequest(out.filename, out.subfolder, out.type))
             }
         }
+        val videoOutput = latest.outputs.firstOrNull { ArtifactNames.isVideo(it.filename) }
+        val videoUrl = videoOutput?.let { out ->
+            baseUrl?.let { base ->
+                ApiPaths.viewUrl(base, ViewRequest(out.filename, out.subfolder, out.type))
+            }
+        }
         Hero(modifier = Modifier.fillMaxWidth().height(420.dp), tag = "RESULT") {
             if (imageUrl != null) {
                 RemoteOutputImage(url = imageUrl, modifier = Modifier.matchParentSize())
+            } else if (videoUrl != null) {
+                // 与鸿蒙一致：首帧 + 播放按钮，点击打开产物弹窗并直接播放。
+                VideoPosterFrame(
+                    url = videoUrl,
+                    label = "点击播放",
+                    modifier = Modifier.matchParentSize(),
+                    onClick = {
+                        autoVideo = true
+                        showArtifacts = true
+                    },
+                )
             } else {
                 Text(
                     text = if (latest.state is TaskState.Failed) "任务失败" else "没有可预览的图片",
@@ -1920,7 +1940,12 @@ private fun PreviewPane(
         ArtifactDialog(
             task = latest,
             baseUrl = state.lease?.baseUrl,
-            onDismiss = { showArtifacts = false },
+            onDismiss = {
+                showArtifacts = false
+                autoVideo = false
+            },
+            initialOutput = if (autoVideo) latest.outputs.firstOrNull { ArtifactNames.isVideo(it.filename) } else null,
+            autoStartVideo = autoVideo,
         )
     }
 }

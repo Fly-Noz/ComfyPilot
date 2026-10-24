@@ -127,12 +127,16 @@ fun ArtifactDialog(
     task: PromptTask,
     baseUrl: String?,
     onDismiss: () -> Unit,
+    /** 打开时直接进入某个产物的预览（详情页点视频首帧用）。 */
+    initialOutput: TaskOutput? = null,
+    /** 预览是视频时是否立即播放，跳过首帧封面。 */
+    autoStartVideo: Boolean = false,
 ) {
     val context = LocalContext.current
     val c = Spectrum.colors
     val scope = rememberCoroutineScope()
     val downloader = remember { ArtifactDownloader() }
-    var selected by remember(task.id) { mutableStateOf<TaskOutput?>(null) }
+    var selected by remember(task.id) { mutableStateOf<TaskOutput?>(initialOutput) }
     var downloadStates by remember(task.id) { mutableStateOf<Map<String, DownloadUiState>>(emptyMap()) }
     // 预览区文件大小：HEAD 结果按文件名缓存，退回列表再进来不用重复请求。
     var knownSizes by remember(task.id) { mutableStateOf<Map<String, Long>>(emptyMap()) }
@@ -257,6 +261,7 @@ fun ArtifactDialog(
                                 knownSizes = knownSizes + (filename to bytes)
                             },
                             downloadState = stateOf(current),
+                            autoStartVideo = autoStartVideo,
                             onBack = { selected = null },
                             onDownload = { requestDownload(current) },
                             onDismiss = onDismiss,
@@ -498,6 +503,7 @@ private fun ArtifactPreview(
     onBack: () -> Unit,
     onDownload: () -> Unit,
     onDismiss: () -> Unit,
+    autoStartVideo: Boolean = false,
 ) {
     val c = Spectrum.colors
     val context = LocalContext.current
@@ -583,7 +589,7 @@ private fun ArtifactPreview(
                 )
 
                 ArtifactNames.isVideo(output.filename) -> key(url) {
-                    ArtifactVideo(url = url, modifier = Modifier.fillMaxSize())
+                    ArtifactVideo(url = url, modifier = Modifier.fillMaxSize(), autoStart = autoStartVideo)
                 }
 
                 else -> GlassCard(
@@ -624,7 +630,7 @@ private fun ArtifactPreview(
  * 抽帧失败时保留占位并允许直接播放，不阻塞预览。
  */
 @Composable
-private fun VideoPosterFrame(
+internal fun VideoPosterFrame(
     url: String,
     label: String,
     modifier: Modifier = Modifier,
@@ -666,7 +672,7 @@ private fun VideoPosterFrame(
 }
 
 @Composable
-private fun PlayGlyph(modifier: Modifier = Modifier) {
+internal fun PlayGlyph(modifier: Modifier = Modifier) {
     // 播放键落在永远深色的哑光板上，用 heroText 而不是任何"白"字面量；
     // 深浅两套主题里它都是浅色，对比度不会翻转。
     val glyph = Spectrum.colors.heroText
@@ -689,12 +695,12 @@ private fun PlayGlyph(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun ArtifactVideo(url: String, modifier: Modifier = Modifier) {
+private fun ArtifactVideo(url: String, modifier: Modifier = Modifier, autoStart: Boolean = false) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val c = Spectrum.colors
     var failed by remember(url) { mutableStateOf(false) }
     var prepared by remember(url) { mutableStateOf(false) }
-    var started by remember(url) { mutableStateOf(false) }
+    var started by remember(url) { mutableStateOf(autoStart) }
     var videoView by remember(url) { mutableStateOf<VideoView?>(null) }
     var mediaController by remember(url) { mutableStateOf<MediaController?>(null) }
 
@@ -841,7 +847,7 @@ private fun DownloadStatusLine(
 
 /** 按 URL 取视频首帧；IO 线程抽帧，成功后进有界缓存，释放 retriever。 */
 @Composable
-private fun rememberVideoPoster(url: String): Bitmap? {
+internal fun rememberVideoPoster(url: String): Bitmap? {
     // 列表缩略图抽过的帧，进详情页时直接从缓存起画，避免先闪一下占位。
     var poster by remember(url) { mutableStateOf(videoPosterCache.get(url)) }
     LaunchedEffect(url) {
