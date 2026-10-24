@@ -299,8 +299,8 @@ struct Index {
   @State previewError: boolean = false;
   /** 底栏提示的自动收起定时器句柄（-1 表示没有在计时）。 */
   private submitNoticeTimer: number = -1;
-  /** 产物预览里是否已切换到内嵌视频播放器。 */
-  @State videoInline: boolean = false;
+  /** 正在内嵌播放的视频 URL（空串表示还在显示首帧）。用 URL 标识，切产物自动失效。 */
+  @State videoInlineKey: string = '';
   @State downloadingKey: string = '';
   @State downloadNotice: string = '';
   /** 最近一次失败的产物 key：列表行据此显示 err 文案 + 单个「重试」。 */
@@ -4234,17 +4234,28 @@ struct Index {
             this.RemoteImage(this.firstImageUrl(task), ImageFit.Contain)
 
           } else if (this.firstVideoUrl(task).length > 0) {
-            // 视频产物也先给首帧：点击整块打开产物面板，里面可以内嵌播放。
-            Column() {
-              VideoThumb({
-                url: this.firstVideoUrl(task),
-                isDark: this.isDark,
-                hint: '点击播放',
+            // 视频产物：首帧 + 播放按钮；点按钮直接在当前 Hero 里播放，不跳产物页。
+            if (this.videoInlineKey === this.firstVideoUrl(task)) {
+              VideoPlayer({ url: this.firstVideoUrl(task), isDark: this.isDark })
+                .width('100%')
+                .height('100%')
+            } else {
+              Stack({ alignContent: Alignment.Center }) {
+                VideoThumb({
+                  url: this.firstVideoUrl(task),
+                  isDark: this.isDark,
+                  hint: '',
+                })
+                  .width('100%')
+                  .height('100%')
+                this.PlayBadge()
+              }
+              .width('100%')
+              .height('100%')
+              .onClick(() => {
+                this.videoInlineKey = this.firstVideoUrl(task);
               })
             }
-            .width('100%')
-            .height('100%')
-            .onClick(() => this.openArtifacts(task))
 
           } else {
             Column() {
@@ -5100,6 +5111,7 @@ struct Index {
   }
 
   private openPreview(output: BridgeOutput): void {
+    this.videoInlineKey = '';
     this.previewOutput = output;
     animateTo({ duration: 220, curve: Curve.EaseOut }, () => {
       this.previewOpen = true;
@@ -5418,18 +5430,23 @@ struct Index {
 
         }
       } else if (this.previewOutput.video) {
-        // 预览区同列表行：首帧抽到就 Cover 铺满，抽不到退回原占位。 
-        if (this.videoInline) {
+        // 首帧之上保留播放按钮；点按钮才切到内嵌播放器（按钮随之消失）。
+        if (this.videoInlineKey === this.artifactUrl(this.previewOutput)) {
           VideoPlayer({ url: this.artifactUrl(this.previewOutput), isDark: this.isDark })
             .width('100%')
             .height('100%')
         } else {
-          VideoThumb({ url: this.artifactUrl(this.previewOutput), isDark: this.isDark, hint: '点击播放' })
-            .width('100%')
-            .height('100%')
-            .onClick(() => {
-              this.videoInline = true;
-            })
+          Stack({ alignContent: Alignment.Center }) {
+            VideoThumb({ url: this.artifactUrl(this.previewOutput), isDark: this.isDark, hint: '' })
+              .width('100%')
+              .height('100%')
+            this.PlayBadge()
+          }
+          .width('100%')
+          .height('100%')
+          .onClick(() => {
+            this.videoInlineKey = this.artifactUrl(this.previewOutput);
+          })
         }
       } else {
         Text('该类型暂不支持内置预览，请下载后打开。')
@@ -6235,6 +6252,26 @@ struct Index {
   }
 
   /** 全局光谱光晕：根页面与整屏覆盖页共用同一份定义，保证底色完全一致。 */
+
+  /** 视频首帧中央的播放按钮：点击后由父级切到内嵌播放器。 */
+  @Builder
+  PlayBadge() {
+    Stack({ alignContent: Alignment.Center }) {
+      Row()
+        .width(56)
+        .height(56)
+        .borderRadius(28)
+        .backgroundColor('rgba(10,11,16,0.52)')
+        .border({ width: 1, color: 'rgba(255,255,255,0.38)' })
+        .backdropBlur(8)
+      Text('▶')
+        .fontSize(20)
+        .fontColor('#F2F4F7')
+        .translate({ x: 2 })
+    }
+    .width(56)
+    .height(56)
+  }
   @Builder
   AppGlow() {
     Column()
