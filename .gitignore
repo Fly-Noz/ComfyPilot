@@ -39,3 +39,15 @@ Thumbs.db
 
 # Local device artifacts (screenshots, dumps)
 artifacts/
+
+# Local scratch (screenshots, editor dumps, one-off scripts) — issues stay tracked under .scratch/<feature>/issues
+.scratch/*.png
+.scratch/*.jpeg
+.scratch/*.jpg
+.scratch/*.txt
+.scratch/*.ps1
+.scratch/*.py
+.scratch/*.log
+.scratch/icon-bg*/
+.scratch/icon_final*/
+artifacts/
