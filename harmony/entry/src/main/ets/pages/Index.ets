@@ -4234,28 +4234,25 @@ struct Index {
             this.RemoteImage(this.firstImageUrl(task), ImageFit.Contain)
 
           } else if (this.firstVideoUrl(task).length > 0) {
-            // 视频产物：首帧 + 播放按钮；点按钮直接在当前 Hero 里播放，不跳产物页。
-            if (this.videoInlineKey === this.firstVideoUrl(task)) {
-              VideoPlayer({ url: this.firstVideoUrl(task), isDark: this.isDark })
+            // 视频产物：Hero 只显示首帧 + 播放按钮；点击跳到产物预览页，在那里播放。
+            Stack({ alignContent: Alignment.Center }) {
+              VideoThumb({
+                url: this.firstVideoUrl(task),
+                isDark: this.isDark,
+                hint: '',
+              })
                 .width('100%')
                 .height('100%')
-            } else {
-              Stack({ alignContent: Alignment.Center }) {
-                VideoThumb({
-                  url: this.firstVideoUrl(task),
-                  isDark: this.isDark,
-                  hint: '',
-                })
-                  .width('100%')
-                  .height('100%')
-                this.PlayBadge()
-              }
-              .width('100%')
-              .height('100%')
-              .onClick(() => {
-                this.videoInlineKey = this.firstVideoUrl(task);
-              })
+              this.PlayBadge()
             }
+            .width('100%')
+            .height('100%')
+            .onClick(() => {
+              const output = this.firstVideoOutput(task);
+              if (output !== null) {
+                this.playVideoPage(task, output);
+              }
+            })
 
           } else {
             Column() {
@@ -5110,6 +5107,28 @@ struct Index {
       : this.downloadNotice;
   }
 
+  /** 点首帧后直接跳到产物预览页并开始播放（不是原地替换）。 */
+  private playVideoPage(task: BridgeTask, output: BridgeOutput): void {
+    this.artifactTask = task;
+    this.previewOutput = output;
+    this.previewError = false;
+    this.videoInlineKey = this.artifactUrl(output);
+    animateTo({ duration: 220, curve: Curve.EaseOut }, () => {
+      this.artifactOpen = true;
+      this.previewOpen = true;
+    });
+  }
+
+  /** 任务里第一个可播放的视频产物。 */
+  private firstVideoOutput(task: BridgeTask): BridgeOutput | null {
+    for (let i = 0; i < task.outputRefs.length; i++) {
+      const output = task.outputRefs[i];
+      if (output.video && this.artifactUrl(output).length > 0) {
+        return output;
+      }
+    }
+    return null;
+  }
   private openPreview(output: BridgeOutput): void {
     this.videoInlineKey = '';
     this.previewOutput = output;
@@ -5117,6 +5136,9 @@ struct Index {
       this.previewOpen = true;
     });
     this.previewError = false;
+    if (output.video) {
+      this.videoInlineKey = this.artifactUrl(output);
+    }
   }
 
   /** 分享：项目已引入剪贴板能力，复制产物直链（系统分享面板未接入）。 */
@@ -5464,14 +5486,6 @@ struct Index {
     .clip(true)
     .border({ width: 1, color: this.c().border })
 
-    // 没有播放器接入，文案放在哑光区外，普通背景上才看得清。 
-    if (this.previewOutput.video && this.artifactUrl(this.previewOutput).length > 0) {
-      Text('鸿蒙暂未接入内置播放器，可先保存到相册后用系统应用播放。')
-        .fontSize(10.5)
-        .fontColor(this.c().textMuted)
-        .width('100%')
-        .textAlign(TextAlign.Center)
-    }
 
     if (this.downloadNotice.length > 0 &&
       this.downloadFailedKey !== this.artifactKey(this.previewOutput)) {
@@ -6258,19 +6272,20 @@ struct Index {
   PlayBadge() {
     Stack({ alignContent: Alignment.Center }) {
       Row()
-        .width(56)
-        .height(56)
-        .borderRadius(28)
-        .backgroundColor('rgba(10,11,16,0.52)')
-        .border({ width: 1, color: 'rgba(255,255,255,0.38)' })
-        .backdropBlur(8)
-      Text('▶')
-        .fontSize(20)
-        .fontColor('#F2F4F7')
-        .translate({ x: 2 })
+        .width(64)
+        .height(64)
+        .borderRadius(32)
+        .backgroundColor('rgba(10,11,16,0.46)')
+        .border({ width: 1, color: 'rgba(255,255,255,0.42)' })
+        .backdropBlur(10)
+      // 用 Polygon 画实心三角：字体里的 ▶ 会走 emoji 字体，渲染成彩色小图标。
+      Polygon({ width: 20, height: 24 })
+        .points([[0, 0], [20, 12], [0, 24]])
+        .fill('#FFFFFF')
+        .translate({ x: 4 })
     }
-    .width(56)
-    .height(56)
+    .width(60)
+    .height(60)
   }
   @Builder
   AppGlow() {
