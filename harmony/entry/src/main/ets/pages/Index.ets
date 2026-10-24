@@ -26,6 +26,7 @@ import { emptyServerStats, fetchServerStats, sameServerStats, ServerStats } from
 import { Palette, Spectrum } from '../theme/Spectrum';
 import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/ArtifactDownloader';
 import { VideoThumb } from '../artifact/VideoThumb';
+import { VideoPlayer } from '../artifact/VideoPlayer';
 import { ImageUploader, PickedImage } from '../workflow/ImageUploader';
 import {
   BuildProblemView,
@@ -296,6 +297,8 @@ struct Index {
   @State previewOpen: boolean = false;
   @State previewOutput: BridgeOutput = emptyOutput();
   @State previewError: boolean = false;
+  /** 产物预览里是否已切换到内嵌视频播放器。 */
+  @State videoInline: boolean = false;
   @State downloadingKey: string = '';
   @State downloadNotice: string = '';
   /** 最近一次失败的产物 key：列表行据此显示 err 文案 + 单个「重试」。 */
@@ -5382,7 +5385,18 @@ struct Index {
         }
       } else if (this.previewOutput.video) {
         // 预览区同列表行：首帧抽到就 Cover 铺满，抽不到退回原占位。 
-        VideoThumb({ url: this.artifactUrl(this.previewOutput), isDark: this.isDark, hint: '点击播放' })
+        if (this.videoInline) {
+          VideoPlayer({ url: this.artifactUrl(this.previewOutput), isDark: this.isDark })
+            .width('100%')
+            .height('100%')
+        } else {
+          VideoThumb({ url: this.artifactUrl(this.previewOutput), isDark: this.isDark, hint: '点击播放' })
+            .width('100%')
+            .height('100%')
+            .onClick(() => {
+              this.videoInline = true;
+            })
+        }
       } else {
         Text('该类型暂不支持内置预览，请下载后打开。')
           .fontSize(12)
