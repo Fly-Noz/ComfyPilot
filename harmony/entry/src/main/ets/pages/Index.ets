@@ -3295,6 +3295,9 @@ struct Index {
       }
 
       // ---- 内容：节点列表 / 预览 ----
+      // 内容与底栏放在同一个 Stack 里：胶囊浮在列表之上，列表能从玻璃后面透出来。
+      Stack({ alignContent: Alignment.Bottom }) {
+        Column() {
       if (this.detailTab === 0) {
         Scroll(this.scroller) {
           Column({ space: 9 }) {
@@ -3323,7 +3326,7 @@ struct Index {
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)
-          .padding({ left: 4, right: 4, top: 6, bottom: 12 })
+          .padding({ left: 4, right: 4, top: 6, bottom: 84 })
         }
         .layoutWeight(1)
         .width('100%')
@@ -3335,7 +3338,7 @@ struct Index {
             this.DetailPreview()
           }
           .width('100%')
-          .padding({ left: 4, right: 4, top: 6, bottom: 12 })
+          .padding({ left: 4, right: 4, top: 6, bottom: 84 })
         }
         .layoutWeight(1)
         .width('100%')
@@ -3343,8 +3346,12 @@ struct Index {
         .align(Alignment.Top)
       }
 
-      // ---- 底部提交条：悬浮玻璃胶囊（不再是铺满底部的整条） ----
-      Row() {
+        }
+        .width('100%')
+        .height('100%')
+
+        // ---- 底部提交条：悬浮玻璃胶囊，浮在列表之上 ----
+        Row() {
         Column({ space: 8 }) {
           if (this.submitNotice.length > 0 &&
             !this.isErrorDismissed(this.workflowScopeId('submit'), this.submitNotice)) {
@@ -3413,7 +3420,10 @@ struct Index {
         .shadow({ radius: 16, color: this.c().isDark ? 'rgba(0,0,0,0.32)' : 'rgba(31,41,55,0.14)', offsetX: 0, offsetY: 5 })
       }
       .width('100%')
-      .padding({ left: 14, right: 14, bottom: 10 })
+      .padding({ left: 14, right: 14, bottom: 6 })
+      }
+      .layoutWeight(1)
+      .width('100%')
     }
     .width('100%')
     .height('100%')
