@@ -40,6 +40,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -78,6 +79,8 @@ import kotlin.math.roundToInt
 @Composable
 fun NodeGraphDialog(
     raw: String,
+    /** 节点 id → 生效模式（文件里的 mode 叠加本次会话的逐节点开关）。 */
+    effectiveModes: Map<Int, Int>,
     onDismiss: () -> Unit,
 ) {
     val c = Spectrum.colors
@@ -323,6 +326,7 @@ fun NodeGraphDialog(
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         drawScene(
                             graph = graph,
+                            modes = effectiveModes,
                             scale = scale,
                             offset = offset,
                             selected = selected,
@@ -440,6 +444,7 @@ internal fun graphBounds(graph: UiGraph?): Rect? {
  */
 private fun DrawScope.drawScene(
     graph: UiGraph?,
+    modes: Map<Int, Int>,
     scale: Float,
     offset: Offset,
     selected: Int?,
@@ -500,6 +505,7 @@ private fun DrawScope.drawScene(
 
     // 连线：源节点右中 → 目标节点左中，三次贝塞尔
     val byId = graph.byId
+    fun modeOf(node: UiNode): Int = modes[node.id] ?: node.mode
     graph.links.values.forEach { link ->
         val from = byId[link.originId] ?: return@forEach
         val to = byId[link.targetId] ?: return@forEach
@@ -512,7 +518,7 @@ private fun DrawScope.drawScene(
         }
         drawPath(
             path = path,
-            color = if (from.mode == UiWorkflowParser.MODE_NORMAL && to.mode == UiWorkflowParser.MODE_NORMAL) {
+            color = if (modeOf(from) == UiWorkflowParser.MODE_NORMAL && modeOf(to) == UiWorkflowParser.MODE_NORMAL) {
                 c.accent.copy(alpha = 0.55f)
             } else {
                 c.textDim.copy(alpha = 0.28f)
@@ -527,7 +533,7 @@ private fun DrawScope.drawScene(
         val topLeft = Offset(sx(node.x), sy(node.y))
         val size = Size(node.width.toFloat() * scale, node.height.toFloat() * scale)
         if (size.width < 1.5f || size.height < 1.5f) return@forEach
-        val active = node.mode == UiWorkflowParser.MODE_NORMAL
+        val active = modeOf(node) == UiWorkflowParser.MODE_NORMAL
         val alpha = if (active) 1f else 0.42f
         val radius = CornerRadius(6f.coerceAtLeast(min(10f, size.height * 0.25f)))
         // 节点本体：比分组框亮一档，形成"浮在画布上"的层次
@@ -538,7 +544,9 @@ private fun DrawScope.drawScene(
             cornerRadius = radius,
         )
         // 顶部标题条：启用=强调色，旁路/静音=灰
-        val headerH = min(size.height, max(4f, 16f.coerceAtMost(size.height * 0.32f)))
+        // 标题条要容得下字号，否则文字会溢出到块外、被下一层盖掉半截
+        val titlePx = (size.height * 0.16f).coerceIn(9f, 26f)
+        val headerH = (titlePx + 6f).coerceAtLeast(14f).coerceAtMost(size.height * 0.42f)
         drawRoundRect(
             color = (if (active) c.accent else c.textDim).copy(alpha = 0.85f * alpha),
             topLeft = topLeft,
@@ -580,7 +588,6 @@ private fun DrawScope.drawScene(
         }
         if (size.width >= 72f && size.height >= 26f) {
             // 字号跟着块大小走：缩小时字也缩小，避免几十个标签互相压叠
-            val titlePx = (size.height * 0.20f).coerceIn(9f, 30f)
             val bucket = titlePx.roundToInt()
             val title = node.title?.takeIf { it.isNotBlank() } ?: node.type
             val label = labels.getOrPut(node.id * 1000 + bucket) {
@@ -595,10 +602,17 @@ private fun DrawScope.drawScene(
                     constraints = Constraints(maxWidth = max(20, size.width.roundToInt() - 8)),
                 )
             }
-            drawText(
-                label,
-                topLeft = topLeft + Offset(4f, max(0f, (headerH - label.size.height) / 2f)),
-            )
+            clipRect(
+                left = topLeft.x,
+                top = topLeft.y,
+                right = topLeft.x + size.width,
+                bottom = topLeft.y + headerH,
+            ) {
+                drawText(
+                    label,
+                    topLeft = topLeft + Offset(4f, max(0f, (headerH - label.size.height) / 2f)),
+                )
+            }
         }
         // 类型行：节点明显放大后才补，避免小方块里出现两行糊字
         val displayTitle = node.title?.takeIf { it.isNotBlank() } ?: node.type
@@ -615,7 +629,14 @@ private fun DrawScope.drawScene(
                     constraints = Constraints(maxWidth = max(20, size.width.roundToInt() - 8)),
                 )
             }
-            drawText(typeLabel, topLeft = topLeft + Offset(4f, headerH + 3f))
+            clipRect(
+                left = topLeft.x,
+                top = topLeft.y + headerH,
+                right = topLeft.x + size.width,
+                bottom = topLeft.y + size.height,
+            ) {
+                drawText(typeLabel, topLeft = topLeft + Offset(4f, headerH + 3f))
+            }
         }
     }
 }

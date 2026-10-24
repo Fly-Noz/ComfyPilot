@@ -756,6 +756,9 @@ private fun DetailBody(
     if (graphOpen) {
         NodeGraphDialog(
             raw = document.raw,
+            // 用视图里的生效模式（文件 mode + 本次会话的逐节点开关），
+            // 而不是原始 JSON 里的 mode——否则图上的亮/灰和用户刚点的不一致。
+            effectiveModes = fields.nodes.associate { it.id to it.mode },
             onDismiss = { graphOpen = false },
         )
     }
