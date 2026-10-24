@@ -33,6 +33,7 @@ import {
   BuildProblemView,
   DisableImpactResponse,
   GraphLinkOverride,
+  NodeFieldRow,
   PromptResponse,
   WorkflowFieldView,
   WorkflowGraphView,
@@ -1829,7 +1830,30 @@ struct Index {
    * 这里不排序、不滚动：节点顺序由共享层按工作流原文给出，关掉一个节点 
    * 不能让它跳到列表底部（`orderReachable` 在共享层已经处理好了）。 
    */
-  private applyNodeBypass(nodeId: number, bypassed: boolean): void {
+
+  /** 节点图浮层的参数行：标签 + 展示值。值已经在共享层格式化，这里只做兜底。 */
+  private graphFieldRows(): NodeFieldRow[] {
+    const rows: NodeFieldRow[] = [];
+    this.view.nodes.forEach((node: WorkflowNodeView) => {
+      node.fields.forEach((field: WorkflowFieldView) => {
+        let value = '—';
+        if (field.linked) {
+          value = '由连线提供';
+        } else if (!field.widget) {
+          value = '需要连线';
+        } else if (field.valueText.length > 0) {
+          value = field.valueText;
+        }
+        rows.push({
+          nodeId: field.nodeId,
+          name: field.label.length > 0 ? field.label : field.inputName,
+          value: value,
+          type: field.type,
+        });
+      });
+    });
+    return rows;
+  }  private applyNodeBypass(nodeId: number, bypassed: boolean): void {
     if (bypassed) {
       if (!this.bypassedIds.includes(nodeId)) {
         this.bypassedIds = [...this.bypassedIds, nodeId];
@@ -6817,6 +6841,7 @@ struct Index {
           graph: this.view.graph,
           isDark: this.c().isDark,
           topInset: px2vp(this.statusBarPx),
+          fieldRows: this.graphFieldRows(),
           bypassedIds: this.bypassedIds,
           enabledIds: this.enabledIds,
           removedLinkIds: this.removedLinkIds,

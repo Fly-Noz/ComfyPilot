@@ -1,6 +1,7 @@
 import { Palette, Spectrum } from '../theme/Spectrum';
 import {
   GraphLinkOverride,
+  NodeFieldRow,
   GraphLinkView,
   GraphNodeView,
   WorkflowGraphData,
@@ -51,6 +52,8 @@ export struct WorkflowGraphOverlay {
   @Prop isDark: boolean;
   /** 状态栏高度（vp）：顶栏要避开系统通知栏。 */
   @Prop topInset: number;
+  /** 参数名/值：节点卡片展开时显示真实值。 */
+  @Prop fieldRows: NodeFieldRow[];
   @Prop bypassedIds: number[];
   @Prop enabledIds: number[];
   @Prop removedLinkIds: number[];
@@ -72,6 +75,7 @@ export struct WorkflowGraphOverlay {
   @State private linkStart: string = '';
   @State private pendingLink: string = '';
   @State private cardExpanded: boolean = false;
+  @State private query: string = '';
 
   private fitted: boolean = false;
   private panBaseX: number = 0;
@@ -378,7 +382,32 @@ export struct WorkflowGraphOverlay {
     return result;
   }
 
-  private hitNode(x: number, y: number): number {
+
+  private searchResults(): GraphNodeView[] {
+    const q = this.query.trim().toLowerCase();
+    if (q.length === 0) {
+      return [];
+    }
+    return this.graph.nodes
+      .filter((node: GraphNodeView) =>
+        node.type.toLowerCase().includes(q) ||
+        node.title.toLowerCase().includes(q) ||
+        `${node.id}`.includes(q))
+      .slice(0, 8);
+  }
+
+  /** 把某个节点移到画布中心并选中。 */
+  private centerOnNode(node: GraphNodeView): void {
+    this.originX = this.ctx.width / 2 - (node.x + node.w / 2) * this.zoom;
+    this.originY = this.ctx.height / 2 - (node.y + node.h / 2) * this.zoom;
+    this.query = '';
+    this.selectedNode = node.id;
+    this.selectedSlot = '';
+    this.linkStart = '';
+    this.pendingLink = '';
+    this.cardExpanded = false;
+    this.draw();
+  }  private hitNode(x: number, y: number): number {
     let hit = -1;
     this.graph.nodes.forEach((node: GraphNodeView) => {
       const left = this.sx(node.x);
@@ -555,6 +584,48 @@ export struct WorkflowGraphOverlay {
       .backgroundColor(this.c().background)
       .position({ x: 0, y: 0 });
 
+      TextInput({ placeholder: '搜索节点名 / 类型 / 编号', text: this.query })
+        .fontSize(12)
+        .fontColor(this.c().text)
+        .placeholderColor(this.c().textDim)
+        .backgroundColor(this.c().card)
+        .borderRadius(12)
+        .border({ width: 1, color: this.c().border })
+        .height(36)
+        .padding({ left: 12, right: 12 })
+        .margin({ left: 14, right: 14 })
+        .position({ x: 0, y: 56 + this.topInset })
+        .width('100%')
+        .onChange((value: string) => {
+          this.query = value;
+        });
+
+      if (this.query.trim().length > 0) {
+        Column() {
+          ForEach(this.searchResults(), (node: GraphNodeView) => {
+            Row() {
+              Text(`#${node.id}`)
+                .fontSize(10)
+                .fontFamily('monospace')
+                .fontColor(this.c().textDim)
+                .width(48);
+              Text(this.nodeLabel(node))
+                .fontSize(12)
+                .fontColor(this.c().text)
+                .layoutWeight(1)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis });
+            }
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+            .onClick(() => this.centerOnNode(node));
+          }, (node: GraphNodeView) => `${node.id}`);
+        }
+        .width('100%')
+        .padding({ left: 14, right: 14 })
+        .position({ x: 0, y: 96 + this.topInset });
+      }
+
       // 底部卡片
       if (this.selectedSlot.length > 0) {
         this.slotCard();
@@ -677,19 +748,25 @@ export struct WorkflowGraphOverlay {
         .width('100%');
 
         if (this.cardExpanded) {
-          ForEach(this.nodeFieldNames(), (name: string) => {
+          ForEach(this.nodeFields(), (row: NodeFieldRow) => {
             Row() {
-              Text(name)
+              Text(row.name)
                 .fontSize(11)
                 .fontColor(this.c().textMuted)
-                .layoutWeight(1);
-              Text('—')
+                .layoutWeight(1)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis });
+              Text(row.value)
                 .fontSize(11)
-                .fontColor(this.c().textDim);
+                .fontFamily('monospace')
+                .fontColor(this.c().text)
+                .layoutWeight(1.4)
+                .maxLines(2)
+                .textOverflow({ overflow: TextOverflow.Ellipsis });
             }
             .width('100%')
             .padding({ top: 4, bottom: 4 });
-          }, (name: string) => name);
+          }, (row: NodeFieldRow) => `${row.nodeId}:${row.name}`);
         }
       }
     }
@@ -784,12 +861,8 @@ export struct WorkflowGraphOverlay {
     return `${node.type} · ${state}${graphState} · 输入 ${node.inputs.length} / 输出 ${node.outputs.length}`;
   }
 
-  private nodeFieldNames(): string[] {
-    const node = this.selectedNodeData();
-    if (node === null) {
-      return [];
-    }
-    return node.inputs.map((input) => `${input.name} (${input.type})`);
+  private nodeFields(): NodeFieldRow[] {
+    return this.fieldRows.filter((row: NodeFieldRow) => row.nodeId === this.selectedNode);
   }
 
   private pendingPair(): PendingPair | null {

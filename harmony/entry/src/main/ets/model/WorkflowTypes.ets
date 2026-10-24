@@ -173,3 +173,11 @@ export interface GraphLinkOverride {
   originSlot: number;
   type: string;
 }
+
+/** 节点卡片里的一行参数：名称 + 展示值（节点图浮层用）。 */
+export interface NodeFieldRow {
+  nodeId: number;
+  name: string;
+  value: string;
+  type: string;
+}
