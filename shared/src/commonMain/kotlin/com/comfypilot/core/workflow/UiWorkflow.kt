@@ -25,6 +25,7 @@ data class UiGraph(
 
     /** 把某一个独立节点图里的节点临时当作正常执行（用于在 App 里启用被旁路的图）。 */
     fun withForcedNormal(ids: Set<Int>): UiGraph = withEffectiveModes(forcedNormalNodeIds = ids)
+
     /**
      * 断开若干条连线：链接本身移除，对应的输入 linkId 置空。
      *
@@ -56,6 +57,51 @@ data class UiGraph(
         }
 
     /**
+     * 把某个输入重新接到指定的输出（originNodeId 为空表示断开这个输入）。
+     *
+     * 只用于会话级连线编辑：原连线会被移除，新连线用负 id（与文件里的正 id 不冲突），
+     * 输入自身的 linkId 同步更新，因此 PromptBuilder / 字段视图都会按新拓扑计算。
+     */
+    fun withInputLinks(overrides: List<InputLinkOverride>): UiGraph {
+        if (overrides.isEmpty()) return this
+        val nodesById = nodes.associateBy { it.id }
+        val linksMutable = links.toMutableMap()
+        var syntheticId = -1
+        val updatedNodes = nodes.toMutableList()
+        overrides.forEach { override ->
+            val nodeIndex = updatedNodes.indexOfFirst { it.id == override.nodeId }
+            if (nodeIndex < 0) return@forEach
+            val node = updatedNodes[nodeIndex]
+            val inputIndex = node.inputs.indexOfFirst { it.name == override.inputName }
+            if (inputIndex < 0) return@forEach
+            val input = node.inputs[inputIndex]
+            input.linkId?.let { linksMutable.remove(it) }
+            if (override.originNodeId == null || nodesById[override.originNodeId] == null) {
+                updatedNodes[nodeIndex] = node.copy(
+                    inputs = node.inputs.mapIndexed { i, slot ->
+                        if (i == inputIndex) slot.copy(linkId = null) else slot
+                    },
+                )
+                return@forEach
+            }
+            val newId = syntheticId--
+            linksMutable[newId] = UiLink(
+                id = newId,
+                originId = override.originNodeId,
+                originSlot = override.originSlot,
+                targetId = override.nodeId,
+                targetSlot = inputIndex,
+                type = override.type.ifBlank { input.type },
+            )
+            updatedNodes[nodeIndex] = node.copy(
+                inputs = node.inputs.mapIndexed { i, slot ->
+                    if (i == inputIndex) slot.copy(linkId = newId) else slot
+                },
+            )
+        }
+        return copy(nodes = updatedNodes, links = linksMutable)
+    }
+/**
      * 应用本次会话的节点模式覆盖。
      *
      * 优先级从高到低：用户逐个关闭 > 用户逐个重新启用 > 图级强制启用 > 文件里保存的模式。
@@ -261,3 +307,12 @@ private fun JsonElement?.asIntOrNull(): Int? =
 
 private fun JsonElement?.asDoubleOrNull(): Double? =
     (this as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
+
+/** 把 [nodeId] 的 [inputName] 输入重新接到 [originNodeId].[originSlot]；[originNodeId] 为 null 表示断开。 */
+data class InputLinkOverride(
+    val nodeId: Int,
+    val inputName: String,
+    val originNodeId: Int? = null,
+    val originSlot: Int = 0,
+    val type: String = "",
+)

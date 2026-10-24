@@ -82,6 +82,8 @@ object PromptBuilder {
         runToken: String? = null,
         /** 本次会话里被用户断开的连线：构建时按输入未连接处理。 */
         removedLinkIds: Set<Int> = emptySet(),
+        /** 会话级新建/改接连线：在解析后应用到图上。 */
+        linkOverrides: List<InputLinkOverride> = emptyList(),
     ): PromptBuild {
         when (document.format) {
             WorkflowFormat.API -> {
@@ -106,6 +108,7 @@ object PromptBuilder {
             ?: return PromptBuild.Blocked(listOf(BuildProblem(message = "工作流不是有效的网页格式 JSON")))
         val graph = parsed
             .withoutLinks(removedLinkIds)
+            .withInputLinks(linkOverrides)
             .withEffectiveModes(
                 forcedNormalNodeIds = forcedNormalNodeIds,
                 bypassedNodeIds = bypassedNodeIds,

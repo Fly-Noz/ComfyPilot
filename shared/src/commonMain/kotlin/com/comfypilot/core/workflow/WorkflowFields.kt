@@ -105,6 +105,7 @@ object WorkflowFields {
         bypassedNodeIds: Set<Int> = emptySet(),
         enabledNodeIds: Set<Int> = emptySet(),
         removedLinkIds: Set<Int> = emptySet(),
+        linkOverrides: List<InputLinkOverride> = emptyList(),
     ): WorkflowFieldView {
         if (document.format != WorkflowFormat.UI) {
             return WorkflowFieldView(
@@ -126,7 +127,7 @@ object WorkflowFields {
                 nodes = emptyList(),
                 problems = listOf(BuildProblem(message = "工作流不是有效的网页格式 JSON")),
             )
-        val graph = parsed.withoutLinks(removedLinkIds).withEffectiveModes(
+        val graph = parsed.withoutLinks(removedLinkIds).withInputLinks(linkOverrides).withEffectiveModes(
             forcedNormalNodeIds = forcedNormalNodeIds,
             bypassedNodeIds = bypassedNodeIds,
             enabledNodeIds = enabledNodeIds,

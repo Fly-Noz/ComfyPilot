@@ -259,6 +259,8 @@ private fun DetailBody(
     // 节点图、字段和待加载定义都由共享层决定；这里只缓存与字段值无关的部分。
     // 本次会话里断开的连线（不写回文件，只影响提交与视图）。
     var removedLinks by remember(document.path) { mutableStateOf<Set<Int>>(emptySet()) }
+    // 会话级连线改接（把某个输入接到别的输出）。
+    var linkOverrides by remember(document.path) { mutableStateOf<List<com.comfypilot.core.workflow.InputLinkOverride>>(emptyList()) }
 
     val analysis = remember(
         document,
@@ -268,6 +270,7 @@ private fun DetailBody(
         bypassedNodeIds,
         enabledNodeIds,
         removedLinks,
+        linkOverrides,
     ) {
         WorkflowDecisions.analyze(
             document = document,
@@ -277,6 +280,7 @@ private fun DetailBody(
             bypassedNodeIds = bypassedNodeIds,
             enabledNodeIds = enabledNodeIds,
             removedLinkIds = removedLinks,
+            linkOverrides = linkOverrides,
         )
     }
     val graphs = analysis.graphs
@@ -769,6 +773,12 @@ private fun DetailBody(
             nodeEnabled = fields.nodes.associate { it.id to (it.mode == 0) },
             removedLinkIds = removedLinks,
             onRemoveLink = { linkId -> removedLinks = removedLinks + linkId },
+            linkOverrides = linkOverrides,
+            onAddLink = { override ->
+                linkOverrides = linkOverrides.filterNot {
+                    it.nodeId == override.nodeId && it.inputName == override.inputName
+                } + override
+            },
             onToggleNode = { nodeId, enabled ->
                 onSetNodeBypassed(nodeId, !enabled)
             },

@@ -98,11 +98,18 @@ fun NodeGraphDialog(
     removedLinkIds: Set<Int>,
     /** 断开一条连线（父级负责持久到会话状态）。 */
     onRemoveLink: (Int) -> Unit,
+    /** 会话级连线改接：把某输入接到另一个输出。 */
+    linkOverrides: List<com.comfypilot.core.workflow.InputLinkOverride>,
+    onAddLink: (com.comfypilot.core.workflow.InputLinkOverride) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val c = Spectrum.colors
     val density = LocalDensity.current.density
-    val graph = remember(raw) { UiWorkflowParser.parse(raw) }
+    val graph = remember(raw, removedLinkIds, linkOverrides) {
+        UiWorkflowParser.parse(raw)
+            ?.withoutLinks(removedLinkIds)
+            ?.withInputLinks(linkOverrides)
+    }
     val measurer = rememberTextMeasurer()
     // 文本布局只跟节点宽度、字号有关，与缩放无关；跨帧缓存，避免每帧重排上百段文字。
     val labels = remember(graph) { mutableMapOf<Int, TextLayoutResult>() }
@@ -114,6 +121,17 @@ fun NodeGraphDialog(
     // 参数卡片默认只显示标题行，用户点「展开」才列出参数。
     var cardExpanded by remember(graph) { mutableStateOf(false) }
     var selectedLink by remember(graph) { mutableStateOf<Int?>(null) }
+    // 参数级连线：选中的槽位、连线起点、待确认的一对槽位
+    var selectedSlot by remember(graph) { mutableStateOf<SlotRef?>(null) }
+    var linkStart by remember(graph) { mutableStateOf<SlotRef?>(null) }
+    var pendingLink by remember(graph) { mutableStateOf<Pair<SlotRef, SlotRef>?>(null) }
+    val highlightSlots: Set<Int> = remember(selectedSlot, linkStart, pendingLink) {
+        buildSet {
+            selectedSlot?.let { add(it.key) }
+            linkStart?.let { add(it.key) }
+            pendingLink?.let { add(it.first.key); add(it.second.key) }
+        }
+    }
     var confirmLinkRemoval by remember(graph) { mutableStateOf(false) }
     LaunchedEffect(selected) { cardExpanded = false }
     LaunchedEffect(selectedLink) { confirmLinkRemoval = false }
@@ -343,28 +361,37 @@ fun NodeGraphDialog(
                             detectTapGestures(
                                 onTap = { tap ->
 
-                                    val world = (tap - offset) / scale
-                                    val hit = nodes.firstOrNull { node ->
-                                        world.x >= node.x &&
-                                            world.x <= node.x + node.width &&
-                                            world.y >= node.y &&
-                                            world.y <= node.y + node.height
-                                    }
-                                    if (hit != null) {
-                                        selected = hit.id
+                                    // 先判参数槽位（连线入口），再判节点体
+                                    val slot = if (graph == null) null else hitSlot(graph, tap, scale, offset)
+                                    val start = linkStart
+                                    if (start != null && slot != null) {
+                                        val out = if (!start.input) start else if (!slot.input) slot else null
+                                        val inn = if (start.input) start else if (slot.input) slot else null
+                                        if (out != null && inn != null && out.nodeId != inn.nodeId) {
+                                            pendingLink = out to inn
+                                            linkStart = null
+                                            selectedSlot = null
+                                            selected = null
+                                        }
+                                    } else if (slot != null) {
+                                        selectedSlot = slot
+                                        linkStart = null
+                                        pendingLink = null
+                                        selected = null
                                         selectedLink = null
                                     } else {
-                                        // 连线很细：按屏幕距离 14px 判定命中，手指不用精确压线
-                                        val nearest = if (graph == null) null else nearestLink(
-                                            graph = graph,
-                                            tap = tap,
-                                            scale = scale,
-                                            offset = offset,
-                                            removedLinkIds = removedLinkIds,
-                                            threshold = 14f,
-                                        )
-                                        selectedLink = nearest
-                                        selected = null
+                                        val world = (tap - offset) / scale
+                                        val hit = nodes.firstOrNull { node ->
+                                            world.x >= node.x &&
+                                                world.x <= node.x + node.width &&
+                                                world.y >= node.y &&
+                                                world.y <= node.y + node.height
+                                        }
+                                        selected = hit?.id
+                                        selectedLink = null
+                                        selectedSlot = null
+                                        linkStart = null
+                                        pendingLink = null
                                     }
                                 },
                                 onDoubleTap = { fitToScreen() },
@@ -379,6 +406,7 @@ fun NodeGraphDialog(
                             disabledIds = disabledNodeIds,
                             removedLinkIds = removedLinkIds,
                             selectedLink = selectedLink,
+                            highlightSlots = highlightSlots,
                             scale = scale,
                             offset = offset,
                             selected = selected,
@@ -500,6 +528,166 @@ fun NodeGraphDialog(
                                             onClick = { confirmLinkRemoval = false },
                                         )
                                     }
+                                }
+                            }
+                        }
+                    }
+                    val slot = selectedSlot
+                    if (slot != null && graph != null) {
+                        val node = graph.byId[slot.nodeId]
+                        val slotName = if (slot.input) {
+                            node?.inputs?.getOrNull(slot.index)?.name
+                        } else {
+                            node?.outputs?.getOrNull(slot.index)?.name
+                        }
+                        val slotType = if (slot.input) {
+                            node?.inputs?.getOrNull(slot.index)?.type
+                        } else {
+                            node?.outputs?.getOrNull(slot.index)?.type
+                        }
+                        val linkedId = if (slot.input) node?.inputs?.getOrNull(slot.index)?.linkId else null
+                        val linking = linkStart?.key == slot.key
+                        if (node != null && slotName != null) {
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .padding(10.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(c.dialog.copy(alpha = 0.96f))
+                                    .border(1.dp, c.accentBorder, RoundedCornerShape(14.dp))
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "#${node.id} ${nodeLabel(node)} · $slotName",
+                                        color = c.text,
+                                        fontSize = 12.5.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text(
+                                        "✕",
+                                        color = c.textMuted,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { selectedSlot = null; linkStart = null }
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                    )
+                                }
+                                Text(
+                                    "类型 ${slotType ?: "?"} · ${if (linkedId != null) "已连接" else "未连接"}",
+                                    color = c.textDim,
+                                    fontSize = 9.5.sp,
+                                    fontFamily = SpectrumMono,
+                                )
+                                if (linking) {
+                                    Text(
+                                        "已选中这个参数，去点另一个节点的输出/输入完成连线",
+                                        color = c.accent,
+                                        fontSize = 11.sp,
+                                    )
+                                }
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    if (linking) {
+                                        ActionChip(
+                                            text = "取消连线",
+                                            tone = c.textMuted,
+                                            onClick = { linkStart = null },
+                                        )
+                                    } else {
+                                        ActionChip(
+                                            text = "连线",
+                                            tone = c.accent,
+                                            onClick = { linkStart = slot },
+                                        )
+                                    }
+                                    if (slot.input && linkedId != null) {
+                                        ActionChip(
+                                            text = "断开此参数连线",
+                                            tone = c.warn,
+                                            onClick = {
+                                                onRemoveLink(linkedId)
+                                                selectedSlot = null
+                                            },
+                                        )
+                                    }
+                                    ActionChip(
+                                        text = "关闭",
+                                        tone = c.textMuted,
+                                        onClick = { selectedSlot = null; linkStart = null },
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    val pending = pendingLink
+                    if (pending != null && graph != null) {
+                        val (outSlot, inSlot) = pending
+                        val outNode = graph.byId[outSlot.nodeId]
+                        val inNode = graph.byId[inSlot.nodeId]
+                        val outName = outNode?.outputs?.getOrNull(outSlot.index)?.name ?: "?"
+                        val inName = inNode?.inputs?.getOrNull(inSlot.index)?.name ?: "?"
+                        val linkType = outNode?.outputs?.getOrNull(outSlot.index)?.type
+                            ?: inNode?.inputs?.getOrNull(inSlot.index)?.type
+                            ?: "?"
+                        if (outNode != null && inNode != null) {
+                            Column(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .padding(10.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(c.dialog.copy(alpha = 0.96f))
+                                    .border(1.dp, c.accent, RoundedCornerShape(14.dp))
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    "新建连线",
+                                    color = c.accent,
+                                    fontSize = 11.sp,
+                                    fontFamily = SpectrumMono,
+                                )
+                                Text(
+                                    "${nodeLabel(outNode)}.$outName  →  ${nodeLabel(inNode)}.$inName",
+                                    color = c.text,
+                                    fontSize = 12.5.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    "类型 $linkType",
+                                    color = c.textDim,
+                                    fontSize = 9.5.sp,
+                                    fontFamily = SpectrumMono,
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    ActionChip(
+                                        text = "确认连线",
+                                        tone = c.ok,
+                                        onClick = {
+                                            onAddLink(
+                                                com.comfypilot.core.workflow.InputLinkOverride(
+                                                    nodeId = inNode.id,
+                                                    inputName = inName,
+                                                    originNodeId = outNode.id,
+                                                    originSlot = outSlot.index,
+                                                    type = linkType,
+                                                ),
+                                            )
+                                            pendingLink = null
+                                        },
+                                    )
+                                    ActionChip(
+                                        text = "取消",
+                                        tone = c.textMuted,
+                                        onClick = { pendingLink = null },
+                                    )
                                 }
                             }
                         }
@@ -686,6 +874,7 @@ private fun DrawScope.drawScene(
     disabledIds: Set<Int>,
     removedLinkIds: Set<Int>,
     selectedLink: Int?,
+    highlightSlots: Set<Int>,
     scale: Float,
     offset: Offset,
     selected: Int?,
@@ -896,11 +1085,21 @@ private fun DrawScope.drawScene(
             val y = sy(slotYWorld(node, index))
             if (y < topLeft.y || y > topLeft.y + size.height) return
             val x = if (input) topLeft.x else topLeft.x + size.width
+            val slotKey = nodeId * 1000 + index * 2 + (if (input) 1 else 0)
+            val highlighted = slotKey in highlightSlots
             drawCircle(
-                color = if (active) c.accent.copy(alpha = 0.9f) else c.textDim.copy(alpha = 0.6f),
-                radius = dotR,
+                color = if (highlighted) c.accent else if (active) c.accent.copy(alpha = 0.9f) else c.textDim.copy(alpha = 0.6f),
+                radius = if (highlighted) dotR + 2.5f else dotR,
                 center = Offset(x, y),
             )
+            if (highlighted) {
+                drawCircle(
+                    color = c.accent.copy(alpha = 0.45f),
+                    radius = dotR + 7f,
+                    center = Offset(x, y),
+                    style = Stroke(width = 1.6f),
+                )
+            }
             if (!showNames || slotName.isBlank()) return
             // 参数名只占半张卡片宽，按实际测量收缩，不省略。
             val label = fitLabel(
@@ -1138,3 +1337,55 @@ private fun nearestLink(
 /** 卡片上展示节点名：优先标题，其次类型，最后编号。 */
 private fun nodeLabel(node: UiNode): String =
     node.title?.takeIf { it.isNotBlank() } ?: node.type.ifBlank { "#${node.id}" }
+
+/** 节点图里的一个参数槽位（input=true 表示输入）。 */
+private data class SlotRef(val nodeId: Int, val index: Int, val input: Boolean) {
+    val key: Int get() = nodeId * 1000 + index * 2 + (if (input) 1 else 0)
+}
+
+private fun slotScreenPoint(
+    node: UiNode,
+    index: Int,
+    input: Boolean,
+    scale: Float,
+    offset: Offset,
+): Offset {
+    val slots = max(node.inputs.size, node.outputs.size).coerceAtLeast(1)
+    val header = node.height * 0.26
+    val usable = (node.height - header).coerceAtLeast(1.0)
+    val step = (usable / slots).coerceIn(4.0, 22.0)
+    val worldY = node.y + header + step * (index + 0.5)
+    val worldX = if (input) node.x else node.x + node.width
+    return Offset(worldX.toFloat() * scale + offset.x, worldY.toFloat() * scale + offset.y)
+}
+
+/** 找到离点击位置最近的参数圆点；22px 以内算命中。 */
+private fun hitSlot(
+    graph: UiGraph,
+    tap: Offset,
+    scale: Float,
+    offset: Offset,
+    threshold: Float = 22f,
+): SlotRef? {
+    var best: SlotRef? = null
+    var bestDistance = threshold
+    graph.nodes.forEach { node ->
+        node.inputs.forEachIndexed { index, _ ->
+            val p = slotScreenPoint(node, index, input = true, scale = scale, offset = offset)
+            val d = (tap - p).getDistance()
+            if (d < bestDistance) {
+                bestDistance = d
+                best = SlotRef(node.id, index, input = true)
+            }
+        }
+        node.outputs.forEachIndexed { index, _ ->
+            val p = slotScreenPoint(node, index, input = false, scale = scale, offset = offset)
+            val d = (tap - p).getDistance()
+            if (d < bestDistance) {
+                bestDistance = d
+                best = SlotRef(node.id, index, input = false)
+            }
+        }
+    }
+    return best
+}
