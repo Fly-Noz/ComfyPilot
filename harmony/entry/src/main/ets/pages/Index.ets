@@ -3422,7 +3422,7 @@ struct Index {
         .shadow({ radius: 16, color: this.c().isDark ? 'rgba(0,0,0,0.32)' : 'rgba(31,41,55,0.14)', offsetX: 0, offsetY: 5 })
       }
       .width('100%')
-      .padding({ left: 14, right: 14, bottom: 6 })
+      .padding({ left: 14, right: 14, bottom: 56 + px2vp(this.navBarPx) })
       }
       .layoutWeight(1)
       .width('100%')
