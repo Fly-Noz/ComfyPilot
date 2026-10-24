@@ -66,10 +66,24 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 
-/** 全屏背景：底色 + 三层色晕。所有页面共用同一层，切换屏幕不闪。 */
+/**
+ * 全屏背景：底色 + 三层色晕。所有页面共用同一层，切换屏幕不闪。
+ * 光晕用 14 秒循环做极小幅度的呼吸（半径 ±4%、透明度 0.92~1），肉眼几乎察觉不到，
+ * 但静态背景会显得“死”，动起来更像一块活的玻璃。
+ */
 @Composable
 fun SpectrumBackdrop(modifier: Modifier = Modifier) {
     val c = Spectrum.colors
+    val breath = rememberInfiniteTransition(label = "backdrop")
+    val breathe by breath.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 7_000),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "backdrop-breathe",
+    )
     Canvas(modifier = modifier.fillMaxSize()) {
         drawRect(c.background)
         val w = size.width
@@ -87,9 +101,11 @@ fun SpectrumBackdrop(modifier: Modifier = Modifier) {
             )
         }
 
-        glow(c.glowTop, cx = w * 0.86f, cy = -h * 0.01f, radius = w * 1.05f)
-        glow(c.glowSide, cx = w * 0.02f, cy = h * 0.13f, radius = w * 0.95f)
-        glow(c.glowBottom, cx = w * 0.55f, cy = h * 1.02f, radius = w * 1.1f)
+        val scale = 0.96f + 0.08f * breathe
+        val pulse = 0.92f + 0.08f * breathe
+        glow(c.glowTop.copy(alpha = c.glowTop.alpha * pulse), cx = w * 0.86f, cy = -h * 0.01f, radius = w * 1.05f * scale)
+        glow(c.glowSide.copy(alpha = c.glowSide.alpha * (1.84f - pulse)), cx = w * 0.02f, cy = h * 0.13f, radius = w * 0.95f * (1.92f - scale))
+        glow(c.glowBottom, cx = w * 0.55f, cy = h * 1.02f, radius = w * 1.1f * (0.96f + 0.04f * breathe))
     }
 }
 
@@ -485,6 +501,11 @@ fun SpectrumProgress(
     height: Dp = 7.dp,
 ) {
     val c = Spectrum.colors
+    val animated by animateFloatAsState(
+        targetValue = fraction.coerceIn(0f, 1f),
+        animationSpec = tween(durationMillis = 320),
+        label = "progress",
+    )
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -494,7 +515,7 @@ fun SpectrumProgress(
     ) {
         Box(
             modifier = Modifier
-                .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                .fillMaxWidth(animated)
                 .height(height)
                 .clip(RoundedCornerShape(50))
                 .background(c.gradientBrush()),

@@ -13,6 +13,8 @@ import androidx.compose.material3.CircularProgressIndicator
 import com.comfypilot.app.ui.theme.ShimmerBox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -22,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.comfypilot.android.transport.OkHttpHttpTransport
@@ -61,7 +64,9 @@ fun RemoteOutputImage(
             bitmap != null -> Image(
                 bitmap = bitmap!!.asImageBitmap(),
                 contentDescription = "产物预览",
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .fadeInWhenLoaded(),
                 contentScale = contentScale,
             )
 
@@ -102,3 +107,13 @@ fun LivePreviewImage(bytes: ByteArray, modifier: Modifier = Modifier) {
 }
 
 fun isImageFile(filename: String): Boolean = com.comfypilot.core.api.ArtifactNames.isImage(filename)
+/** 图片解码完成的瞬间淡入，避免从骨架块"啪"地跳到实图。 */
+@Composable
+private fun Modifier.fadeInWhenLoaded(): Modifier {
+    val fade by animateFloatAsState(
+        targetValue = 1f,
+        animationSpec = tween(220),
+        label = "image-fade",
+    )
+    return this.graphicsLayer { alpha = fade }
+}
