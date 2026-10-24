@@ -307,17 +307,18 @@ export struct WorkflowGraphOverlay {
       // 标题：按宽度定字号，超宽时缩放
       if (headerH >= 6) {
         const title = node.title.length > 0 ? node.title : node.type;
-        let px = Math.max(12, Math.min(nw * 0.22, headerH * 0.95));
+        // 只跟卡片高度成比例：同尺寸卡片标题一样大，缩放时等比变化
+        const px = headerH * 0.62;
         ctx.font = `${px}px sans-serif`;
-        const measured = ctx.measureText(title).width;
-        const maxWidth = Math.max(8, nw - 10);
-        if (measured > maxWidth && measured > 0) {
-          px = Math.max(4, px * maxWidth / measured);
-          ctx.font = `${px}px sans-serif`;
-        }
         ctx.fillStyle = '#FFFFFF';
         ctx.textBaseline = 'middle';
-        ctx.fillText(title, left + 5, top + headerH / 2, maxWidth);
+        // 超长标题裁在标题栏内，不压缩字号，保证比例一致
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(left, top, nw, headerH);
+        ctx.clip();
+        ctx.fillText(title, left + 5, top + headerH / 2);
+        ctx.restore();
       }
 
       // 参数槽位
@@ -443,26 +444,30 @@ export struct WorkflowGraphOverlay {
     if (name.length === 0 || stepPx < 6) {
       return;
     }
-    let px = Math.max(9, Math.min(nw * 0.11, stepPx * 0.95));
-    if (px < 5) {
+    // 参数名字号同样只跟行高成比例
+    const px = stepPx * 0.55;
+    if (px < 3) {
       return;
     }
     ctx.font = `${px}px sans-serif`;
-    const measured = ctx.measureText(name).width;
-    const maxWidth = Math.max(24, nw / 2 - 12);
-    if (measured > maxWidth && measured > 0) {
-      px = Math.max(4, px * maxWidth / measured);
-      ctx.font = `${px}px sans-serif`;
-    }
     ctx.fillStyle = this.c().textMuted;
     ctx.textBaseline = 'middle';
+    ctx.save();
+    ctx.beginPath();
     if (input) {
-      ctx.fillText(name, left + 9, y, maxWidth);
+      ctx.rect(left, y - stepPx / 2, nw / 2 - 6, stepPx);
+    } else {
+      ctx.rect(left + nw / 2 + 6, y - stepPx / 2, nw / 2 - 6, stepPx);
+    }
+    ctx.clip();
+    if (input) {
+      ctx.fillText(name, left + 9, y);
     } else {
       ctx.textAlign = 'right';
-      ctx.fillText(name, left + nw - 9, y, maxWidth);
+      ctx.fillText(name, left + nw - 9, y);
       ctx.textAlign = 'left';
     }
+    ctx.restore();
   }
 
   /** 命中参数：按文字实际宽度判定，圆点再给 12px 热区。 */
@@ -763,9 +768,8 @@ export struct WorkflowGraphOverlay {
         .border({ width: 1, color: this.c().border })
         .height(36)
         .padding({ left: 12, right: 12 })
-        .margin({ left: 14, right: 14 })
-        .position({ x: 0, y: 56 + this.topInset })
-        .width('100%')
+        .position({ x: 14, y: 56 + this.topInset })
+        .width('calc(100% - 28vp)')
         .onChange((value: string) => {
           this.query = value;
         });
@@ -873,7 +877,7 @@ export struct WorkflowGraphOverlay {
               this.draw();
             });
           }
-          if (this.slotLinkedId() > 0) {
+          if (this.slotLinkedId() !== 0) {
             this.actionChip('断开此参数连线', this.c().warn, () => {
               const id = this.slotLinkedId();
               this.selectedSlot = '';
@@ -1069,7 +1073,8 @@ export struct WorkflowGraphOverlay {
     if (info === null) {
       return '';
     }
-    return `类型 ${info.type} · ${info.linkId > 0 ? '已连接' : '未连接'}`;
+    // 新建的连线在共享层用负 id（合成 id），所以不能用 > 0 判断
+    return `类型 ${info.type} · ${info.linkId !== 0 ? '已连接' : '未连接'}`;
   }
 
   private slotLinkedId(): number {
