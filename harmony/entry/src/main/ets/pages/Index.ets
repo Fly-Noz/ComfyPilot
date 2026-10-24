@@ -171,6 +171,8 @@ struct Index {
   @State addressHistory: AddressEntry[] = [];
   @State lastUsedUrl: string = '';
   @State addressMenuOpen: boolean = false;
+  /** 已成功加载（或已失败）的图片 URL：控制骨架显隐与淡入。 */
+  @State loadedImageUrls: string[] = [];
   /** 当前展开子图面板的父图 id（空串表示没有展开）。 */
   @State openChildGraphId: string = '';
   /** 地址输入框实测宽度（vp）：历史下拉按它对齐，不再用固定 300vp。 */
@@ -3605,55 +3607,66 @@ struct Index {
   /** 单个父图药丸：左边点标题切换启用，右边（仅有子图时）点 ▾ 展开子图勾选面板。 */
   @Builder
   GraphChip(graphItem: WorkflowGraphView) {
-    Row() {
-      Text(graphItem.title)
-        .fontSize(11.5)
-        .fontWeight(graphItem.selected ? FontWeight.Medium : FontWeight.Normal)
-        .fontColor(graphItem.selected ? this.c().accentInk : this.c().textMuted)
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .constraintSize({ maxWidth: 190 })
-        .padding({
-          left: 13,
-          right: this.childGraphs(graphItem.id).length > 0 ? 9 : 13,
-          top: 7,
-          bottom: 7,
-        })
-        .onClick(() => {
-          this.toggleGraph(graphItem);
-        })
-      if (this.childGraphs(graphItem.id).length > 0) {
-        Row()
-          .width(1)
-          .height(16)
-          .backgroundColor(graphItem.selected ? this.c().accentInk : this.c().border)
-          .opacity(graphItem.selected ? 0.3 : 1)
-        Row() {
-          Text(this.openChildGraphId === graphItem.id ? '▴' : '▾')
-            .fontSize(9)
-            .fontColor(graphItem.selected ? this.c().accentInk : this.c().textDim)
+    Stack({ alignContent: Alignment.Center }) {
+      // 选中态与 Android 一致：整颗药丸铺渐变。
+      Row()
+        .width('100%')
+        .height('100%')
+        .linearGradient({ angle: 120, colors: Spectrum.gradientColors(this.c()) })
+        .opacity(graphItem.selected ? 1 : 0)
+        .animation({ duration: 160, curve: Curve.EaseOut })
+
+      Row() {
+        Text(graphItem.title)
+          .fontSize(11.5)
+          .fontWeight(graphItem.selected ? FontWeight.Medium : FontWeight.Normal)
+          .fontColor(graphItem.selected ? this.c().accentInk : this.c().textMuted)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .constraintSize({ maxWidth: 190 })
+          .padding({
+            left: 13,
+            right: this.childGraphs(graphItem.id).length > 0 ? 9 : 13,
+            top: 7,
+            bottom: 7,
+          })
+          .onClick(() => {
+            this.toggleGraph(graphItem);
+          })
+        if (this.childGraphs(graphItem.id).length > 0) {
+          Row()
+            .width(1)
+            .height(16)
+            .backgroundColor(graphItem.selected ? this.c().accentInk : this.c().border)
+            .opacity(graphItem.selected ? 0.3 : 1)
+          Row() {
+            Text(this.openChildGraphId === graphItem.id ? '▴' : '▾')
+              .fontSize(9)
+              .fontColor(graphItem.selected ? this.c().accentInk : this.c().textDim)
+          }
+          .width(28)
+          .height(32)
+          .justifyContent(FlexAlign.Center)
+          .onClick(() => {
+            this.openChildGraphId = this.openChildGraphId === graphItem.id ? '' : graphItem.id;
+          })
+          .bindPopup(this.openChildGraphId === graphItem.id, {
+            builder: () => {
+              this.ChildGraphPanel(graphItem)
+            },
+            placement: Placement.Bottom,
+            popupColor: this.c().dialog,
+            enableArrow: false,
+            radius: 18,
+            onStateChange: (event: PopupStateEvent) => {
+              if (!event.isVisible) {
+                this.openChildGraphId = '';
+              }
+            },
+          })
         }
-        .width(28)
-        .height(32)
-        .justifyContent(FlexAlign.Center)
-        .onClick(() => {
-          this.openChildGraphId = this.openChildGraphId === graphItem.id ? '' : graphItem.id;
-        })
-        .bindPopup(this.openChildGraphId === graphItem.id, {
-          builder: () => {
-            this.ChildGraphPanel(graphItem)
-          },
-          placement: Placement.Bottom,
-          popupColor: this.c().dialog,
-          enableArrow: false,
-          radius: 18,
-          onStateChange: (event: PopupStateEvent) => {
-            if (!event.isVisible) {
-              this.openChildGraphId = '';
-            }
-          },
-        })
       }
+      .height(32)
     }
     .height(32)
     .borderRadius(999)
@@ -3661,7 +3674,6 @@ struct Index {
     .border({ width: 1, color: graphItem.selected ? this.c().accentBorder : this.c().border })
     .clip(true)
   }
-
   /** 子图勾选面板：只列这个父图下的辅助图组，标题与 Android DropdownPanel 一致。 */
   @Builder
   ChildGraphPanel(parentGraph: WorkflowGraphView) {
@@ -4159,10 +4171,8 @@ struct Index {
           .position({ x: 10, y: 10 })
 
           if (this.firstImageUrl(task).length > 0) {
-            Image(this.firstImageUrl(task))
-              .width('100%')
-              .height('100%')
-              .objectFit(ImageFit.Contain)
+            this.RemoteImage(this.firstImageUrl(task), ImageFit.Contain)
+
           } else {
             Column() {
               Text(task.state === 'Failed' ? '任务失败' : '没有可预览的图片')
@@ -4313,64 +4323,48 @@ struct Index {
    * 在按内容撑开的布局里会解析成 0——之前"轨道在、填充永远空白"就是这个原因。
    * 现在量出轨道实际宽度（vp），按比例换算成绝对宽度。
    */
+  /**
+   * 进度条：直接用系统 Progress，不再手写"轨道 + 百分比宽度填充"。
+   * 之前手写两个原因都不成立：Stack 子元素的 % 宽度会解析成 0；onAreaChange 在
+   * 这个位置也不保证回调，于是填充永远是空的。Progress 的 value/total 是确定值，必定渲染。
+   */
   @Builder
   ProgressBar(fraction: number) {
-    Stack({ alignContent: Alignment.Start }) {
-      Row()
-        .width('100%')
-        .height(7)
-        .borderRadius(999)
-        .backgroundColor(this.c().cardStrong)
-        .onAreaChange((_old: Area, area: Area) => {
-          const width: number = Number(area.width);
-          if (width > 0 && width !== this.progressTrackWidth) {
-            this.progressTrackWidth = width;
-          }
-        })
-      Row()
-        .width(`${this.progressFillWidth(fraction, this.progressTrackWidth)}vp`)
-        .height(7)
-        .borderRadius(999)
-        .linearGradient({ angle: 90, colors: Spectrum.gradientColors(this.c()) })
-        .animation({ duration: 320, curve: Curve.EaseOut })
-    }
-    .width('100%')
-    .height(7)
+    Progress({
+      value: this.clampPercent(fraction * 100),
+      total: 100,
+      type: ProgressType.Linear,
+    })
+      .width('100%')
+      .height(7)
+      .style({ strokeWidth: 7 })
+      .color(this.c().accent)
+      .backgroundColor(this.c().cardStrong)
+      .animation({ duration: 320, curve: Curve.EaseOut })
   }
 
   /** 任务卡里的细进度条（5vp），同 Android TaskCard 的 SpectrumProgress(height = 5.dp)。 */
   @Builder
   TaskProgressBar(fraction: number) {
-    Stack({ alignContent: Alignment.Start }) {
-      Row()
-        .width('100%')
-        .height(5)
-        .borderRadius(999)
-        .backgroundColor(this.c().cardStrong)
-        .onAreaChange((_old: Area, area: Area) => {
-          const width: number = Number(area.width);
-          if (width > 0 && width !== this.taskTrackWidth) {
-            this.taskTrackWidth = width;
-          }
-        })
-      Row()
-        .width(`${this.progressFillWidth(fraction, this.taskTrackWidth)}vp`)
-        .height(5)
-        .borderRadius(999)
-        .linearGradient({ angle: 90, colors: Spectrum.gradientColors(this.c()) })
-        .animation({ duration: 320, curve: Curve.EaseOut })
-    }
-    .width('100%')
-    .height(5)
+    Progress({
+      value: this.clampPercent(fraction * 100),
+      total: 100,
+      type: ProgressType.Linear,
+    })
+      .width('100%')
+      .height(5)
+      .style({ strokeWidth: 5 })
+      .color(this.c().accent)
+      .backgroundColor(this.c().cardStrong)
+      .animation({ duration: 320, curve: Curve.EaseOut })
   }
 
-  /** 把 0~1 的比例换算成绝对宽度；轨道尚未量出时给 0，避免 NaN 或负值。 */
-  private progressFillWidth(fraction: number, trackWidth: number): number {
-    if (!(trackWidth > 0) || !(fraction > 0)) {
+  /** 进度值钳制到 0~100，避免 NaN / 越界让 Progress 画不出来。 */
+  private clampPercent(value: number): number {
+    if (!(value > 0)) {
       return 0;
     }
-    const clamped: number = fraction > 1 ? 1 : fraction;
-    return trackWidth * clamped;
+    return value > 100 ? 100 : value;
   }
 
   /** 全部节点底部面板：搜索 + 特征筛选 + 节点列表，对应 Android ModalBottomSheet。 */
@@ -5115,15 +5109,48 @@ struct Index {
     .height('100%')
   }
 
+  /** 网络图片：未加载完成时铺一层脉冲骨架，完成后 220ms 淡入（对应 Android 的 ShimmerBox + 淡入）。 */
+  @Builder
+  RemoteImage(url: string, fit: ImageFit) {
+    Stack({ alignContent: Alignment.Center }) {
+      if (!this.imageReady(url)) {
+        Row()
+          .width('100%')
+          .height('100%')
+          .backgroundColor(this.c().cardStrong)
+          .opacity(this.skeletonPhase)
+      }
+      Image(url)
+        .width('100%')
+        .height('100%')
+        .objectFit(fit)
+        .opacity(this.imageReady(url) ? 1 : 0)
+        .animation({ duration: 220, curve: Curve.EaseOut })
+        .onComplete(() => this.markImageReady(url))
+        .onError(() => this.markImageReady(url))
+    }
+    .width('100%')
+    .height('100%')
+    .onAppear(() => this.startSkeletonPulse())
+  }
+
+  private imageReady(url: string): boolean {
+    return this.loadedImageUrls.indexOf(url) >= 0;
+  }
+
+  private markImageReady(url: string): void {
+    if (url.length === 0 || this.loadedImageUrls.indexOf(url) >= 0) {
+      return;
+    }
+    this.loadedImageUrls = this.loadedImageUrls.concat([url]);
+  }
   /** 列表行的媒体位：16 圆角、近黑哑光、1px 边框，图片 Cover，视频走首帧占位。 */
   @Builder
   ArtifactMedia(output: BridgeOutput, mediaHeight: number, contain: boolean) {
     Stack({ alignContent: Alignment.Center }) {
       if (output.image && this.artifactUrl(output).length > 0) {
-        Image(this.artifactUrl(output))
-          .width('100%')
-          .height('100%')
-          .objectFit(contain ? ImageFit.Contain : ImageFit.Cover)
+        this.RemoteImage(this.artifactUrl(output), contain ? ImageFit.Contain : ImageFit.Cover)
+
       } else if (output.video && this.artifactUrl(output).length > 0) {
         // 视频首帧：抽到帧就画 PixelMap，抽不到自动退回哑光占位（点击行为在外层 Stack）。 
         VideoThumb({ url: this.artifactUrl(output), isDark: this.isDark, hint: '点击播放' })
@@ -5274,13 +5301,8 @@ struct Index {
             .fontColor(this.c().textMuted)
             .padding(24)
         } else {
-          Image(this.artifactUrl(this.previewOutput))
-            .width('100%')
-            .height('100%')
-            .objectFit(ImageFit.Contain)
-            .onError(() => {
-              this.previewError = true;
-            })
+          this.RemoteImage(this.artifactUrl(this.previewOutput), ImageFit.Contain)
+
         }
       } else if (this.previewOutput.video) {
         // 预览区同列表行：首帧抽到就 Cover 铺满，抽不到退回原占位。 
