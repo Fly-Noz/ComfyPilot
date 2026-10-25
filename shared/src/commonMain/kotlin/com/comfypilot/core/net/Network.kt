@@ -57,6 +57,14 @@ data class SessionConfig(
     val tickIntervalMs: Long = 1_000,
     /** 运行中任务的 /history 兜底间隔；socket 被系统掐断时靠它收尾。 */
     val historyPollMs: Long = 20_000,
+    /**
+     * 固定 clientId（为空表示每次建连随机生成）。
+     *
+     * ComfyUI 的 WebSocket 会话 id（sid）就是 clientId；`progress` 与采样预览是按
+     * 提交任务的那条会话定向推送的，重连换 id 就再也收不到旧任务的进度。
+     * 宿主应按服务器地址持久化一个 id 并一直复用。
+     */
+    val clientId: String = "",
 ) {
     companion object {
         const val DEFAULT_PROGRESS_SILENCE_MS = 120_000L

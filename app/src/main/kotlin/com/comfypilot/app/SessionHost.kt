@@ -54,6 +54,16 @@ object SessionHost {
     var baseUrl: String = DEFAULT_BASE_URL
         private set
 
+    /** 按服务器地址持久化 clientId：冷启动也复用，否则重启后旧任务的进度会断。 */
+    private fun clientIdFor(context: Context, url: String): String {
+        val prefs = context.getSharedPreferences("client_ids", Context.MODE_PRIVATE)
+        val key = url.trim()
+        prefs.getString(key, null)?.takeIf { it.isNotBlank() }?.let { return it }
+        val created = java.util.UUID.randomUUID().toString().replace("-", "")
+        prefs.edit().putString(key, created).apply()
+        return created
+    }
+
     private fun describeTasks(state: SessionState): String {
         val active = state.activeTasks
         if (active.isEmpty()) return "none"
@@ -86,6 +96,9 @@ object SessionHost {
         val created = SessionRuntime(
             config = SessionConfig(
                 baseUrl = url,
+                // 同一地址固定复用同一个 clientId：ComfyUI 的 sid 就是它，
+                // 重连/重启后换 id 会让旧任务的 progress 与预览帧再也推不过来。
+                clientId = clientIdFor(context.applicationContext, url),
                 // 仅调试入口可覆盖：真机联调时用来缩短"静默看门狗"的等待
                 progressSilenceMs = progressSilenceMs ?: SessionConfig.DEFAULT_PROGRESS_SILENCE_MS,
             ),

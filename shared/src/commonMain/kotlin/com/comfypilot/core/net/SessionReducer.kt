@@ -1,5 +1,6 @@
 package com.comfypilot.core.net
 
+import com.comfypilot.core.DiagnosticTrace
 import com.comfypilot.core.api.ApiCall
 import com.comfypilot.core.api.ApiCodec
 import com.comfypilot.core.api.HistoryEntry
@@ -1181,7 +1182,10 @@ class SessionReducer(
         attempt: Int,
     ): ReduceResult {
         val leaseId = state.nextLeaseId
-        val clientId = Ids.clientId()
+        // sid == clientId：重连必须复用同一个，否则服务端按原会话定向推送的
+        // progress / 预览帧都收不到（表现为切后台回来进度和画面一起冻住）。
+        val clientId = config.clientId.ifBlank { Ids.clientId() }
+        DiagnosticTrace.emit("lease gen$generation clientId=${clientId.take(8)}")
         val lease = ConnectionLease(
             generation = generation,
             leaseId = leaseId,
