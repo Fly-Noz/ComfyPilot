@@ -2,6 +2,7 @@ import {
   nativeSessionCreate,
   nativeSessionDestroy,
   nativeSessionPreview,
+  nativeSessionPreviewAnimation,
   nativeSessionPump,
   nativeSessionSend,
   nativeSessionWorkflow,
@@ -81,6 +82,20 @@ export interface BridgePreview {
   nodeId: string | null;
   receivedAtMs: number;
   bytes: number;
+  /** VHS 动画：帧率与帧数（0 表示当前只有单帧）。 */
+  animationRate?: number;
+  animationCount?: number;
+  animationPromptId?: string | null;
+}
+
+export interface PreviewAnimationPayload {
+  ok: boolean;
+  promptId?: string | null;
+  nodeId?: string | null;
+  rate?: number;
+  count?: number;
+  frames?: string[];
+  message?: string;
 }
 
 /**
@@ -393,6 +408,11 @@ export class ComfyBridge {
   /** 按需取最新采样预览；返回带 base64 图片的 JSON，不进状态帧。 */
   preview(): string {
     return nativeSessionPreview();
+  }
+
+  /** VHS 动画预览的一整组帧（base64），按批拉取，不进 500ms 状态帧。 */
+  previewAnimation(): string {
+    return nativeSessionPreviewAnimation();
   }
 
   reconnect(): void {

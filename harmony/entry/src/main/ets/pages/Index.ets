@@ -10,6 +10,7 @@ import {
   BridgeMonitor,
   BridgeOutput,
   BridgePreview,
+  PreviewAnimationPayload,
   BridgeState,
   BridgeTask,
   BridgeWorkflow,
@@ -374,6 +375,10 @@ struct Index {
   private previewRequestSeq: number = 0;
   /** 已经应用的最新帧序号：只拒绝比已显示的更旧的结果。 */
   private previewAppliedSeq: number = 0;
+  /** VHS 动画预览：整组帧与轮播定时器。 */
+  private animationFrames: image.PixelMap[] = [];
+  private animationTimer: number = -1;
+  private animationKey: string = '';
   private previewFrameKey: string = '';
   private previewBase64: util.Base64Helper = new util.Base64Helper();
 
@@ -888,12 +893,78 @@ struct Index {
       this.clearLivePreview();
       return;
     }
+    // VHS 动画：服务端一次给一组帧，按 rate 轮播；只在"哪一批"变化时才重新取帧，
+    // 不能因为每帧都换了时间戳就反复解码。
+    const animationCount: number = meta.animationCount ?? 0;
+    if (animationCount > 1) {
+      const animationKey = `${meta.animationPromptId ?? meta.promptId ?? ''}:${animationCount}:${meta.animationRate ?? 8}`;
+      if (animationKey !== this.animationKey) {
+        this.animationKey = animationKey;
+        this.loadPreviewAnimation(meta);
+      }
+      return;
+    }
+    this.stopPreviewAnimation();
     const key = `${meta.promptId ?? ''}:${meta.receivedAtMs}`;
     if (key === this.previewFrameKey) {
       return;
     }
     this.previewFrameKey = key;
     this.loadLivePreview(++this.previewRequestSeq);
+  }
+
+  /** 取一批 VHS 动画帧并开始轮播。 */
+  private async loadPreviewAnimation(meta: BridgePreview): Promise<void> {
+    try {
+      const raw = this.bridge.previewAnimation();
+      const payload = JSON.parse(raw) as PreviewAnimationPayload;
+      if (!payload.ok || payload.frames === undefined || payload.frames.length < 2) {
+        return;
+      }
+      const decoded: image.PixelMap[] = [];
+      for (let i = 0; i < payload.frames.length; i++) {
+        const bytes = this.previewBase64.decodeSync(payload.frames[i]);
+        const source = image.createImageSource(bytes.buffer);
+        try {
+          decoded.push(await source.createPixelMap());
+        } finally {
+          source.release();
+        }
+      }
+      if (decoded.length < 2) {
+        decoded.forEach((pixel: image.PixelMap) => pixel.release());
+        return;
+      }
+      this.stopPreviewAnimation();
+      this.animationFrames = decoded;
+      let index = 0;
+      const rate = Math.max(1, payload.rate ?? meta.animationRate ?? 8);
+      const frameMs = Math.max(40, Math.floor(1000 / rate));
+      this.livePreview = decoded[0];
+      this.livePreviewFailed = false;
+      this.animationTimer = setInterval(() => {
+        if (this.animationFrames.length === 0) {
+          return;
+        }
+        index = (index + 1) % this.animationFrames.length;
+        this.livePreview = this.animationFrames[index];
+      }, frameMs);
+    } catch (err) {
+      this.stopPreviewAnimation();
+    }
+  }
+
+  private stopPreviewAnimation(): void {
+    if (this.animationTimer !== -1) {
+      clearInterval(this.animationTimer);
+      this.animationTimer = -1;
+    }
+    const frames = this.animationFrames;
+    this.animationFrames = [];
+    this.animationKey = '';
+    frames.forEach((pixel: image.PixelMap) => {
+      pixel.release();
+    });
   }
 
   private async loadLivePreview(seq: number): Promise<void> {
@@ -936,6 +1007,7 @@ struct Index {
   }
 
   private clearLivePreview(): void {
+    this.stopPreviewAnimation();
     this.previewRequestSeq++;
     this.previewFrameKey = '';
     this.livePreviewMeta = null;
@@ -6783,7 +6855,7 @@ struct Index {
         .fontSize(14)
         .fontColor(this.c().text)
         .layoutWeight(1)
-      Text('版本 0.1.0')
+      Text('版本 0.2.0')
         .fontSize(11)
         .fontColor(this.c().textDim)
       Text('›')
@@ -6904,7 +6976,7 @@ struct Index {
                 .fontSize(26)
                 .fontWeight(FontWeight.Bold)
                 .fontColor(this.c().text)
-              Text('版本 0.1.0 · 鸿蒙版')
+              Text('版本 0.2.0 · 鸿蒙版')
                 .fontSize(10)
                 .fontFamily('monospace')
                 .fontColor(this.c().textDim)

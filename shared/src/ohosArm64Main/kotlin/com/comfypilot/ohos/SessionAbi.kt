@@ -11,6 +11,7 @@ import kotlinx.cinterop.CPointer
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.toKString
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -140,6 +141,32 @@ fun cpSessionPreview(buffer: CPointer<ByteVar>?, capacity: Int): Int {
             put("image", Base64.encode(preview.image))
         }.toString()
     }
+    return writeUtf8(result, buffer, capacity)
+}
+
+/**
+ * 取当前这段 VHS 动画预览的全部帧（base64）。帧数几十、单帧几 KB，
+ * 按"每来一批取一次"的方式拉取，不放进 500ms 状态帧。
+ */
+@OptIn(ExperimentalForeignApi::class, ExperimentalEncodingApi::class)
+@CName("cp_session_preview_animation")
+fun cpSessionPreviewAnimation(buffer: CPointer<ByteVar>?, capacity: Int): Int {
+    val host = session
+        ?: return writeUtf8("""{"ok":false,"message":"会话尚未创建"}""", buffer, capacity)
+    val animation = host.state.previewAnimation
+    if (animation == null || animation.frames.isEmpty()) {
+        return writeUtf8("""{"ok":false,"message":"没有动画预览"}""", buffer, capacity)
+    }
+    val result = buildJsonObject {
+        put("ok", true)
+        put("promptId", animation.promptId)
+        put("nodeId", animation.nodeId)
+        put("rate", animation.rate)
+        put("count", animation.frames.size)
+        putJsonArray("frames") {
+            animation.frames.forEach { frame -> add(JsonPrimitive(Base64.encode(frame))) }
+        }
+    }.toString()
     return writeUtf8(result, buffer, capacity)
 }
 

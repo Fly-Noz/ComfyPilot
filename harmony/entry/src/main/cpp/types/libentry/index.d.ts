@@ -5,4 +5,5 @@ export const nativeSessionPump: (nowMs: number) => string;
 export const nativeSessionSend: (messageJson: string) => number;
 export const nativeSessionWorkflow: (requestJson: string) => string;
 export const nativeSessionPreview: () => string;
+export const nativeSessionPreviewAnimation: () => string;
 export const nativeSessionDestroy: () => void;

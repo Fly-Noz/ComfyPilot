@@ -66,6 +66,11 @@ fun SessionState.toBridgeJson(): JsonObject = buildJsonObject {
                 put("nodeId", frame.nodeId)
                 put("receivedAtMs", frame.receivedAtMs)
                 put("bytes", frame.image.size)
+                // VHS 动画：只告诉宿主"有没有、几帧、多快"，帧字节走 cp_session_preview_animation
+                val animation = previewAnimation
+                put("animationRate", animation?.rate ?: 0)
+                put("animationCount", animation?.frames?.size ?: 0)
+                put("animationPromptId", animation?.promptId)
             }
         } ?: JsonNull,
     )

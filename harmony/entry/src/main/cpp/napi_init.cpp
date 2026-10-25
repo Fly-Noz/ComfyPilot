@@ -6,6 +6,9 @@
 #include "napi/native_api.h"
 #include "libcomfypilot_core_api.h"
 
+// VHS 动画帧 ABI（Kotlin @CName 导出）
+extern "C" int32_t cp_session_preview_animation(void* buffer, int32_t capacity);
+
 namespace {
 
 constexpr size_t kJsonBufferSize = 16 * 1024;
@@ -139,6 +142,22 @@ napi_value NativeSessionPreview(napi_env env, napi_callback_info /*info*/) {
     return MakeString(env, std::string(buffer.data(), static_cast<size_t>(needed)));
 }
 
+napi_value NativeSessionPreviewAnimation(napi_env env, napi_callback_info /*info*/) {
+    std::vector<char> buffer(kJsonBufferSize, 0);
+    int32_t needed = cp_session_preview_animation(buffer.data(), static_cast<int32_t>(buffer.size()));
+    if (needed <= 0) {
+        return MakeString(env, R"({"ok":false,"message":"预览没有返回内容"})");
+    }
+    if (static_cast<size_t>(needed) >= buffer.size()) {
+        buffer.assign(static_cast<size_t>(needed) + 1, 0);
+        needed = cp_session_preview_animation(buffer.data(), static_cast<int32_t>(buffer.size()));
+        if (needed <= 0 || static_cast<size_t>(needed) >= buffer.size()) {
+            return MakeString(env, R"({"ok":false,"message":"预览超出缓冲区"})");
+        }
+    }
+    return MakeString(env, std::string(buffer.data(), static_cast<size_t>(needed)));
+}
+
 napi_value NativeSessionDestroy(napi_env env, napi_callback_info /*info*/) {
     cp_session_destroy();
     napi_value result = nullptr;
@@ -158,6 +177,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         {"nativeSessionSend", nullptr, NativeSessionSend, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeSessionWorkflow", nullptr, NativeSessionWorkflow, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeSessionPreview", nullptr, NativeSessionPreview, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"nativeSessionPreviewAnimation", nullptr, NativeSessionPreviewAnimation, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeSessionDestroy", nullptr, NativeSessionDestroy, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);

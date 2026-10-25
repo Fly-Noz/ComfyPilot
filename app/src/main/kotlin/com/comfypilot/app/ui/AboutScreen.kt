@@ -311,4 +311,4 @@ private fun appVersion(context: Context): String = runCatching {
         context.packageManager.getPackageInfo(context.packageName, 0)
     }
     info.versionName
-}.getOrNull() ?: "0.1.0"
+}.getOrNull() ?: "0.2.0"
