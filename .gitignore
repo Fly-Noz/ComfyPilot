@@ -41,6 +41,8 @@ Thumbs.db
 artifacts/
 
 # Local scratch (screenshots, editor dumps, one-off scripts) 鈥?issues stay tracked under .scratch/<feature>/issues
+.scratch/*.json
+.scratch/*.xml
 .scratch/*.png
 .scratch/*.jpeg
 .scratch/*.jpg
