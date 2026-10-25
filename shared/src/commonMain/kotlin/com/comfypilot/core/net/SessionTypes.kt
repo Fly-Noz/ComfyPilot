@@ -80,6 +80,9 @@ sealed interface SessionInput {
 sealed interface RequestTag {
     data class History(val promptId: String) : RequestTag
 
+    /** 运行中任务的周期兜底查询：socket 不可靠时靠它收尾，不是对账槽位。 */
+    data class PollHistory(val promptId: String) : RequestTag
+
     data object Queue : RequestTag
 
     data class Submit(val draftId: String, val workflowJson: String) : RequestTag

@@ -276,9 +276,19 @@ class SessionReducer(
                 val id = event.promptId ?: return ReduceResult(state)
                 val task = findTask(next, id) ?: return ReduceResult(state)
                 // executing 也是一次"活着"的信号
+                val nodeId = event.node
+                val executed = if (nodeId == null || task.executedNodes.size >= MAX_EXECUTED_NODES) {
+                    task.executedNodes
+                } else {
+                    task.executedNodes + nodeId
+                }
                 next = touchTask(
                     next,
-                    task.copy(lastProgressAtMs = input.nowMs, updatedAtMs = input.nowMs),
+                    task.copy(
+                        lastProgressAtMs = input.nowMs,
+                        updatedAtMs = input.nowMs,
+                        executedNodes = executed,
+                    ),
                     effects,
                 )
                 // node == null 是 ComfyUI 的"该 prompt 已执行完"信号。它仍然只是提示，
@@ -386,6 +396,7 @@ class SessionReducer(
 
         return when (val tag = input.tag) {
             is RequestTag.History -> onHistoryResult(state, tag, input.outcome, input.nowMs)
+            is RequestTag.PollHistory -> onPollHistoryResult(state, tag.promptId, input.outcome, input.nowMs)
             RequestTag.Queue -> onQueueResult(state, input.outcome, input.nowMs)
             is RequestTag.Submit -> onSubmitResult(state, tag, input.outcome, input.nowMs)
             is RequestTag.Interrupt -> ReduceResult(state)
@@ -711,7 +722,11 @@ class SessionReducer(
 
             is SessionPhase.Recovering -> tickRecovering(state, phase, now)
 
-            is SessionPhase.Connected -> tickWatchdog(state, now)
+            is SessionPhase.Connected -> {
+                val polled = tickPollHistory(state, now)
+                if (polled.effects.isNotEmpty()) return polled
+                tickWatchdog(polled.state, now)
+            }
         }
     }
 
@@ -783,6 +798,75 @@ class SessionReducer(
             result = ReduceResult(step.state, result.effects + step.effects)
         }
         return result
+    }
+
+    /**
+     * 运行中任务的周期兜底：每 POLL_HISTORY_MS 拉一次 /history。
+     *
+     * 为什么必须要有：应用切后台时 socket 会被系统反复掐断（现场日志里 35 秒一次
+     * "Software caused connection abort"），而自定义采样节点又不发步进进度。
+     * 只靠 socket 的话，任务跑完了界面也不知道，只能一直停在"执行中"。
+     */
+    private fun tickPollHistory(state: SessionState, now: Long): ReduceResult {
+        val phase = state.phase as? SessionPhase.Connected ?: return ReduceResult(state)
+        val targets = state.tasks.values.filter { task ->
+            task.state is TaskState.Running &&
+                task.promptId != null &&
+                now - (task.lastPollAtMs ?: task.updatedAtMs) >= config.historyPollMs
+        }
+        if (targets.isEmpty()) return ReduceResult(state)
+
+        var next = state
+        val effects = mutableListOf<SessionEffect>()
+        targets.forEach { task ->
+            val promptId = task.promptId ?: return@forEach
+            val updated = task.copy(lastPollAtMs = now)
+            next = next.copy(tasks = next.tasks + (updated.id to updated))
+            effects += SessionEffect.SendHttp(
+                phase.lease,
+                ApiCall.FetchHistory(promptId),
+                RequestTag.PollHistory(promptId),
+            )
+        }
+        return ReduceResult(next, effects)
+    }
+
+    /** 兜底轮询的结果：只认"确定收尾"的三态，其余继续等。 */
+    private fun onPollHistoryResult(
+        state: SessionState,
+        promptId: String,
+        outcome: HttpOutcome,
+        now: Long,
+    ): ReduceResult {
+        val task = findTask(state, promptId) ?: return ReduceResult(state)
+        if (task.isTerminal) return ReduceResult(state)
+        val probe = toProbe(outcome, promptId)
+        if (probe !is HistoryProbe.Readable) return ReduceResult(state)
+        val entry = probe.entry ?: return ReduceResult(state)
+        val effects = mutableListOf<SessionEffect>()
+        return when {
+            entry.isSuccess -> finishSlot(
+                state,
+                promptId,
+                TaskState.Completed,
+                entry.extractOutputs(),
+                now,
+                effects,
+            )
+
+            entry.isError -> finishSlot(
+                state,
+                promptId,
+                TaskState.Failed(entry.errorMessages.joinToString("；").ifBlank { "执行失败" }),
+                null,
+                now,
+                effects,
+            )
+
+            entry.isInterrupted -> finishSlot(state, promptId, TaskState.Cancelled, null, now, effects)
+
+            else -> ReduceResult(state)
+        }
     }
 
     private fun tickWatchdog(state: SessionState, now: Long): ReduceResult {
@@ -1119,6 +1203,12 @@ class SessionReducer(
 
 /** 排队中的任务静默多久就主动对账一次。 */
 const val QUEUED_SILENCE_MS = 10_000L
+
+    /** 运行中任务的 /history 兜底间隔：socket 只是加速通道，不能当唯一真相。 */
+    const val POLL_HISTORY_MS = 20_000L
+
+    /** executedNodes 上限，避免超长工作流把任务对象撑大。 */
+    const val MAX_EXECUTED_NODES = 512
         const val MIN_RETRY_MS = 500L
         const val RECONCILE_HARD_TIMEOUT_MS = 60_000L
     }

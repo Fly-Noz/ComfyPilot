@@ -43,6 +43,15 @@ data class PromptTask(
     val error: String? = null,
     /** 提交时的工作流路径；用于把错误/历史按工作流归属，旧快照没有该字段时为 null。 */
     val workflowPath: String? = null,
+    /**
+     * 已经执行到的节点 id（来自 executing 事件）。
+     *
+     * 自定义采样节点不会按步上报 progress，但 ComfyUI 依然会逐个节点发 executing；
+     * 用"已完成节点数"当进度来源，长任务至少能看出在往前走。
+     */
+    val executedNodes: Set<String> = emptySet(),
+    /** 上一次周期 /history 兜底查询的时间；socket 被系统掐断时靠它收尾。 */
+    val lastPollAtMs: Long? = null,
 ) {
     val isTerminal: Boolean
         get() = state is TaskState.Completed || state is TaskState.Failed ||

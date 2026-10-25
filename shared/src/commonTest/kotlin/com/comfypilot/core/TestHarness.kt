@@ -26,6 +26,8 @@ val testConfig = SessionConfig(
     progressSilenceMs = 5_000,
     progressSilenceMaxMs = 40_000,
     tickIntervalMs = 500,
+    // 大多数用例不关心兜底轮询，给一个很大的间隔避免干扰
+    historyPollMs = 1_000_000,
 )
 
 val wifi = NetworkInfo(NetworkTransport.WIFI, validated = true, handle = "wlan0")

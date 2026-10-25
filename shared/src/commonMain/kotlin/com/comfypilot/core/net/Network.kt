@@ -55,6 +55,8 @@ data class SessionConfig(
     val progressSilenceMs: Long = DEFAULT_PROGRESS_SILENCE_MS,
     val progressSilenceMaxMs: Long = 600_000,
     val tickIntervalMs: Long = 1_000,
+    /** 运行中任务的 /history 兜底间隔；socket 被系统掐断时靠它收尾。 */
+    val historyPollMs: Long = 20_000,
 ) {
     companion object {
         const val DEFAULT_PROGRESS_SILENCE_MS = 120_000L

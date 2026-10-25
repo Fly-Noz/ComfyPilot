@@ -2022,6 +2022,19 @@ private fun ActivePreview(
     // 大模型（尤其视频）在首步之前没有任何 progress：这时别显示 0%，让人以为没跑。
     val waitingFirstStep = (progress == null || progress.max <= 0.0) && task.state is TaskState.Running
 
+    // 自定义采样节点不发步进进度，但 executing 事件会逐个到达；用"已完成节点数 + 已运行时长"
+    // 作为可见的推进证据，避免界面看起来完全停住。
+    var nowMs by remember(task.id) { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(task.id) {
+        while (true) {
+            kotlinx.coroutines.delay(1_000)
+            nowMs = System.currentTimeMillis()
+        }
+    }
+    val elapsedSeconds = ((nowMs - task.createdAtMs) / 1000).coerceAtLeast(0)
+    val elapsedLabel = "%d:%02d".format(elapsedSeconds / 60, elapsedSeconds % 60)
+    val nodeLabel = "已完成 ${task.executedNodes.size} 个节点"
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -2049,8 +2062,8 @@ private fun ActivePreview(
                     )
                     if (task.state is TaskState.Running) {
                         Text(
-                            text = if (progress == null || progress.max <= 0.0) {
-                                "大模型首步可能较慢，已自动延长超时，可继续等待"
+                            text = if (waitingFirstStep) {
+                                "$nodeLabel · 已运行 $elapsedLabel"
                             } else {
                                 "若一直不出现，确认 ComfyUI 以 --preview-method auto 启动"
                             },
@@ -2073,6 +2086,14 @@ private fun ActivePreview(
                 if (progress != null && progress.max > 0) {
                     Text(
                         text = progressStepLabel(progress),
+                        color = c.textDim,
+                        fontSize = 10.sp,
+                        fontFamily = SpectrumMono,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
+                } else if (task.state is TaskState.Running) {
+                    Text(
+                        text = "$nodeLabel · $elapsedLabel",
                         color = c.textDim,
                         fontSize = 10.sp,
                         fontFamily = SpectrumMono,
