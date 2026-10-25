@@ -1882,7 +1882,7 @@ private fun PreviewPane(
         .filter { it.isActive && it.workflowPath == workflowPath }
         .maxByOrNull { it.createdAtMs }
     if (active != null) {
-        ActivePreview(task = active, preview = state.preview, onCancel = onCancel)
+        ActivePreview(task = active, preview = state.preview, baseUrl = state.lease?.baseUrl, onCancel = onCancel)
         return
     }
 
@@ -2013,10 +2013,16 @@ private fun PreviewPane(
 private fun ActivePreview(
     task: PromptTask,
     preview: PreviewFrame?,
+    baseUrl: String?,
     onCancel: (String) -> Unit,
 ) {
     val c = Spectrum.colors
     val frame = preview?.takeIf { it.promptId == null || it.promptId == task.promptId }
+    // 视频节点真正的"循环预览"来自 executed 事件里的 gifs 产物；有就优先播它
+    val gif = task.outputs.lastOrNull { it.filename.endsWith(".gif", ignoreCase = true) }
+    val gifUrl = gif?.let { output ->
+        baseUrl?.let { base -> ApiPaths.viewUrl(base, ViewRequest(output.filename, output.subfolder, output.type)) }
+    }
     val progress = task.progress
     val percent = progress?.percent ?: 0
     // 大模型（尤其视频）在首步之前没有任何 progress：这时别显示 0%，让人以为没跑。
@@ -2047,7 +2053,9 @@ private fun ActivePreview(
             tag = if (task.state is TaskState.Running) "LIVE" else "QUEUED",
             live = task.state is TaskState.Running,
         ) {
-            if (frame != null) {
+            if (gifUrl != null) {
+                LoopingAnimatedImage(url = gifUrl, modifier = Modifier.matchParentSize())
+            } else if (frame != null) {
                 LivePreviewImage(bytes = frame.image, modifier = Modifier.matchParentSize())
                 // 重连/切后台期间不会再收到帧：明确标注这是"最后一帧"和它有多旧，
                 // 避免把旧画面当成实时采样。

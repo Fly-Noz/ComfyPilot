@@ -123,3 +123,65 @@ private fun Modifier.fadeInWhenLoaded(): Modifier {
     )
     return this.graphicsLayer { alpha = fade }
 }
+
+/**
+ * 循环播放产物里的动图（VHS 等节点输出的 gif）。
+ *
+ * 采样预览是 JPEG 单帧，视频节点真正的"循环预览"来自 executed 事件的 gifs 产物；
+ * 用 ImageDecoder 拿到 AnimatedImageDrawable 才能动起来（BitmapFactory 只会解第一帧）。
+ */
+@Composable
+fun LoopingAnimatedImage(url: String, modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var drawable by remember(url) { mutableStateOf<android.graphics.drawable.Drawable?>(null) }
+    var failed by remember(url) { mutableStateOf(false) }
+
+    LaunchedEffect(url) {
+        val response = withContext(Dispatchers.IO) {
+            OkHttpHttpTransport().execute(HttpRequest(method = "GET", url = url, timeoutMs = 20_000))
+        }
+        val bytes = response.body
+        val decoded = if (response.failure == null && response.status in 200..299 && bytes != null) {
+            withContext(Dispatchers.Default) {
+                runCatching {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                        android.graphics.ImageDecoder.decodeDrawable(
+                            android.graphics.ImageDecoder.createSource(java.nio.ByteBuffer.wrap(bytes)),
+                        )
+                    } else {
+                        null
+                    }
+                }.getOrNull()
+            }
+        } else {
+            null
+        }
+        drawable = decoded
+        failed = decoded == null
+    }
+
+    androidx.compose.runtime.DisposableEffect(drawable) {
+        val animated = drawable as? android.graphics.drawable.AnimatedImageDrawable
+        animated?.start()
+        onDispose { animated?.stop() }
+    }
+
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        when {
+            drawable != null -> androidx.compose.ui.viewinterop.AndroidView(
+                factory = { ctx ->
+                    android.widget.ImageView(ctx).apply {
+                        scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                        setImageDrawable(drawable)
+                    }
+                },
+                update = { view -> view.setImageDrawable(drawable) },
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            failed -> Text("动图加载失败", style = MaterialTheme.typography.bodySmall)
+
+            else -> ShimmerBox(modifier = Modifier.fillMaxSize())
+        }
+    }
+}
