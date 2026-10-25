@@ -53,7 +53,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -2026,6 +2028,7 @@ private fun ActivePreview(
     val c = Spectrum.colors
     val frame = preview?.takeIf { it.promptId == null || it.promptId == task.promptId }
     // 视频节点真正的"循环预览"来自 executed 事件里的 gifs 产物；有就优先播它
+    var confirmCancel by remember(task.id) { mutableStateOf(false) }
     val gif = task.outputs.lastOrNull { it.filename.endsWith(".gif", ignoreCase = true) }
     val gifUrl = gif?.let { output ->
         baseUrl?.let { base -> ApiPaths.viewUrl(base, ViewRequest(output.filename, output.subfolder, output.type)) }
@@ -2159,10 +2162,27 @@ private fun ActivePreview(
         task.promptId?.let { promptId ->
             GhostButton(
                 text = "取消任务",
-                onClick = { onCancel(promptId) },
+                onClick = { confirmCancel = true },
                 height = 38.dp,
             )
         }
+    }
+    val cancelId = task.promptId
+    if (confirmCancel && cancelId != null) {
+        AlertDialog(
+            onDismissRequest = { confirmCancel = false },
+            title = { Text("取消这个任务？") },
+            text = { Text("会向 ComfyUI 发送中断请求；已在运行的任务可能已经产出部分结果。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmCancel = false
+                    onCancel(cancelId)
+                }) { Text("确认取消") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmCancel = false }) { Text("继续等待") }
+            },
+        )
     }
 }
 

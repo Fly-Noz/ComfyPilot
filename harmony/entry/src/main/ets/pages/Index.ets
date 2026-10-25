@@ -5542,8 +5542,21 @@ struct Index {
     if (promptId === null || promptId.length === 0 || !this.taskCancelVisible(task)) {
       return;
     }
-    this.bridge.cancelTask(promptId);
-    this.log(`取消任务：${promptId}`);
+    AlertDialog.show({
+      title: '取消这个任务？',
+      message: '会向 ComfyUI 发送中断请求；已在运行的任务可能已经产出部分结果。',
+      primaryButton: {
+        value: '继续等待',
+        action: () => {},
+      },
+      secondaryButton: {
+        value: '确认取消',
+        action: () => {
+          this.bridge.cancelTask(promptId);
+          this.log(`取消任务：${promptId}`);
+        },
+      },
+    });
   }
 
   /** 顶栏文字动作，对应 Android TopBarAction（关闭 / 分享）。 */

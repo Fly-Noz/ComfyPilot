@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -132,6 +134,7 @@ private fun TaskCard(
     // 状态色平滑过渡：排队(黄)→执行(绿)→完成(灰)不再是硬切。
     val rail by animateColorAsState(targetValue = targetRail, animationSpec = tween(280), label = "task-rail")
     // 刚完成时给一圈短暂的绿色脉冲，作为"跑完了"的正反馈。
+    var confirmCancel by remember(task.id) { mutableStateOf(false) }
     val donePulse = remember { Animatable(0f) }
     LaunchedEffect(task.state) {
         if (task.state is TaskState.Completed) {
@@ -241,7 +244,7 @@ private fun TaskCard(
                     }
                     Spacer(Modifier.weight(1f))
                     if (task.isActive && task.promptId != null) {
-                        GhostButton(text = "取消", onClick = { onCancel(task) }, height = 34.dp)
+                        GhostButton(text = "取消", onClick = { confirmCancel = true }, height = 34.dp)
                     }
                 }
             }
@@ -256,6 +259,23 @@ private fun TaskCard(
                     .border(1.5.dp, c.ok.copy(alpha = donePulse.value * 0.75f), shape),
             )
         }
+    }
+
+    if (confirmCancel) {
+        AlertDialog(
+            onDismissRequest = { confirmCancel = false },
+            title = { Text("取消这个任务？") },
+            text = { Text("会向 ComfyUI 发送中断请求；已在运行的任务可能已经产出部分结果。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmCancel = false
+                    onCancel(task)
+                }) { Text("确认取消") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmCancel = false }) { Text("继续等待") }
+            },
+        )
     }
 }
 
