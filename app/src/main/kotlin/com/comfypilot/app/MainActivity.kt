@@ -66,8 +66,8 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startKeepAliveService() {
+        // 文案交给服务里的 DEFAULT_TEXT：那里会提醒"运行期间不要删除此通知"
         val intent = Intent(this, ComfyForegroundService::class.java)
-            .putExtra(ComfyForegroundService.EXTRA_TEXT, "保持与 ComfyUI 的连接")
         ContextCompat.startForegroundService(this, intent)
     }
 
