@@ -54,3 +54,8 @@ artifacts/
 .scratch/icon_final*/
 artifacts/
 harmony/build-profile.json5
+
+# 发布签名（绝不入库）
+keystore.properties
+*.jks
+*.keystore
