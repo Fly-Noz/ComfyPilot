@@ -395,33 +395,44 @@ class SessionReducer(
 
         val burst = state.previewBurst
         if (burst != null) {
+            // VHS 会按 rate 持续发帧、序号循环；保持一个长度为 length 的滑动窗口，
+            // 每凑满一轮就刷新动画，这样"采样越久画面越清晰"也能体现出来。
             val frames = state.previewFrames + decoded.image
+            val window = if (frames.size > burst.length) {
+                frames.takeLast(burst.length)
+            } else {
+                frames
+            }
             val lastFrame = PreviewFrame(
                 promptId = promptId,
                 nodeId = decoded.nodeId ?: burst.nodeId,
                 image = decoded.image,
                 receivedAtMs = input.nowMs,
             )
-            return if (frames.size >= burst.length) {
-                com.comfypilot.core.DiagnosticTrace.emit("anim ready frames=${frames.size} rate=${burst.rate}")
-                ReduceResult(
-                    state.copy(
-                        previewBurst = null,
-                        previewFrames = emptyList(),
-                        previewAnimation = com.comfypilot.core.event.PreviewAnimation(
-                            promptId = promptId,
-                            nodeId = burst.nodeId,
-                            rate = burst.rate,
-                            frames = frames,
-                        ),
-                        preview = lastFrame,
-                    ),
+            val animation = if (window.size >= burst.length) {
+                com.comfypilot.core.event.PreviewAnimation(
+                    promptId = promptId,
+                    nodeId = burst.nodeId,
+                    rate = burst.rate,
+                    frames = window,
                 )
             } else {
-                ReduceResult(state.copy(previewFrames = frames, preview = lastFrame))
+                state.previewAnimation
             }
+            return ReduceResult(
+                state.copy(
+                    previewFrames = window,
+                    previewAnimation = animation,
+                    preview = lastFrame,
+                    tasks = state.tasks + (
+                        task.id to task.copy(
+                            lastProgressAtMs = input.nowMs,
+                            updatedAtMs = input.nowMs,
+                        )
+                        ),
+                ),
+            )
         }
-
         val touched = task.copy(lastProgressAtMs = input.nowMs, updatedAtMs = input.nowMs)
         return ReduceResult(
             state.copy(
@@ -739,7 +750,31 @@ class SessionReducer(
                                     "preview_method",
                                     kotlinx.serialization.json.JsonPrimitive("auto"),
                                 )
-                                put("extra_pnginfo", kotlinx.serialization.json.buildJsonObject { })
+                                // VHS 的开关不在 prompt 里，而在 workflow.extra：
+                                // server 端读 prompt 的 extra_data.extra_pnginfo.workflow.extra。
+                                put(
+                                    "extra_pnginfo",
+                                    kotlinx.serialization.json.buildJsonObject {
+                                        put(
+                                            "workflow",
+                                            kotlinx.serialization.json.buildJsonObject {
+                                                put(
+                                                    "extra",
+                                                    kotlinx.serialization.json.buildJsonObject {
+                                                        put(
+                                                            "VHS_latentpreview",
+                                                            kotlinx.serialization.json.JsonPrimitive(true),
+                                                        )
+                                                        put(
+                                                            "VHS_latentpreviewrate",
+                                                            kotlinx.serialization.json.JsonPrimitive(8),
+                                                        )
+                                                    },
+                                                )
+                                            },
+                                        )
+                                    },
+                                )
                             },
                         ),
                         input.workflowJson,

@@ -31,7 +31,7 @@ class SessionHostTest {
         val submit = assertNotNull(driver.command("http"), "提交后应当产生 HTTP 命令")
         assertEquals("POST", (submit["method"] as JsonPrimitive).content)
         assertEquals("http://127.0.0.1:8188/prompt", (submit["url"] as JsonPrimitive).content)
-        assertNotNull(submit["body"], "POST /prompt 必须带请求体")
+        assertNotNull(submit["body"], "POST /api/prompt 必须带请求体")
         assertEquals("Submitting", driver.taskState("draft-1"))
 
         HostDriver.acceptSubmit(driver, submitId)

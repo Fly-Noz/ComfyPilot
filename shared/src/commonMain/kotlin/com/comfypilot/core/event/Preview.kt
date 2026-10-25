@@ -39,8 +39,14 @@ object PreviewDecoder {
         // ComfyUI 真实帧：type + 4 字节图片格式 + 图片；旧 mock 没有格式头。
         val format = if (frame.size >= 8) readInt(frame, 4) else -1
         val hasFormat = format == IMAGE_FORMAT_JPEG || format == IMAGE_FORMAT_PNG
-        if (hasFormat && !looksLikeImage(frame, 8)) return null
-        val start = if (hasFormat) 8 else 4
+        var start = if (hasFormat) 8 else 4
+        if (hasFormat && !looksLikeImage(frame, start)) {
+            // VHS 的动画帧在图片前多了 [帧序号(4) + 节点 id(16)] 的包头，
+            // 图片起点不固定；直接扫描 JPEG/PNG 魔数，避免整帧被丢弃。
+            val scanned = scanImageStart(frame)
+            if (scanned < 0) return null
+            start = scanned
+        }
         if (start >= frame.size) return null
         return ComfyPreview(
             promptId = null,
@@ -79,12 +85,20 @@ object PreviewDecoder {
             ((frame[offset + 1].toInt() and 0xFF) shl 16) or
             ((frame[offset + 2].toInt() and 0xFF) shl 8) or
             (frame[offset + 3].toInt() and 0xFF)
+
+    /** 在前 64 字节里找 JPEG/PNG/RIFF 的起点；VHS 包头长度不固定时用它。 */
+    private fun scanImageStart(frame: ByteArray): Int {
+        val limit = minOf(frame.size - 4, 64)
+        for (offset in 0..limit) {
+            if (looksLikeImage(frame, offset)) return offset
+        }
+        return -1
+    }
 }
 
 /**
  * VideoHelperSuite 的 latent 预览：先发一条 VHS_latentpreview 声明本次动画的
- * 帧数（length）与帧率（rate），紧接着连续发 length 个二进制帧。
- * 网页端把它们按 rate 循环播放，看起来就是一段动画；只保留最后一帧就会是静态图。
+ * 帧数（length）与帧率（rate），随后持续发二进制帧。网页端按 rate 循环播放。
  */
 data class PreviewBurst(
     val length: Int,
