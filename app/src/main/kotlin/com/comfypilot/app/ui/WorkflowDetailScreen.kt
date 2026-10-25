@@ -30,6 +30,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -176,7 +182,17 @@ fun WorkflowDetailScreen(
             )
         },
     ) { padding ->
-        Box(modifier = Modifier.padding(padding).fillMaxSize()) {
+        // 底部留 0：让内容区一直画到屏幕底，底栏自己把导航条那块盖住
+        Box(
+            modifier = Modifier
+                .padding(
+                    start = padding.calculateStartPadding(LocalLayoutDirection.current),
+                    top = padding.calculateTopPadding(),
+                    end = padding.calculateEndPadding(LocalLayoutDirection.current),
+                    bottom = 0.dp,
+                )
+                .fillMaxSize(),
+        ) {
             when {
                 document == null && state.workflow.loadingPath != null -> LoadingBody()
                 document == null -> ErrorBody(
@@ -721,7 +737,10 @@ private fun DetailBody(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(c.background.copy(alpha = 0.86f)),
+                // 背景铺到导航条下面；windowInsetsPadding 把按钮顶回原来的位置，
+                // 效果是"底栏变高、按钮不动"，而不是整条下移。
+                .background(c.background.copy(alpha = 0.86f))
+                .windowInsetsPadding(WindowInsets.navigationBars),
         ) {
             Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(c.border))
             Column(
