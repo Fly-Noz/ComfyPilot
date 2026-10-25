@@ -159,6 +159,9 @@ class SessionReducer(
         if (phase.lease.leaseId != input.lease.leaseId) return ReduceResult(state)
 
         val effects = mutableListOf<SessionEffect>()
+        // 握手后声明能力：网页端就是靠这条让服务端发"可动"的预览（VHS 多帧 / 预览元数据）。
+        // 不发就只会收到每步一张的普通 JPEG。
+        effects += SessionEffect.SendSocketText(input.lease, FEATURE_FLAGS_JSON)
         // 重连不丢最后一帧：ComfyUI 只在采样过程中发 preview，重连后要等下一帧，
         // 期间清空会让界面从有图变成"等待采样画面…"，看起来像任务退回去了。
         var next = state.copy(monitor = null)
@@ -1272,6 +1275,11 @@ class SessionReducer(
 
 /** 排队中的任务静默多久就主动对账一次。 */
 const val QUEUED_SILENCE_MS = 10_000L
+
+    /** 与网页端一致的客户端能力声明（抓包原文）。 */
+    const val FEATURE_FLAGS_JSON =
+        "{\"type\":\"feature_flags\",\"data\":{\"supports_preview_metadata\":true," +
+            "\"supports_manager_v4_ui\":true,\"supports_progress_text_metadata\":true}}"
 
     /** 运行中任务的 /history 兜底间隔：socket 只是加速通道，不能当唯一真相。 */
     const val POLL_HISTORY_MS = 20_000L

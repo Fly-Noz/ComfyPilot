@@ -56,6 +56,10 @@ class OkHttpWebSocketTransport(
                 override suspend fun close(code: Int, reason: String) {
                     socket.close(code, reason)
                 }
+
+                override suspend fun send(text: String) {
+                    socket.send(text)
+                }
             }
         }
 

@@ -111,6 +111,9 @@ sealed interface SessionEffect {
 
     data class SendHttp(val lease: ConnectionLease, val call: ApiCall, val tag: RequestTag) : SessionEffect
 
+    /** 向 socket 发送文本帧（能力声明等）。 */
+    data class SendSocketText(val lease: ConnectionLease, val text: String) : SessionEffect
+
     data class Persist(val task: PromptTask) : SessionEffect
 
     /** 任务已从状态里消失（草稿被正式 promptId 取代）：存储里那条也要删掉。 */

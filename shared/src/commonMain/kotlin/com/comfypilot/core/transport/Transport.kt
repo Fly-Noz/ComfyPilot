@@ -45,6 +45,9 @@ interface WebSocketListener {
  */
 interface WebSocketHandle {
     suspend fun close(code: Int = 1000, reason: String = "")
+
+    /** 发送一条文本帧：用于握手后的能力声明（feature_flags）。 */
+    suspend fun send(text: String)
 }
 
 interface WebSocketTransport {

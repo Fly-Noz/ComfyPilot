@@ -149,6 +149,7 @@ class SessionRuntime(
             }
             when (effect) {
                 is SessionEffect.OpenSocket -> scope.launch { openSocket(effect.lease) }
+                is SessionEffect.SendSocketText -> scope.launch { sendSocket(effect) }
                 is SessionEffect.CloseSocket -> scope.launch { closeSocket(effect.leaseId) }
                 is SessionEffect.SendHttp -> scope.launch { sendHttp(effect) }
                 is SessionEffect.Persist -> scope.launch { store.save(effect.task) }
@@ -256,6 +257,20 @@ class SessionRuntime(
                 enqueue(SessionInput.SocketFailed(lease, t.message ?: "WebSocket 打开失败", clock.nowMillis()))
             }
         }
+    }
+
+    /** 发文本帧；open 回调可能比 handle 登记早一点，短暂重试几次。 */
+    private suspend fun sendSocket(effect: SessionEffect.SendSocketText) {
+        repeat(5) {
+            val handle = handleLock.withLock { handles[effect.lease.leaseId] }
+            if (handle != null) {
+                runCatching { handle.send(effect.text) }
+                    .onFailure { DiagnosticTrace.emit("ws.send fail ${it.message}") }
+                return
+            }
+            kotlinx.coroutines.delay(120)
+        }
+        DiagnosticTrace.emit("ws.send dropped ${effect.lease.leaseId}")
     }
 
     private suspend fun closeSocket(leaseId: Long) {

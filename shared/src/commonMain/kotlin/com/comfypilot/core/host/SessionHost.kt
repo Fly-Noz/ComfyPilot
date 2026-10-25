@@ -315,6 +315,16 @@ class SessionHost(
                 )
             }
             return object : WebSocketHandle {
+                override suspend fun send(text: String) {
+                    enqueue(
+                        buildJsonObject {
+                            put("t", "ws.send")
+                            put("id", id)
+                            put("text", text)
+                        },
+                    )
+                }
+
                 override suspend fun close(code: Int, reason: String) {
                     socketListeners.remove(id)
                     enqueue(

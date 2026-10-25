@@ -482,6 +482,9 @@ export class ComfyBridge {
       case 'ws.open':
         this.openSocket(command);
         break;
+      case 'ws.send':
+        this.sendSocketText(command);
+        break;
       case 'ws.close':
         this.closeSocket(command);
         break;
@@ -604,6 +607,20 @@ export class ComfyBridge {
       request.destroy();
       trace(`http fail ${command.url} ${err.message}`);
       this.send({ t: 'http.result', id: id, failure: err.message ?? 'HTTP 请求失败' });
+    });
+  }
+
+  /** 客户端能力声明（feature_flags）等文本帧。 */
+  private sendSocketText(command: BridgeCommand): void {
+    if (typeof command.id !== 'number' || command.text === undefined) {
+      return;
+    }
+    const socket = this.sockets.get(command.id);
+    if (socket === undefined) {
+      return;
+    }
+    socket.send(command.text).catch(() => {
+      this.onLog('WebSocket 发送失败：能力声明');
     });
   }
 
