@@ -80,11 +80,17 @@ fun RemoteOutputImage(
 /** 解码 ComfyUI 的采样预览帧；失败返回 null，不抛异常。 */
 @Composable
 fun LivePreviewImage(bytes: ByteArray, modifier: Modifier = Modifier) {
-    var bitmap by remember(bytes) { mutableStateOf<Bitmap?>(null) }
+    // 不按 bytes 做 key：视频预览帧来得快、解码慢，按 key 重置会把上一张丢掉并闪回骨架；
+    // 这里保留上一帧直到新帧解码成功，LaunchedEffect 换 key 会自动取消过期解码。
+    var bitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     LaunchedEffect(bytes) {
-        bitmap = withContext(Dispatchers.Default) {
+        val decoded = withContext(Dispatchers.Default) {
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        }
+        // 解码失败（半帧/异常格式）保留上一张，避免画面闪空
+        if (decoded != null) {
+            bitmap = decoded
         }
     }
 
