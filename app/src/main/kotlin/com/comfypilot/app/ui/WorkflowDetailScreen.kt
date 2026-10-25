@@ -2053,8 +2053,14 @@ private fun ActivePreview(
             tag = if (task.state is TaskState.Running) "LIVE" else "QUEUED",
             live = task.state is TaskState.Running,
         ) {
+            val cached = remember(task.promptId, task.updatedAtMs) {
+                com.comfypilot.app.PreviewFrameCache.frames(task.promptId)
+            }
             if (gifUrl != null) {
                 LoopingAnimatedImage(url = gifUrl, modifier = Modifier.matchParentSize())
+            } else if (cached.size >= 2) {
+                // 视频采样：服务端每步一张，网页端靠前端把历史帧循环播放才显得连续
+                LoopingFrames(frames = cached, modifier = Modifier.matchParentSize())
             } else if (frame != null) {
                 LivePreviewImage(bytes = frame.image, modifier = Modifier.matchParentSize())
                 // 重连/切后台期间不会再收到帧：明确标注这是"最后一帧"和它有多旧，
@@ -2623,4 +2629,23 @@ private fun GraphIconButton(onClick: () -> Unit) {
             drawLine(c.textDim, Offset(w * 0.70f, h * 0.20f), Offset(w * 0.62f, h * 0.62f), stroke)
         }
     }
+}
+
+/** 把已收到的采样帧按顺序循环播放（网页端同款观感）。 */
+@Composable
+private fun LoopingFrames(frames: List<android.graphics.Bitmap>, modifier: Modifier = Modifier) {
+    var index by remember(frames.size) { mutableStateOf(0) }
+    LaunchedEffect(frames.size) {
+        while (frames.size >= 2) {
+            kotlinx.coroutines.delay(160)
+            index = (index + 1) % frames.size
+        }
+    }
+    val bitmap = frames.getOrNull(index) ?: frames.last()
+    Image(
+        bitmap = bitmap.asImageBitmap(),
+        contentDescription = "采样预览",
+        modifier = modifier,
+        contentScale = ContentScale.Fit,
+    )
 }
