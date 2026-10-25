@@ -896,6 +896,7 @@ struct Index {
     // VHS 动画：服务端一次给一组帧，按 rate 轮播；只在"哪一批"变化时才重新取帧，
     // 不能因为每帧都换了时间戳就反复解码。
     const animationCount: number = meta.animationCount ?? 0;
+    console.info(`CPANIM meta count=${animationCount} seq=${meta.animationSeq ?? -1} rate=${meta.animationRate ?? -1} bytes=${meta.bytes}`);
     if (animationCount > 1) {
       const animationKey = `${meta.animationPromptId ?? meta.promptId ?? ''}:${animationCount}:${meta.animationRate ?? 8}:${meta.animationSeq ?? 0}`;
       if (animationKey !== this.animationKey) {
@@ -921,6 +922,7 @@ struct Index {
       if (!payload.ok || payload.frames === undefined || payload.frames.length < 2) {
         return;
       }
+      console.info(`CPANIM payload ok=${payload.ok} count=${payload.count ?? -1} rate=${payload.rate ?? -1} seq=${payload.seq ?? -1}`);
       const decoded: image.PixelMap[] = [];
       for (let i = 0; i < payload.frames.length; i++) {
         const bytes = this.previewBase64.decodeSync(payload.frames[i]);
@@ -935,6 +937,7 @@ struct Index {
         decoded.forEach((pixel: image.PixelMap) => pixel.release());
         return;
       }
+      console.info(`CPANIM decoded=${decoded.length}`);
       this.stopPreviewAnimation();
       this.animationFrames = decoded;
       let index = 0;
@@ -942,12 +945,18 @@ struct Index {
       const frameMs = Math.max(40, Math.floor(1000 / rate));
       this.livePreview = decoded[0];
       this.livePreviewFailed = false;
+      let ticks = 0;
+      console.info(`CPANIM start timer frames=${decoded.length} frameMs=${frameMs}`);
       this.animationTimer = setInterval(() => {
         if (this.animationFrames.length === 0) {
           return;
         }
         index = (index + 1) % this.animationFrames.length;
         this.livePreview = this.animationFrames[index];
+        ticks++;
+        if (ticks % 40 === 0) {
+          console.info(`CPANIM tick frames=${this.animationFrames.length} index=${index}`);
+        }
       }, frameMs);
     } catch (err) {
       this.stopPreviewAnimation();
