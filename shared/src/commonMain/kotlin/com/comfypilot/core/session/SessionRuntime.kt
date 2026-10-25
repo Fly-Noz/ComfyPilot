@@ -216,7 +216,7 @@ class SessionRuntime(
                         }
 
                         override fun onBinary(bytes: ByteArray) {
-                            DiagnosticTrace.socketBinary(bytes.size)
+                            DiagnosticTrace.socketBinary(bytes.size, bytes)
                             onSocketEvent(SessionInput.SocketBinary(lease, bytes, clock.nowMillis()))
                         }
 
