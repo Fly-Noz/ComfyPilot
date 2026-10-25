@@ -211,6 +211,10 @@ class SessionRuntime(
                         }
 
                         override fun onText(text: String) {
+                            // VHS 动画预览：声明接下去会发几帧，单独标一条方便核对
+                            if (text.contains("VHS_latentpreview")) {
+                                DiagnosticTrace.emit("vhs $text")
+                            }
                             DiagnosticTrace.socketText(text)
                             onSocketEvent(SessionInput.SocketText(lease, text, clock.nowMillis()))
                         }

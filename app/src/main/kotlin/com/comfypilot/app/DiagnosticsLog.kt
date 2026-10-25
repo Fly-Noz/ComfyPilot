@@ -35,6 +35,9 @@ object DiagnosticsLog {
     }
 
     fun append(raw: String) {
+        // 监控帧每秒两条，会把 logcat 环形缓冲冲掉，导致复现后什么日志都查不到；
+        // 它不进日志（界面上的性能条另有数据来源）。
+        if (raw.contains("\"crystools.monitor\"")) return
         synchronized(lock) {
             buffer.addLast("${timeFormat.format(Date())} $raw")
             while (buffer.size > MAX_LINES) {

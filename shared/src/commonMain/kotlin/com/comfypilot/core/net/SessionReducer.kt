@@ -400,6 +400,7 @@ class SessionReducer(
                 receivedAtMs = input.nowMs,
             )
             return if (frames.size >= burst.length) {
+                com.comfypilot.core.DiagnosticTrace.emit("anim ready frames=${frames.size} rate=${burst.rate}")
                 ReduceResult(
                     state.copy(
                         previewBurst = null,
