@@ -148,6 +148,12 @@ class SessionRuntime(
     }
 
     private suspend fun openSocket(lease: ConnectionLease) {
+        // 连接建立过程中网络回调可能再发一次 OpenSocket：同一租约只留一条 socket，
+        // 否则两条都在收帧（日志里每条事件出现两次），旧的那条还会漏关。
+        if (handles.containsKey(lease.leaseId)) {
+            DiagnosticTrace.emit("ws.open skipped dup gen${lease.generation}")
+            return
+        }
         try {
             val handle = sockets.open(
                 lease.wsUrl,
@@ -212,6 +218,13 @@ class SessionRuntime(
             http.execute(request).toOutcome()
         } catch (t: Throwable) {
             HttpOutcome.Failed(t.message ?: "HTTP 调用失败")
+        }
+        when (outcome) {
+            is HttpOutcome.Received -> DiagnosticTrace.emit(
+                "http<- ${effect.tag} ${outcome.status} ${DiagnosticTrace.clip(outcome.body ?: "")}",
+            )
+
+            is HttpOutcome.Failed -> DiagnosticTrace.emit("http<- ${effect.tag} failed: ${outcome.message}")
         }
         enqueue(SessionInput.HttpResult(effect.lease, effect.tag, outcome, clock.nowMillis()))
     }

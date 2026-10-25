@@ -33,6 +33,7 @@ import kotlin.random.Random
 object SessionHost {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var lastPhaseLog: String = ""
+    private var lastTasksLog: String = ""
 
     init {
         // 诊断页要能看到 WebSocket 事件与重连原因；共享层只负责发事件，这里负责落点。
@@ -52,6 +53,16 @@ object SessionHost {
     @Volatile
     var baseUrl: String = DEFAULT_BASE_URL
         private set
+
+    private fun describeTasks(state: SessionState): String {
+        val active = state.activeTasks
+        if (active.isEmpty()) return "none"
+        return active.joinToString("; ") { task ->
+            val p = task.progress
+            val step = if (p == null || p.max <= 0.0) "-" else "${p.value.toInt()}/${p.max.toInt()}"
+            "${task.id.take(8)}:${task.state::class.simpleName}:$step"
+        }
+    }
 
     private fun describePhase(phase: SessionPhase): String = when (phase) {
         is SessionPhase.Idle -> "idle(${phase.reason})"
@@ -97,6 +108,13 @@ object SessionHost {
                 if (phase != lastPhaseLog) {
                     lastPhaseLog = phase
                     DiagnosticsLog.append("phase $phase")
+                }
+                // 任务侧也要有痕迹：切后台回来后进度停在原处时，能看出是"没有新事件"
+                // 还是"状态机把任务丢了/改成别的状态了"。
+                val tasks = describeTasks(snapshot)
+                if (tasks != lastTasksLog) {
+                    lastTasksLog = tasks
+                    DiagnosticsLog.append("tasks $tasks")
                 }
             }
         }
