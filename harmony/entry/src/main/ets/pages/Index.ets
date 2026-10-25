@@ -938,7 +938,8 @@ struct Index {
         return;
       }
       console.info(`CPANIM decoded=${decoded.length}`);
-      this.stopPreviewAnimation();
+      // 只停定时器，不清 animationKey：清了会让下一帧又触发一次重载，形成死循环
+      this.stopPreviewAnimation(false);
       this.animationFrames = decoded;
       let index = 0;
       const rate = Math.max(1, payload.rate ?? meta.animationRate ?? 8);
@@ -963,14 +964,16 @@ struct Index {
     }
   }
 
-  private stopPreviewAnimation(): void {
+  private stopPreviewAnimation(clearKey: boolean = true): void {
     if (this.animationTimer !== -1) {
       clearInterval(this.animationTimer);
       this.animationTimer = -1;
     }
     const frames = this.animationFrames;
     this.animationFrames = [];
-    this.animationKey = '';
+    if (clearKey) {
+      this.animationKey = '';
+    }
     frames.forEach((pixel: image.PixelMap) => {
       pixel.release();
     });
@@ -6014,29 +6017,50 @@ struct Index {
     Column() {
       Column({ space: 10 }) {
         Text('提交前确认')
-          .fontSize(17)
+          .fontSize(16)
           .fontWeight(FontWeight.Bold)
+          .fontColor(this.c().text)
         Text('以下提示不会阻止提交：')
           .fontSize(12)
           .fontColor(this.c().textMuted)
+          .width('100%')
         ForEach(this.confirmWarnings, (warning: string, index: number) => {
           Text(`· ${warning}`)
-            .fontSize(12)
+            .fontSize(11.5)
+            .lineHeight(17)
             .fontColor(this.c().warn)
+            .width('100%')
         }, (warning: string, index: number) => `${index}:${warning}`)
         Row({ space: 8 }) {
           Button('取消')
+            .fontSize(12.5)
+            .fontColor(this.c().textMuted)
+            .height(38)
+            .padding({ left: 16, right: 16 })
+            .borderRadius(12)
+            .backgroundColor(this.c().card)
+            .border({ width: 1, color: this.c().borderStrong })
             .onClick(() => this.cancelSubmitConfirm())
           Button('仍然提交')
+            .fontSize(12.5)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.c().accentInk)
+            .height(38)
+            .padding({ left: 16, right: 16 })
+            .borderRadius(12)
+            .backgroundColor(Color.Transparent)
+            .linearGradient({ angle: 120, colors: Spectrum.gradientColors(this.c()) })
             .onClick(() => this.confirmSubmit())
         }
         .width('100%')
         .justifyContent(FlexAlign.End)
       }
-      .padding(16)
-      .width('88%')
-      .backgroundColor(Color.White)
-      .borderRadius(12)
+      .padding(18)
+      .width('84%')
+      .alignItems(HorizontalAlign.Start)
+      .backgroundColor(this.c().dialog)
+      .borderRadius(18)
+      .border({ width: 1, color: this.c().borderStrong })
     }
     .width('100%')
     .height('100%')
