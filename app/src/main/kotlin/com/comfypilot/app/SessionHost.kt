@@ -7,6 +7,7 @@ import com.comfypilot.android.transport.OkHttpHttpTransport
 import com.comfypilot.android.transport.OkHttpWebSocketTransport
 import com.comfypilot.app.task.JsonFileTaskStore
 import com.comfypilot.core.net.NetworkInfo
+import com.comfypilot.core.net.SessionPhase
 import com.comfypilot.core.net.SessionConfig
 import com.comfypilot.core.net.SessionState
 import com.comfypilot.core.net.UserNotice
@@ -31,6 +32,12 @@ import kotlin.random.Random
  */
 object SessionHost {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var lastPhaseLog: String = ""
+
+    init {
+        // 诊断页要能看到 WebSocket 事件与重连原因；共享层只负责发事件，这里负责落点。
+        DiagnosticsLog.install()
+    }
     private var runtime: SessionRuntime? = null
     private var monitor: AndroidNetworkMonitor? = null
     private var collector: Job? = null
@@ -45,6 +52,14 @@ object SessionHost {
     @Volatile
     var baseUrl: String = DEFAULT_BASE_URL
         private set
+
+    private fun describePhase(phase: SessionPhase): String = when (phase) {
+        is SessionPhase.Idle -> "idle(${phase.reason})"
+        is SessionPhase.Connecting -> "connecting#${phase.attempt}"
+        is SessionPhase.Connected -> "connected(gen${phase.lease.generation})"
+        is SessionPhase.Reconnecting -> "reconnecting#${phase.attempt}:${phase.cause}"
+        is SessionPhase.Recovering -> "recovering(${phase.pending.size})"
+    }
 
     fun connect(context: Context, url: String, progressSilenceMs: Long? = null) {
         stopRuntime()
@@ -76,7 +91,14 @@ object SessionHost {
         runtime = created
 
         collector = scope.launch {
-            created.state.collect { snapshot -> _state.value = snapshot }
+            created.state.collect { snapshot ->
+                _state.value = snapshot
+                val phase = describePhase(snapshot.phase)
+                if (phase != lastPhaseLog) {
+                    lastPhaseLog = phase
+                    DiagnosticsLog.append("phase $phase")
+                }
+            }
         }
 
         // 必须在 runtime 就绪后再注册：registerDefaultNetworkCallback 会立即回调一次，

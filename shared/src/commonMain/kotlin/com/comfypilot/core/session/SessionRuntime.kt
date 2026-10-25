@@ -7,6 +7,7 @@ import com.comfypilot.core.net.HttpOutcome
 import com.comfypilot.core.net.NetworkInfo
 import com.comfypilot.core.net.SessionConfig
 import com.comfypilot.core.net.SessionEffect
+import com.comfypilot.core.DiagnosticTrace
 import com.comfypilot.core.net.SessionInput
 import com.comfypilot.core.net.SessionReducer
 import com.comfypilot.core.net.SessionState
@@ -127,6 +128,14 @@ class SessionRuntime(
 
     private fun dispatch(effects: List<SessionEffect>) {
         effects.forEach { effect ->
+            // 诊断：只记"会改变连接/任务可见状态"的动作，Persist 太吵不记
+            when (effect) {
+                is SessionEffect.SendHttp -> DiagnosticTrace.emit("http-> ${effect.call}")
+                is SessionEffect.OpenSocket -> DiagnosticTrace.emit("ws.open gen${effect.lease.generation}")
+                is SessionEffect.CloseSocket -> DiagnosticTrace.emit("ws.close: ${effect.reason}")
+                is SessionEffect.Notify -> DiagnosticTrace.emit("notice " + effect.notice)
+                else -> Unit
+            }
             when (effect) {
                 is SessionEffect.OpenSocket -> scope.launch { openSocket(effect.lease) }
                 is SessionEffect.CloseSocket -> scope.launch { closeSocket(effect.leaseId) }
@@ -143,19 +152,30 @@ class SessionRuntime(
             val handle = sockets.open(
                 lease.wsUrl,
                 object : WebSocketListener {
-                    override fun onOpen() = onSocketEvent(SessionInput.SocketOpened(lease, clock.nowMillis()))
+                    override fun onOpen() {
+                        DiagnosticTrace.emit("ws.ok gen${lease.generation}")
+                        onSocketEvent(SessionInput.SocketOpened(lease, clock.nowMillis()))
+                    }
 
-                    override fun onText(text: String) =
+                    override fun onText(text: String) {
+                        DiagnosticTrace.socketText(text)
                         onSocketEvent(SessionInput.SocketText(lease, text, clock.nowMillis()))
+                    }
 
-                    override fun onBinary(bytes: ByteArray) =
+                    override fun onBinary(bytes: ByteArray) {
+                        DiagnosticTrace.socketBinary(bytes.size)
                         onSocketEvent(SessionInput.SocketBinary(lease, bytes, clock.nowMillis()))
+                    }
 
-                    override fun onClosed(code: Int, reason: String) =
+                    override fun onClosed(code: Int, reason: String) {
+                        DiagnosticTrace.emit("ws.closed $code $reason")
                         onSocketEvent(SessionInput.SocketClosed(lease, code, reason, clock.nowMillis()))
+                    }
 
-                    override fun onFailure(message: String) =
+                    override fun onFailure(message: String) {
+                        DiagnosticTrace.emit("ws.fail $message")
                         onSocketEvent(SessionInput.SocketFailed(lease, message, clock.nowMillis()))
+                    }
                 },
             )
             handles[lease.leaseId] = handle

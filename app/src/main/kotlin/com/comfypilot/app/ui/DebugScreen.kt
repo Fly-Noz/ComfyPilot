@@ -10,6 +10,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import com.comfypilot.app.DiagnosticsLog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -130,9 +135,16 @@ fun DebugScreen(
                     color = c.textDim,
                     fontSize = 10.5.sp,
                 )
+
             }
 
             Spacer(Modifier.height(8.dp))
+
+            DiagnosticsLogPanel(
+                modifier = Modifier
+                    .padding(horizontal = 18.dp)
+                    .height(190.dp),
+            )
 
             TaskList(
                 tasks = state.tasks.values.sortedByDescending { it.createdAtMs },
@@ -141,6 +153,80 @@ fun DebugScreen(
                 viewBaseUrl = state.lease?.baseUrl,
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 4.dp),
             )
+        }
+    }
+}
+/**
+ * 诊断日志面板：WebSocket 事件、HTTP 请求、重连原因按时间倒序滚动显示。
+ *
+ * 之所以单独一块而不是塞进「最近事件」：这次排查长任务无进度的问题，
+ * 需要看到"服务端到底发没发 progress""有没有触发静默重连"，一行摘要不够。
+ */
+@Composable
+private fun DiagnosticsLogPanel(modifier: Modifier = Modifier) {
+    val c = Spectrum.colors
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val lines by DiagnosticsLog.lines.collectAsState()
+    val scroll = rememberScrollState()
+
+    LaunchedEffect(lines.size) {
+        // 新日志到达时跟到底部，停在顶部就没意义了
+        scroll.scrollTo(Int.MAX_VALUE)
+    }
+
+    GlassCard(modifier = modifier, padding = PaddingValues(11.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "日志",
+                color = c.textDim,
+                fontSize = 9.5.sp,
+                fontFamily = SpectrumMono,
+                letterSpacing = 1.1.sp,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = "${lines.size} 条",
+                color = c.textDim,
+                fontSize = 9.5.sp,
+            )
+            Spacer(Modifier.weight(1f))
+            GhostButton(
+                text = "复制",
+                onClick = {
+                    val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+                    clipboard?.setPrimaryClip(
+                        android.content.ClipData.newPlainText("ComfyPilot 日志", DiagnosticsLog.snapshot()),
+                    )
+                },
+                height = 26.dp,
+            )
+            Spacer(Modifier.width(6.dp))
+            GhostButton(text = "清空", onClick = { DiagnosticsLog.clear() }, height = 26.dp)
+        }
+        Spacer(Modifier.height(7.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .verticalScroll(scroll),
+        ) {
+            if (lines.isEmpty()) {
+                Text(
+                    text = "还没有日志：连接后这里会记录 WebSocket 事件与重连原因。",
+                    color = c.textDim,
+                    fontSize = 9.5.sp,
+                )
+            }
+            lines.forEach { line ->
+                Text(
+                    text = line,
+                    color = c.textMuted,
+                    fontSize = 9.sp,
+                    fontFamily = SpectrumMono,
+                    lineHeight = 12.sp,
+                    modifier = Modifier.padding(vertical = 1.dp),
+                )
+            }
         }
     }
 }
