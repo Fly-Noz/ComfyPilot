@@ -24,6 +24,7 @@ import { AddressEntry, AddressStore } from '../bridge/AddressStore';
 import { DismissedErrorStore } from '../bridge/DismissedErrorStore';
 import { AppearanceStore } from '../bridge/AppearanceStore';
 import { ClientIdStore } from '../bridge/ClientIdStore';
+import { TaskNotifier } from '../notify/TaskNotifier';
 import { emptyServerStats, fetchServerStats, sameServerStats, ServerStats } from '../bridge/ServerStats';
 import { Palette, Spectrum } from '../theme/Spectrum';
 import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/ArtifactDownloader';
@@ -332,6 +333,11 @@ struct Index {
   private addressStore: AddressStore = new AddressStore();
   private appearanceStore: AppearanceStore = new AppearanceStore();
   private clientIdStore: ClientIdStore = new ClientIdStore();
+  private notifier: TaskNotifier = new TaskNotifier();
+  /** 页面是否可见：只有切到后台才需要进度/完成通知。 */
+  private pageVisible: boolean = true;
+  /** 已经发过完成通知的任务，避免状态帧重复触发。 */
+  private doneNotified: Set<string> = new Set<string>();
   private dismissedStore: DismissedErrorStore = new DismissedErrorStore();
   /** 性能条复用一个 HttpRequest 句柄，页面离场时 destroy()。 */
   private statsRequest: http.HttpRequest | null = null;
@@ -433,16 +439,23 @@ struct Index {
 
   /** 页面重新可见（含应用回前台）：恢复性能轮询。 */
   onPageShow(): void {
+    this.pageVisible = true;
     this.statsPaused = false;
     if (this.running) {
       this.startStatsPolling();
     }
+    // 回到应用：任务通知全部撤掉，连续任务也停掉
+    this.notifier.cancelTaskNotifications();
+    this.notifier.stopKeepAlive();
   }
 
   /** 页面不可见（切后台 / 跳走）：停掉轮询，回来再开。 */
   onPageHide(): void {
+    this.pageVisible = false;
     this.statsPaused = true;
     this.stopStatsPolling();
+    // 切后台：有任务在跑就开连续任务 + 进度通知
+    this.updateTaskNotification();
   }
 
   /**
@@ -700,6 +713,8 @@ struct Index {
     // clientId 决定服务端把 progress/预览帧推给谁：按地址取回同一个再建会话。
     const clientId: string = await this.clientIdStore.load(context, this.baseUrl);
     this.bridge.setClientId(clientId);
+    this.notifier.init(this.uiContext as common.UIAbilityContext);
+    this.notifier.ensurePermission();
     this.bridge.prepare(this.baseUrl);
   }
 
@@ -714,6 +729,9 @@ struct Index {
     this.network = state.validated ? `${state.network}（已验证）` : state.network;
     this.tasks = state.tasks;
     this.syncTaskAnimations(state.tasks);
+    if (!this.pageVisible) {
+      this.updateTaskNotification();
+    }
     this.queueRunning = state.queueRunning ?? 0;
     this.queuePending = state.queuePending ?? 0;
     // 监控采样只喂性能条：单独一份 @State，summaryKey 不读它，工作流视图不受影响。 
@@ -2107,6 +2125,54 @@ struct Index {
         this.clockTick = Date.now();
       }
     }, 1000);
+  }
+
+  private isTerminalState(state: string): boolean {
+    return state === 'Completed' || state === 'Failed' ||
+      state === 'Cancelled' || state === 'Unknown';
+  }
+
+  /**
+   * 后台任务通知：有活动任务就开连续任务并刷新进度；新出现的终态发一条完成通知。
+   * 只在后台调用（前台由界面本身反馈）。
+   */
+  private updateTaskNotification(): void {
+    const active = this.tasks
+      .filter((task: BridgeTask) => !this.isTerminalState(task.state))
+      .sort((a: BridgeTask, b: BridgeTask) => b.updatedAtMs - a.updatedAtMs)[0];
+    if (active !== undefined) {
+      this.notifier.startKeepAlive();
+      const name = active.name !== null && active.name.length > 0 ? active.name : `任务 ${active.id.substring(0, 8)}`;
+      this.notifier.notifyProgress(name, this.taskNotificationText(active));
+    } else {
+      this.notifier.cancelProgress();
+    }
+    this.tasks.forEach((task: BridgeTask) => {
+      if (!this.isTerminalState(task.state) || this.doneNotified.has(task.id)) {
+        return;
+      }
+      this.doneNotified.add(task.id);
+      const failed = task.state === 'Failed' || (task.error !== null && task.error.length > 0);
+      const title = failed ? '任务失败' : '任务完成';
+      const body = failed
+        ? (task.error !== null && task.error.length > 0 ? task.error : '执行失败')
+        : (task.outputRefs.length > 0
+          ? task.outputRefs[0].displayName
+          : this.taskDurationText(task));
+      this.notifier.notifyFinished(title, body);
+    });
+  }
+
+  private taskNotificationText(task: BridgeTask): string {
+    const parts: string[] = [];
+    if (task.progressMax > 0) {
+      parts.push(`${task.percent}%`);
+    }
+    if (task.nodeDone > 0) {
+      parts.push(`已完成 ${task.nodeDone} 个节点`);
+    }
+    parts.push(this.taskDurationText(task));
+    return parts.join(' · ');
   }
 
   /** 任务耗时：运行中显示"已用"，结束后显示"耗时"。 */
