@@ -141,6 +141,10 @@ fun PromptTask.toBridgeJson(): JsonObject = buildJsonObject {
     put("outputs", outputs.size)
     put("error", jsonString(error ?: (state as? TaskState.Failed)?.message))
     put("updatedAtMs", updatedAtMs)
+    // 任务耗时：客户端用 createdAtMs 与 updatedAtMs/当前时间算"耗时/已用"，
+    // 不依赖服务端时间戳（/history 的 messages 只在完成时才有）。
+    put("createdAtMs", createdAtMs)
+    put("nodeDone", executedNodes.size)
     // 只在这里补完整产物引用；`outputs` 保留数量，旧宿主不会被新字段影响。
     putJsonArray("outputRefs") {
         outputs.forEach { output ->

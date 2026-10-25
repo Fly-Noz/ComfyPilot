@@ -53,6 +53,14 @@ fun TaskList(
     contentPadding: PaddingValues = PaddingValues(horizontal = 18.dp, vertical = 6.dp),
 ) {
     var viewing by remember { mutableStateOf<PromptTask?>(null) }
+    // 运行中的任务每秒刷新一次"已用"；只有列表可见时才计时，离开页面自动停。
+    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(1_000)
+            nowMs = System.currentTimeMillis()
+        }
+    }
 
     LazyColumn(
         modifier = modifier,
@@ -62,6 +70,7 @@ fun TaskList(
         items(tasks, key = { it.id }) { task ->
             TaskCard(
                 task = task,
+                nowMs = nowMs,
                 onCancel = onCancel,
                 onViewOutputs = if (task.outputs.isNotEmpty()) {
                     { viewing = task }
@@ -82,10 +91,28 @@ fun TaskList(
 @Composable
 private fun TaskCard(
     task: PromptTask,
+    nowMs: Long,
     onCancel: (PromptTask) -> Unit,
     onViewOutputs: (() -> Unit)? = null,
 ) {
     val c = Spectrum.colors
+    val running = task.state is TaskState.Running ||
+        task.state is TaskState.Queued ||
+        task.state is TaskState.Submitting
+    val elapsedEnd = if (running) nowMs else task.updatedAtMs
+    val elapsedSeconds = ((elapsedEnd - task.createdAtMs) / 1000).coerceAtLeast(0)
+    val elapsedText = if (task.createdAtMs <= 0L) {
+        ""
+    } else {
+        val minutes = elapsedSeconds / 60
+        val rest = elapsedSeconds % 60
+        val clock = if (minutes >= 60) {
+            "%d:%02d:%02d".format(minutes / 60, minutes % 60, rest)
+        } else {
+            "%d:%02d".format(minutes, rest)
+        }
+        (if (running) "已用 " else "耗时 ") + clock
+    }
     val shape = RoundedCornerShape(16.dp)
     val tone = when (task.state) {
         TaskState.Submitting -> PillTone.Warn
@@ -149,6 +176,14 @@ private fun TaskCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                if (elapsedText.isNotEmpty()) {
+                    Text(
+                        text = elapsedText,
+                        color = c.textDim,
+                        fontSize = 9.5.sp,
+                        fontFamily = SpectrumMono,
+                    )
+                }
                 SpectrumPill(text = taskStateLabel(task.state), tone = tone)
             }
 

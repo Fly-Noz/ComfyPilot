@@ -47,6 +47,10 @@ export interface BridgeTask {
   outputRefs: BridgeOutput[];
   error: string | null;
   updatedAtMs: number;
+  /** 提交时间：任务卡用它算耗时，旧快照没有该字段时为 0。 */
+  createdAtMs: number;
+  /** 已完成节点数（来自 executing 事件）。 */
+  nodeDone: number;
 }
 
 export interface CatalogEntry {

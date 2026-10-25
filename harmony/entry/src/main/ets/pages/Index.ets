@@ -60,6 +60,8 @@ function emptyTask(): BridgeTask {
     outputRefs: [],
     error: null,
     updatedAtMs: 0,
+    createdAtMs: 0,
+    nodeDone: 0,
   };
 }
 
@@ -347,6 +349,9 @@ struct Index {
   private skeletonStarted: boolean = false;
   private floatStarted: boolean = false;
   private submitFlashTimer: number = -1;
+  /** 任务卡耗时每秒刷新；只在有未完成任务时走，避免空转重绘整页。 */
+  private clockTimer: number = -1;
+  @State clockTick: number = 0;
   /** 性能条百分比补间：目标变化时用 UIContext 的 Animator 逐帧推进。 */
   private statAnimator: AnimatorResult | null = null;
   private statFrom: ShownStats = emptyShownStats();
@@ -400,10 +405,15 @@ struct Index {
       this.log(text);
     };
     this.bridge.onLog = (line: string) => this.log(line);
+    this.startClock();
     this.bootstrap();
   }
 
   aboutToDisappear(): void {
+    if (this.clockTimer !== -1) {
+      clearInterval(this.clockTimer);
+      this.clockTimer = -1;
+    }
     if (this.submitFlashTimer !== -1) {
       clearTimeout(this.submitFlashTimer);
       this.submitFlashTimer = -1;
@@ -2074,6 +2084,35 @@ struct Index {
       return `${graph.nodeIds.length} 个节点 · ${submit} 个会提交`;
     }
     return `${graph.nodeIds.length} 个节点 · 未启用`;
+  }
+
+  private startClock(): void {
+    if (this.clockTimer !== -1) {
+      return;
+    }
+    this.clockTimer = setInterval(() => {
+      // 只有"还在跑"的任务需要每秒动；全部结束就停表，省电
+      const running = this.tasks.some((task: BridgeTask) =>
+        task.state === 'Running' || task.state === 'Queued' || task.state === 'Submitting');
+      if (running) {
+        this.clockTick = Date.now();
+      }
+    }, 1000);
+  }
+
+  /** 任务耗时：运行中显示"已用"，结束后显示"耗时"。 */
+  private taskDurationText(task: BridgeTask): string {
+    if (task.createdAtMs === undefined || task.createdAtMs <= 0) {
+      return '';
+    }
+    const running = task.state === 'Running' || task.state === 'Queued' || task.state === 'Submitting';
+    const end = running ? Date.now() : task.updatedAtMs;
+    const seconds = Math.max(0, Math.floor((end - task.createdAtMs) / 1000));
+    const minutes = Math.floor(seconds / 60);
+    const rest = seconds % 60;
+    const tail = (rest < 10 ? ':0' : ':') + rest;
+    const label = running ? '已用' : '耗时';
+    return `${label} ${Math.floor(minutes / 60) > 0 ? Math.floor(minutes / 60) + ':' + (minutes % 60 < 10 ? '0' : '') + (minutes % 60) : minutes}${tail}`;
   }
 
   /** 任务状态文案，和 Android taskStateLabel 一一对应。 */
@@ -4778,6 +4817,12 @@ struct Index {
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
+        if (this.taskDurationText(task).length > 0) {
+          Text(this.taskDurationText(task))
+            .fontSize(9.5)
+            .fontFamily('monospace')
+            .fontColor(this.c().textDim)
+        }
         this.StatusTag(this.taskStateName(task.state),
           this.taskToneColor(task.state), this.taskToneBackground(task.state))
       }
