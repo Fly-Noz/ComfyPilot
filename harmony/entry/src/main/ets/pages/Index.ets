@@ -1879,11 +1879,9 @@ struct Index {
     }
   }
 
-  /** 启用中的节点图排在前面，未启用的整组后移；组内顺序仍跟主机一致。 */
+  /** 顺序跟主机一致，不因启用/关闭而重排（与 Android 的图选择器一致）。 */
   private parentGraphs(): WorkflowGraphView[] {
-    const parents = this.view.graphs.filter((graph: WorkflowGraphView) => graph.outputNodeIds.length > 0);
-    return parents.filter((graph: WorkflowGraphView) => graph.selected)
-      .concat(parents.filter((graph: WorkflowGraphView) => !graph.selected));
+    return this.view.graphs.filter((graph: WorkflowGraphView) => graph.outputNodeIds.length > 0);
   }
 
   private childGraphs(parentId: string): WorkflowGraphView[] {
