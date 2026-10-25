@@ -45,6 +45,14 @@ data class SessionState(
     val nodeInfoRequested: Set<String> = emptySet(),
     /** 最近一帧采样预览；只在内存里，不落库、不进桥协议状态帧。 */
     val preview: PreviewFrame? = null,
+    /** VHS 动画预览的"当前正在收帧"状态；收到 length 帧后转成 previewAnimation。 */
+    val previewBurst: com.comfypilot.core.event.PreviewBurst? = null,
+
+    /** 已收齐的一段 VHS 动画预览：按 rate 循环播放，替代单帧画面。 */
+    val previewAnimation: com.comfypilot.core.event.PreviewAnimation? = null,
+
+    /** 收帧过程中的临时缓冲。 */
+    val previewFrames: List<ByteArray> = emptyList(),
     /**
      * 最近一帧 Crystools 监控采样（CPU/GPU/温度等）。
      *

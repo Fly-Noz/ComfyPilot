@@ -80,3 +80,21 @@ object PreviewDecoder {
             ((frame[offset + 2].toInt() and 0xFF) shl 8) or
             (frame[offset + 3].toInt() and 0xFF)
 }
+
+/**
+ * VideoHelperSuite 的 latent 预览：先发一条 VHS_latentpreview 声明本次动画的
+ * 帧数（length）与帧率（rate），紧接着连续发 length 个二进制帧。
+ * 网页端把它们按 rate 循环播放，看起来就是一段动画；只保留最后一帧就会是静态图。
+ */
+data class PreviewBurst(
+    val length: Int,
+    val rate: Int,
+    val nodeId: String?,
+)
+
+data class PreviewAnimation(
+    val promptId: String?,
+    val nodeId: String?,
+    val rate: Int,
+    val frames: List<ByteArray>,
+)

@@ -1882,7 +1882,13 @@ private fun PreviewPane(
         .filter { it.isActive && it.workflowPath == workflowPath }
         .maxByOrNull { it.createdAtMs }
     if (active != null) {
-        ActivePreview(task = active, preview = state.preview, baseUrl = state.lease?.baseUrl, onCancel = onCancel)
+        ActivePreview(
+            task = active,
+            preview = state.preview,
+            baseUrl = state.lease?.baseUrl,
+            animation = state.previewAnimation,
+            onCancel = onCancel,
+        )
         return
     }
 
@@ -2014,6 +2020,7 @@ private fun ActivePreview(
     task: PromptTask,
     preview: PreviewFrame?,
     baseUrl: String?,
+    animation: com.comfypilot.core.event.PreviewAnimation?,
     onCancel: (String) -> Unit,
 ) {
     val c = Spectrum.colors
@@ -2058,6 +2065,9 @@ private fun ActivePreview(
             }
             if (gifUrl != null) {
                 LoopingAnimatedImage(url = gifUrl, modifier = Modifier.matchParentSize())
+            } else if (animation != null && animation.frames.size >= 2) {
+                // VHS 一层：服务端一次发一组帧并给出帧率，按 rate 循环就是网页端的效果
+                VhsAnimationPlayback(animation = animation, modifier = Modifier.matchParentSize())
             } else if (cached.size >= 2) {
                 // 视频采样：服务端每步一张，网页端靠前端把历史帧循环播放才显得连续
                 LoopingFrames(frames = cached, modifier = Modifier.matchParentSize())
@@ -2648,4 +2658,40 @@ private fun LoopingFrames(frames: List<android.graphics.Bitmap>, modifier: Modif
         modifier = modifier,
         contentScale = ContentScale.Fit,
     )
+}
+
+/** 按 VHS 声明的帧率循环播放一组预览帧。 */
+@Composable
+private fun VhsAnimationPlayback(
+    animation: com.comfypilot.core.event.PreviewAnimation,
+    modifier: Modifier = Modifier,
+) {
+    var frames by remember(animation) { mutableStateOf<List<android.graphics.Bitmap>>(emptyList()) }
+    LaunchedEffect(animation) {
+        frames = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            animation.frames.mapNotNull { bytes ->
+                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            }
+        }
+    }
+    var index by remember(animation) { mutableStateOf(0) }
+    LaunchedEffect(animation, frames.size) {
+        if (frames.size < 2) return@LaunchedEffect
+        val frameDelay = (1000 / animation.rate.coerceAtLeast(1)).toLong().coerceAtLeast(40L)
+        while (true) {
+            kotlinx.coroutines.delay(frameDelay)
+            index = (index + 1) % frames.size
+        }
+    }
+    val bitmap = frames.getOrNull(index) ?: frames.lastOrNull()
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = "采样预览",
+            modifier = modifier,
+            contentScale = ContentScale.Fit,
+        )
+    } else {
+        androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize())
+    }
 }

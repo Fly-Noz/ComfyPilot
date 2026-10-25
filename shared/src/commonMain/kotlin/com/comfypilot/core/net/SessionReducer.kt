@@ -351,6 +351,18 @@ class SessionReducer(
             }
 
             // WebSocket 只是提示：status / cached / 预览帧不改变任务真相
+            is ComfyEvent.AnimPreviewStart -> {
+                // VHS 先声明接下来会发 length 帧：重置缓冲，收齐后替换掉旧动画
+                next = state.copy(
+                    previewBurst = com.comfypilot.core.event.PreviewBurst(
+                        length = event.length,
+                        rate = event.rate,
+                        nodeId = event.nodeId,
+                    ),
+                    previewFrames = emptyList(),
+                )
+            }
+
             is ComfyEvent.Status, is ComfyEvent.ExecutionCached,
             is ComfyEvent.BinaryPreview,
             -> Unit
@@ -377,6 +389,34 @@ class SessionReducer(
         val promptId = decoded.promptId ?: state.activeTasks.firstOrNull()?.promptId ?: return ReduceResult(state)
         val task = findTask(state, promptId) ?: return ReduceResult(state)
         if (task.isTerminal) return ReduceResult(state)
+
+        val burst = state.previewBurst
+        if (burst != null) {
+            val frames = state.previewFrames + decoded.image
+            val lastFrame = PreviewFrame(
+                promptId = promptId,
+                nodeId = decoded.nodeId ?: burst.nodeId,
+                image = decoded.image,
+                receivedAtMs = input.nowMs,
+            )
+            return if (frames.size >= burst.length) {
+                ReduceResult(
+                    state.copy(
+                        previewBurst = null,
+                        previewFrames = emptyList(),
+                        previewAnimation = com.comfypilot.core.event.PreviewAnimation(
+                            promptId = promptId,
+                            nodeId = burst.nodeId,
+                            rate = burst.rate,
+                            frames = frames,
+                        ),
+                        preview = lastFrame,
+                    ),
+                )
+            } else {
+                ReduceResult(state.copy(previewFrames = frames, preview = lastFrame))
+            }
+        }
 
         val touched = task.copy(lastProgressAtMs = input.nowMs, updatedAtMs = input.nowMs)
         return ReduceResult(
@@ -1100,6 +1140,9 @@ class SessionReducer(
             tasks = state.tasks + (updated.id to updated),
             // 完成/失败后预览帧就过期了；别的任务还在跑时保留它。
             preview = state.preview?.takeIf { it.promptId != null && it.promptId != promptId },
+            previewAnimation = state.previewAnimation?.takeIf { it.promptId != promptId },
+            previewBurst = null,
+            previewFrames = emptyList(),
         )
         next = removeSlot(next, promptId, now, effects)
         return ReduceResult(next, effects)

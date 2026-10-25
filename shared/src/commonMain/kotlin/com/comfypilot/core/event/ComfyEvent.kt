@@ -46,6 +46,11 @@ sealed interface ComfyEvent {
 
     data class ExecutionInterrupted(override val promptId: String?) : ComfyEvent
 
+    /** VHS_latentpreview：声明随后 length 个二进制帧组成一段动画。 */
+    data class AnimPreviewStart(val length: Int, val rate: Int, val nodeId: String?) : ComfyEvent {
+        override val promptId: String? get() = null
+    }
+
     data class BinaryPreview(val node: String?) : ComfyEvent {
         override val promptId: String? get() = null
     }
@@ -109,6 +114,16 @@ object EventDecoder {
                     ComfyEvent.Progress(promptId, nodeId, value, max)
                 } else {
                     ComfyEvent.Unknown(type)
+                }
+            }
+
+            "VHS_latentpreview" -> {
+                val length = data?.longOrNull("length")?.toInt() ?: 0
+                val rate = data?.longOrNull("rate")?.toInt() ?: 8
+                if (length <= 0) {
+                    ComfyEvent.Unknown(type)
+                } else {
+                    ComfyEvent.AnimPreviewStart(length, rate, data?.stringOrNull("id"))
                 }
             }
 
