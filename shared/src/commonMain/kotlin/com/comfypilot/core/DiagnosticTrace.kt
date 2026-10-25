@@ -35,16 +35,21 @@ object DiagnosticTrace {
     }
 
     private fun imageKind(bytes: ByteArray?): String {
-        if (bytes == null || bytes.size < 12) return "?"
-        fun at(i: Int): Int = bytes.getOrNull(i)?.toInt()?.and(0xFF) ?: -1
-        return when {
-            at(8) == 0x57 && at(9) == 0x45 && at(10) == 0x42 && at(11) == 0x50 -> {
-                if (indexOf(bytes, "ANIM".encodeToByteArray()) >= 0) "webp-anim" else "webp"
-            }
+        if (bytes == null || bytes.size < 16) return "?"
+        // ComfyUI 的二进制帧前面还有 4 字节事件类型（type=1 时再加 4 字节图片格式），
+        // 真正的图片从 offset 8 开始，所以要两个位置都看。
+        val kind = kindAt(bytes, 8).takeIf { it != "?" } ?: kindAt(bytes, 0)
+        if (kind != "webp") return kind
+        return if (indexOf(bytes, "ANIM".encodeToByteArray()) >= 0) "webp-anim" else "webp"
+    }
 
+    private fun kindAt(bytes: ByteArray, offset: Int): String {
+        fun at(i: Int): Int = bytes.getOrNull(offset + i)?.toInt()?.and(0xFF) ?: -1
+        return when {
+            at(0) == 0x52 && at(1) == 0x49 && at(2) == 0x46 && at(3) == 0x46 -> "webp"
             at(0) == 0x47 && at(1) == 0x49 && at(2) == 0x46 -> "gif"
             at(0) == 0xFF && at(1) == 0xD8 -> "jpeg"
-            at(0) == 0x89 && at(1) == 0x50 -> "png"
+            at(0) == 0x89 && at(1) == 0x50 && at(2) == 0x4E && at(3) == 0x47 -> "png"
             else -> "?"
         }
     }
