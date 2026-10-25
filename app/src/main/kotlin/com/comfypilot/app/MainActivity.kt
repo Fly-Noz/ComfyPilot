@@ -5,15 +5,29 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.comfypilot.android.service.ComfyForegroundService
+import com.comfypilot.app.notify.NotificationIssue
+import com.comfypilot.app.notify.checkNotificationIssue
 import com.comfypilot.app.ui.ComfyPilotApp
 
 class MainActivity : ComponentActivity() {
@@ -21,7 +35,7 @@ class MainActivity : ComponentActivity() {
 
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { /* 拒绝也不影响连接，只是看不到保活通知 */ }
+    ) { /* 结果在回到前台时统一检查，拒绝也不影响连接 */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,6 +54,24 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state by viewModel.state.collectAsStateWithLifecycle()
             val notice by viewModel.notice.collectAsStateWithLifecycle()
+
+            // 每次回到前台都重新检查：用户可能刚在系统设置里关掉了通知
+            var issue by remember { mutableStateOf(checkNotificationIssue(this)) }
+            var dismissed by remember { mutableStateOf(false) }
+            val lifecycleOwner = LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        issue = checkNotificationIssue(this@MainActivity)
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+            }
+            LaunchedEffect(Unit) {
+                issue = checkNotificationIssue(this@MainActivity)
+            }
+
             ComfyPilotApp(
                 state = state,
                 initialUrl = initialUrl,
@@ -62,7 +94,41 @@ class MainActivity : ComponentActivity() {
                 onOpenWorkflow = viewModel::openWorkflow,
                 onSetNodeBypassed = viewModel::setNodeBypass,
             )
+
+            // 权限缺失时系统弹窗已经弹过；这里只处理"权限有、但总开关/通道被关"的情况，
+            // 这两项无法程序化申请，只能引导去系统设置。
+            if (!dismissed && (issue == NotificationIssue.AppDisabled || issue == NotificationIssue.ChannelBlocked)) {
+                AlertDialog(
+                    onDismissRequest = { dismissed = true },
+                    title = { Text("任务通知不可用") },
+                    text = {
+                        Text(
+                            if (issue == NotificationIssue.AppDisabled) {
+                                "系统里 ComfyPilot 的通知被关闭了。开启后才能看到任务进度和完成提醒；后台保活也会更容易被系统回收。"
+                            } else {
+                                "任务通知的两个通道（运行进度 / 任务完成）被单独关闭了。开启后才能在后台看到进度与完成提醒。"
+                            },
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            dismissed = true
+                            openNotificationSettings()
+                        }) { Text("去开启") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { dismissed = true }) { Text("以后再说") }
+                    },
+                )
+            }
         }
+    }
+
+    private fun openNotificationSettings() {
+        val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        runCatching { startActivity(intent) }
     }
 
     private fun startKeepAliveService() {

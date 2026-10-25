@@ -145,3 +145,42 @@ object TaskNotifications {
         )
     }
 }
+
+/** 通知可用性：应用打开时据此决定"申请权限"还是"引导去设置"。 */
+enum class NotificationIssue {
+    /** 一切正常。 */
+    None,
+
+    /** Android 13+ 还没授予 POST_NOTIFICATIONS，可以直接弹系统授权框。 */
+    PermissionMissing,
+
+    /** 应用级通知被关闭（设置里关掉了通知总开关）。 */
+    AppDisabled,
+
+    /** 某个通道被用户单独关掉。 */
+    ChannelBlocked,
+}
+
+/**
+ * 检查通知是否"完整可用"：权限 + 应用总开关 + 两条任务通道。
+ *
+ * 权限缺失可以程序化申请；总开关/通道属于用户设置，只能引导去系统设置页，
+ * 所以这里把两种状态分开返回，界面才能给出正确动作。
+ */
+fun checkNotificationIssue(context: Context): NotificationIssue {
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+        context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+        android.content.pm.PackageManager.PERMISSION_GRANTED
+    ) {
+        return NotificationIssue.PermissionMissing
+    }
+    val manager = context.getSystemService(NotificationManager::class.java)
+        ?: return NotificationIssue.AppDisabled
+    if (!manager.areNotificationsEnabled()) {
+        return NotificationIssue.AppDisabled
+    }
+    val blocked = listOf(TaskNotifications.CHANNEL_PROGRESS, TaskNotifications.CHANNEL_DONE).any { id ->
+        manager.getNotificationChannel(id)?.importance == NotificationManager.IMPORTANCE_NONE
+    }
+    return if (blocked) NotificationIssue.ChannelBlocked else NotificationIssue.None
+}
