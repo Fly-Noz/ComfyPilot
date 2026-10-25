@@ -729,6 +729,17 @@ class SessionReducer(
                             lease.clientId,
                             kotlinx.serialization.json.buildJsonObject {
                                 put("client_id", kotlinx.serialization.json.JsonPrimitive(lease.clientId))
+                                // 网页端提交时带的三个字段：VHS 的动图预览靠 preview_method 判定，
+                                // comfy_usage_source 让服务端知道这是前端提交。缺了就只发普通单帧。
+                                put(
+                                    "comfy_usage_source",
+                                    kotlinx.serialization.json.JsonPrimitive("comfyui-frontend"),
+                                )
+                                put(
+                                    "preview_method",
+                                    kotlinx.serialization.json.JsonPrimitive("auto"),
+                                )
+                                put("extra_pnginfo", kotlinx.serialization.json.buildJsonObject { })
                             },
                         ),
                         input.workflowJson,
