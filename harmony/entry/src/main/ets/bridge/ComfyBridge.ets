@@ -305,19 +305,25 @@ export class ComfyBridge {
    * 不解析、不筛选——哪条能恢复、恢复成什么状态由 `restoreTasks` 决定。
    */
   private configJson(baseUrl: string): string {
-    const clientPart: string = this.clientId.length > 0
-      ? `"clientId":${JSON.stringify(this.clientId)},`
-      : '';
-    const head: string = `{"baseUrl":${JSON.stringify(baseUrl)},` +
-      `"tickIntervalMs":500,"progressSilenceMs":120000,${clientPart}`;
-    if (this.taskCache.size === 0) {
-      return `${head}}`;
+    // 逐段拼接而不是预拼逗号：clientId 为空时曾多出一个尾逗号，
+    // 共享层 JSON 解析失败会回落到 127.0.0.1，表现就是"一直重连、连不上主机"。
+    const parts: string[] = [
+      `"baseUrl":${JSON.stringify(baseUrl)}`,
+      '"tickIntervalMs":500',
+      '"progressSilenceMs":120000',
+    ];
+    if (this.clientId.length > 0) {
+      parts.push(`"clientId":${JSON.stringify(this.clientId)}`);
     }
-    const payloads: string[] = [];
-    this.taskCache.forEach((payload: string) => {
-      payloads.push(payload);
-    });
-    return `${head},"tasks":[${payloads.join(',')}]}`;
+    if (this.taskCache.size > 0) {
+      const payloads: string[] = [];
+      this.taskCache.forEach((payload: string) => {
+        payloads.push(payload);
+      });
+      parts.push(`"tasks":[${payloads.join(',')}]`);
+    }
+    this.onLog(`会话配置 baseUrl=${baseUrl} clientId=${this.clientId.length > 0 ? this.clientId.substring(0, 8) : '(空)'}`);
+    return `{${parts.join(',')}}`;
   }
 
   stop(): void {
@@ -605,6 +611,8 @@ export class ComfyBridge {
     if (command.url === undefined || typeof command.id !== 'number') {
       return;
     }
+    // 连不上时最需要知道"到底往哪连"：把 URL（含 clientId）记进诊断日志
+    this.onLog(`WebSocket 连接 ${command.url}`);
     const id: number = command.id;
     const socket = webSocket.createWebSocket();
     this.sockets.set(id, socket);
@@ -645,7 +653,9 @@ export class ComfyBridge {
     });
     socket.on('error', (err: BusinessError) => {
       this.sockets.delete(id);
-      this.send({ t: 'ws.failed', id: id, message: err.message ?? 'WebSocket 错误' });
+      const message: string = err.message ?? 'WebSocket 错误';
+      this.onLog(`WebSocket 失败：${message}`);
+      this.send({ t: 'ws.failed', id: id, message: message });
     });
 
     socket.connect(command.url).then(() => {
