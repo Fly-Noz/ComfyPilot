@@ -1890,6 +1890,11 @@ struct Index {
     return this.view.graphs.filter((graph: WorkflowGraphView) => graph.parentId === parentId);
   }
 
+  /** 药丸是否选中：读 @State graphIds，开关时不需要重建整个 ForEach 项。 */
+  private isGraphSelected(id: string): boolean {
+    return this.graphIds.includes(id);
+  }
+
   private toggleGraph(graph: WorkflowGraphView): void {
     const index = this.graphIds.indexOf(graph.id);
     if (index >= 0) {
@@ -3532,7 +3537,7 @@ struct Index {
           if (this.parentGraphs().length > 0) {
             ForEach(this.parentGraphs(), (graph: WorkflowGraphView) => {
               this.GraphChip(graph)
-            }, (graph: WorkflowGraphView) => `${graph.id}:${graph.selected}:${this.childGraphs(graph.id).length}`)
+            }, (graph: WorkflowGraphView) => `${graph.id}`)
           } else if (this.definitionsPending()) {
             // 定义还没到齐时图列表一定是空的，不能显示成“没有可切换的节点图”。
             Text('正在识别节点图…')
@@ -3990,8 +3995,8 @@ struct Index {
       Row() {
         Text(graphItem.title)
           .fontSize(11.5)
-          .fontWeight(graphItem.selected ? FontWeight.Medium : FontWeight.Normal)
-          .fontColor(graphItem.selected ? this.c().accentInk : this.c().textMuted)
+          .fontWeight(this.isGraphSelected(graphItem.id) ? FontWeight.Medium : FontWeight.Normal)
+          .fontColor(this.isGraphSelected(graphItem.id) ? this.c().accentInk : this.c().textMuted)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .constraintSize({ maxWidth: 190 })
@@ -4008,12 +4013,12 @@ struct Index {
           Row()
             .width(1)
             .height(16)
-            .backgroundColor(graphItem.selected ? this.c().accentInk : this.c().border)
-            .opacity(graphItem.selected ? 0.3 : 1)
+            .backgroundColor(this.isGraphSelected(graphItem.id) ? this.c().accentInk : this.c().border)
+            .opacity(this.isGraphSelected(graphItem.id) ? 0.3 : 1)
           Row() {
             Text(this.openChildGraphId === graphItem.id ? '▴' : '▾')
               .fontSize(9)
-              .fontColor(graphItem.selected ? this.c().accentInk : this.c().textDim)
+              .fontColor(this.isGraphSelected(graphItem.id) ? this.c().accentInk : this.c().textDim)
           }
           .width(28)
           .height(32)
@@ -4046,11 +4051,11 @@ struct Index {
     // 选中时铺渐变（与安卓一致），未选中用全透明色停，避免额外图层把药丸撑满整行。
     .linearGradient({
       angle: 120,
-      colors: graphItem.selected
+      colors: this.isGraphSelected(graphItem.id)
         ? Spectrum.gradientColors(this.c())
         : this.transparentGradient(),
     })
-    .border({ width: 1, color: graphItem.selected ? this.c().accentBorder : this.c().border })
+    .border({ width: 1, color: this.isGraphSelected(graphItem.id) ? this.c().accentBorder : this.c().border })
     .clip(true)
     .animation({ duration: 160, curve: Curve.EaseOut })
   }
