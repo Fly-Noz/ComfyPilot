@@ -573,7 +573,13 @@ class SessionReducer(
         tag: RequestTag.ObjectInfo,
         outcome: HttpOutcome,
     ): ReduceResult {
-        val body = bodyOf(outcome) ?: return ReduceResult(state)
+        val body = bodyOf(outcome)
+        if (body == null) {
+            // 请求失败（网络抖动/502）：把类从"已请求"里移除，下次打开工作流或提交时会重试。
+            // 以前这里直接 return，类永远停在 requested 里，界面上就成了
+            // "不可提交：正在加载节点定义（还有 N 个类）"，而且怎么点都不会再请求。
+            return ReduceResult(state.copy(nodeInfoRequested = state.nodeInfoRequested - tag.nodeClass))
+        }
         // 服务端没有这个类时返回 {}（多半缺自定义节点）：记成 missing，别装成能调参。
         val definition = WorkflowCodec.parseNodeDefinition(body, tag.nodeClass)
             ?: NodeDefinition(className = tag.nodeClass, displayName = tag.nodeClass, missing = true)
