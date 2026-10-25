@@ -372,6 +372,8 @@ struct Index {
   private scroller: Scroller = new Scroller();
   private catalogScroller: Scroller = new Scroller();
   private previewRequestSeq: number = 0;
+  /** 已经应用的最新帧序号：只拒绝比已显示的更旧的结果。 */
+  private previewAppliedSeq: number = 0;
   private previewFrameKey: string = '';
   private previewBase64: util.Base64Helper = new util.Base64Helper();
 
@@ -898,7 +900,9 @@ struct Index {
     try {
       const raw = this.bridge.preview();
       const payload = JSON.parse(raw) as PreviewPayload;
-      if (seq !== this.previewRequestSeq) {
+      // 只丢弃"比已经显示的还旧"的结果。以前这里要求 seq 必须等于最新请求，
+      // 视频预览帧又大解码又慢，解码期间新帧一到就整帧作废，画面永远停在第一帧。
+      if (seq < this.previewAppliedSeq) {
         return;
       }
       if (!payload.ok || payload.image === undefined || payload.image.length === 0) {
@@ -909,10 +913,11 @@ struct Index {
       const source = image.createImageSource(bytes.buffer);
       try {
         const pixel = await source.createPixelMap();
-        if (seq !== this.previewRequestSeq) {
+        if (seq < this.previewAppliedSeq) {
           await pixel.release();
           return;
         }
+        this.previewAppliedSeq = seq;
         const old = this.livePreview;
         this.livePreview = pixel;
         this.livePreviewFailed = false;
