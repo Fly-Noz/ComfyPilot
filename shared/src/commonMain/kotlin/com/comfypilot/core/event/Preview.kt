@@ -110,5 +110,7 @@ data class PreviewAnimation(
     val promptId: String?,
     val nodeId: String?,
     val rate: Int,
+    /** 每攒满一轮帧 +1；界面只在它变化时重新取帧，避免每帧都重解码。 */
+    val seq: Long,
     val frames: List<ByteArray>,
 )

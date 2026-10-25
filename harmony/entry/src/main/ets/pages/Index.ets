@@ -897,7 +897,7 @@ struct Index {
     // 不能因为每帧都换了时间戳就反复解码。
     const animationCount: number = meta.animationCount ?? 0;
     if (animationCount > 1) {
-      const animationKey = `${meta.animationPromptId ?? meta.promptId ?? ''}:${animationCount}:${meta.animationRate ?? 8}`;
+      const animationKey = `${meta.animationPromptId ?? meta.promptId ?? ''}:${animationCount}:${meta.animationRate ?? 8}:${meta.animationSeq ?? 0}`;
       if (animationKey !== this.animationKey) {
         this.animationKey = animationKey;
         this.loadPreviewAnimation(meta);

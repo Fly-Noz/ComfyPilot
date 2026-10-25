@@ -71,6 +71,7 @@ fun SessionState.toBridgeJson(): JsonObject = buildJsonObject {
                 put("animationRate", animation?.rate ?: 0)
                 put("animationCount", animation?.frames?.size ?: 0)
                 put("animationPromptId", animation?.promptId)
+                put("animationSeq", animation?.seq ?: 0L)
             }
         } ?: JsonNull,
     )

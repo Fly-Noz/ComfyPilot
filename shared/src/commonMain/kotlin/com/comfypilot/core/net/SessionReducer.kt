@@ -395,33 +395,32 @@ class SessionReducer(
 
         val burst = state.previewBurst
         if (burst != null) {
-            // VHS 会按 rate 持续发帧、序号循环；保持一个长度为 length 的滑动窗口，
-            // 每凑满一轮就刷新动画，这样"采样越久画面越清晰"也能体现出来。
+            // VHS 连续发帧。为了不让界面每帧都重新解码整组，这里只在
+            // "攒满一轮" 时更新预览动画（seq+1），中间的帧只进缓冲。
             val frames = state.previewFrames + decoded.image
-            val window = if (frames.size > burst.length) {
-                frames.takeLast(burst.length)
-            } else {
-                frames
-            }
+            val trimmed = if (frames.size > burst.length * 2) frames.takeLast(burst.length) else frames
             val lastFrame = PreviewFrame(
                 promptId = promptId,
                 nodeId = decoded.nodeId ?: burst.nodeId,
                 image = decoded.image,
                 receivedAtMs = input.nowMs,
             )
-            val animation = if (window.size >= burst.length) {
+            val completeRound = trimmed.size >= burst.length && trimmed.size % burst.length == 0
+            val previous = state.previewAnimation
+            val animation = if (completeRound) {
                 com.comfypilot.core.event.PreviewAnimation(
                     promptId = promptId,
                     nodeId = burst.nodeId,
                     rate = burst.rate,
-                    frames = window,
+                    seq = (previous?.seq ?: 0L) + 1,
+                    frames = trimmed.takeLast(burst.length),
                 )
             } else {
-                state.previewAnimation
+                previous
             }
             return ReduceResult(
                 state.copy(
-                    previewFrames = window,
+                    previewFrames = trimmed,
                     previewAnimation = animation,
                     preview = lastFrame,
                     tasks = state.tasks + (

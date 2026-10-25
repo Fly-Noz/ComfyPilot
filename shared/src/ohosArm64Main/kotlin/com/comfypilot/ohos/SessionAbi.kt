@@ -162,6 +162,7 @@ fun cpSessionPreviewAnimation(buffer: CPointer<ByteVar>?, capacity: Int): Int {
         put("promptId", animation.promptId)
         put("nodeId", animation.nodeId)
         put("rate", animation.rate)
+        put("seq", animation.seq)
         put("count", animation.frames.size)
         putJsonArray("frames") {
             animation.frames.forEach { frame -> add(JsonPrimitive(Base64.encode(frame))) }

@@ -86,6 +86,7 @@ export interface BridgePreview {
   animationRate?: number;
   animationCount?: number;
   animationPromptId?: string | null;
+  animationSeq?: number;
 }
 
 export interface PreviewAnimationPayload {
@@ -93,6 +94,7 @@ export interface PreviewAnimationPayload {
   promptId?: string | null;
   nodeId?: string | null;
   rate?: number;
+  seq?: number;
   count?: number;
   frames?: string[];
   message?: string;
