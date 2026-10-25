@@ -37,6 +37,8 @@ fun sessionConfigFromJson(
         progressSilenceMs = obj.longOrNull("progressSilenceMs") ?: defaults.progressSilenceMs,
         progressSilenceMaxMs = obj.longOrNull("progressSilenceMaxMs") ?: defaults.progressSilenceMaxMs,
         tickIntervalMs = obj.longOrNull("tickIntervalMs") ?: defaults.tickIntervalMs,
+        // 宿主按服务器地址持久化的会话 id；为空则每次建连随机（旧行为）。
+        clientId = obj.stringOrNull("clientId") ?: defaults.clientId,
     )
 }
 

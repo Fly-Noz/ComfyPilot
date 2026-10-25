@@ -225,6 +225,8 @@ export class ComfyBridge {
   private netConnection: connection.NetConnection | null = null;
   /** 任务快照缓存：就是"库里的内容"的内存副本，重连时重新喂给共享层。 */
   private taskCache: Map<string, string> = new Map();
+  /** 页面按服务器地址从 preferences 读出后写入；为空时共享层每次建连随机生成。 */
+  private clientId: string = '';
   private storage: TaskStorage = new TaskStorage();
   /** persist 日志只记状态变化；进度每 500ms 一条会把日志刷没。 */
   private loggedStates: Map<string, string> = new Map();
@@ -278,6 +280,10 @@ export class ComfyBridge {
     }
   }
 
+  setClientId(clientId: string): void {
+    this.clientId = clientId;
+  }
+
   start(baseUrl: string): boolean {
     this.stop();
     const created: number = nativeSessionCreate(this.configJson(baseUrl));
@@ -299,8 +305,11 @@ export class ComfyBridge {
    * 不解析、不筛选——哪条能恢复、恢复成什么状态由 `restoreTasks` 决定。
    */
   private configJson(baseUrl: string): string {
+    const clientPart: string = this.clientId.length > 0
+      ? `"clientId":${JSON.stringify(this.clientId)},`
+      : '';
     const head: string = `{"baseUrl":${JSON.stringify(baseUrl)},` +
-      '"tickIntervalMs":500,"progressSilenceMs":120000';
+      `"tickIntervalMs":500,"progressSilenceMs":120000,${clientPart}`;
     if (this.taskCache.size === 0) {
       return `${head}}`;
     }

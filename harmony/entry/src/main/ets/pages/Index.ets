@@ -23,6 +23,7 @@ import { NodeNoteStore } from '../bridge/NodeNoteStore';
 import { AddressEntry, AddressStore } from '../bridge/AddressStore';
 import { DismissedErrorStore } from '../bridge/DismissedErrorStore';
 import { AppearanceStore } from '../bridge/AppearanceStore';
+import { ClientIdStore } from '../bridge/ClientIdStore';
 import { emptyServerStats, fetchServerStats, sameServerStats, ServerStats } from '../bridge/ServerStats';
 import { Palette, Spectrum } from '../theme/Spectrum';
 import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/ArtifactDownloader';
@@ -330,6 +331,7 @@ struct Index {
   private noteStore: NodeNoteStore = new NodeNoteStore();
   private addressStore: AddressStore = new AddressStore();
   private appearanceStore: AppearanceStore = new AppearanceStore();
+  private clientIdStore: ClientIdStore = new ClientIdStore();
   private dismissedStore: DismissedErrorStore = new DismissedErrorStore();
   /** 性能条复用一个 HttpRequest 句柄，页面离场时 destroy()。 */
   private statsRequest: http.HttpRequest | null = null;
@@ -695,6 +697,9 @@ struct Index {
     if (!dismissedReady) {
       this.log(`错误关闭状态存储不可用：${this.dismissedStore.error}`);
     }
+    // clientId 决定服务端把 progress/预览帧推给谁：按地址取回同一个再建会话。
+    const clientId: string = await this.clientIdStore.load(context, this.baseUrl);
+    this.bridge.setClientId(clientId);
     this.bridge.prepare(this.baseUrl);
   }
 
@@ -1282,12 +1287,16 @@ struct Index {
     this.stopStatsPolling();
     this.log(`开始连接 ${url}`);
     this.running = true;
-    const started = this.bridge.start(url);
-    if (!started) {
-      this.running = false;
-      this.label = '未连接';
-      this.notice = '无法创建会话，请查看日志';
-    }
+    // 同一地址复用同一个 clientId（sid），断线重连/重启后旧任务的进度与预览才推得回来。
+    this.clientIdStore.load(this.uiContext as common.Context, url).then((clientId: string) => {
+      this.bridge.setClientId(clientId);
+      const started = this.bridge.start(url);
+      if (!started) {
+        this.running = false;
+        this.label = '未连接';
+        this.notice = '无法创建会话，请查看日志';
+      }
+    });
   }
 
   private disconnect(): void {
@@ -4271,6 +4280,14 @@ struct Index {
       .backgroundColor(this.c().dialog)
       .border({ width: 1, color: this.c().borderStrong })
 
+      if (this.livePreview !== null && this.livePreviewAgeSeconds() >= 15) {
+        Text(`最后一帧 · ${this.livePreviewAgeSeconds()} 秒前`)
+          .fontSize(9.5)
+          .fontFamily('monospace')
+          .fontColor(this.c().textDim)
+          .width('100%')
+      }
+
       Row() {
         Column({ space: 2 }) {
           Text(this.taskStateName(this.liveCardState()))
@@ -4286,7 +4303,7 @@ struct Index {
         }
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
-        Text(`${this.liveCardPercent()}`)
+        Text(this.liveCardPercentText())
           .fontSize(30)
           .fontWeight(FontWeight.Bold)
           .letterSpacing(-0.8)
@@ -4982,13 +4999,41 @@ struct Index {
     return task !== null ? task.percent : 0;
   }
 
+  /** 运行中但还没有步进进度：大模型/自定义采样节点常见，别显示 0%。 */
+  private liveCardWaiting(): boolean {
+    const task = this.liveCardTask();
+    return task !== null && task.state === 'Running' && task.progressMax <= 0;
+  }
+
+  private liveCardPercentText(): string {
+    return this.liveCardWaiting() ? '··' : `${this.liveCardPercent()}`;
+  }
+
+  /** 预览帧超过 15 秒没更新就标注"最后一帧"，避免把旧画面当实时。 */
+  private livePreviewAgeSeconds(): number {
+    const meta = this.livePreviewMeta;
+    if (meta === null) {
+      return 0;
+    }
+    return Math.max(0, Math.floor((Date.now() - meta.receivedAtMs) / 1000));
+  }
+
   private liveCardState(): string {
     const task = this.liveCardTask();
     return task !== null ? task.state : '';
   }
 
   private liveCardStep(): string {
-    return this.previewStepLabel(this.liveCardTask());
+    const task = this.liveCardTask();
+    const label = this.previewStepLabel(task);
+    if (label.length > 0 || task === null) {
+      return label;
+    }
+    // 没有步进进度：用已完成节点数 + 已用时长证明"在跑"
+    if (task.state === 'Running') {
+      return `已完成 ${task.nodeDone} 个节点 · ${this.taskDurationText(task)}`;
+    }
+    return '';
   }
 
   /**
@@ -5013,7 +5058,7 @@ struct Index {
 
       if (this.liveCardTask() !== null) {
         Row({ space: 8 }) {
-          Text(`${this.liveCardPercent()}%`)
+          Text(this.liveCardWaiting() ? '··' : `${this.liveCardPercent()}%`)
             .fontSize(10)
             .fontColor(this.c().textDim)
           Text(this.liveCardState())
