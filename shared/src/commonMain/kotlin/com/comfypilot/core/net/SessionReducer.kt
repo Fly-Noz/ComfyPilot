@@ -711,7 +711,19 @@ class SessionReducer(
                 SessionEffect.Persist(draft),
                 SessionEffect.SendHttp(
                     lease = lease,
-                    call = ApiCall.SubmitPrompt(PromptRequestBody(graph, lease.clientId), input.workflowJson),
+                    // extra_data.client_id 必须带上：VHS 的动图预览按它定向推送，
+                    // 只放在 body.client_id 里服务端不会写进 prompt 的 extra_data，
+                    // 表现就是"声明收到了，但 37 帧一张都收不到"。
+                    call = ApiCall.SubmitPrompt(
+                        PromptRequestBody(
+                            graph,
+                            lease.clientId,
+                            kotlinx.serialization.json.buildJsonObject {
+                                put("client_id", kotlinx.serialization.json.JsonPrimitive(lease.clientId))
+                            },
+                        ),
+                        input.workflowJson,
+                    ),
                     tag = RequestTag.Submit(draftId, input.workflowJson),
                 ),
             ),
