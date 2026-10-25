@@ -158,103 +158,117 @@ class SessionRuntime(
         }
     }
 
-    private suspend fun openSocket(lease: ConnectionLease) {
-        // 连接建立过程中网络回调可能再发一次 OpenSocket。同一租约、或同一 clientId
-        // 已经有 socket 时都不再建：ComfyUI 的 sockets 以 sid(=clientId) 为 key，
-        // 两条同 sid 的连接会互相覆盖，旧那条关闭时还会把新连接的注册一起删掉，
-        // 结果就是"连接看着正常，但再也收不到 progress / 预览帧"。
-        var superseded: WebSocketHandle? = null
-        var staleSignal: CompletableDeferred<Unit>? = null
+    /** 每个 clientId 一条串行锁：同 sid 的 socket 必须严格"先关后开"。 */
+    private val clientLocks = mutableMapOf<String, Mutex>()
+
+    private suspend fun lockForClient(clientId: String): Mutex {
         handleLock.withLock {
+            return clientLocks.getOrPut(clientId) { Mutex() }
+        }
+    }
+
+    private suspend fun openSocket(lease: ConnectionLease) {
+        // ComfyUI 用 sid(=clientId) 当 socket 表的 key：同一个 id 的两条连接会互相覆盖，
+        // 旧连接关闭时还会把新注册一起删掉。所以同一 clientId 必须串行：
+        // 等旧连接真正关闭（最多 2s）后再建新的。
+        lockForClient(lease.clientId).withLock {
             if (handles.containsKey(lease.leaseId)) {
                 DiagnosticTrace.emit("ws.open skipped dup gen${lease.generation}")
                 return
             }
-            // 同一 clientId 只允许一条 socket：ComfyUI 用 sid(=clientId) 做 key，
-            // 两条同时存在会互相覆盖，旧连接关闭时还会 pop 掉新的注册。
-            val staleLease = handleClients.entries.firstOrNull { it.value == lease.clientId }?.key
-            if (staleLease != null) {
-                superseded = handles.remove(staleLease)
-                handleClients.remove(staleLease)
-                staleSignal = closeSignals[staleLease]
-            }
-        }
-        if (superseded != null) {
-            superseded.close(1000, "superseded")
-            // 等旧连接真的关掉再建新的：服务端是"关闭时按 sid 删除"，
-            // 迟到的删除会把新连接一起从表里抹掉，之后收不到任何事件。
-            val closed = withTimeoutOrNull(2_000) { staleSignal?.await() ?: Unit }
-            DiagnosticTrace.emit(
-                "ws.supersede gen${lease.generation} closed=${closed != null}",
-            )
-        }
-        try {
-            val signal = CompletableDeferred<Unit>()
-        handleLock.withLock { closeSignals[lease.leaseId] = signal }
-        val handle = sockets.open(
-                lease.wsUrl,
-                object : WebSocketListener {
-                    override fun onOpen() {
-                        DiagnosticTrace.emit("ws.ok gen${lease.generation}")
-                        onSocketEvent(SessionInput.SocketOpened(lease, clock.nowMillis()))
-                    }
-
-                    override fun onText(text: String) {
-                        DiagnosticTrace.socketText(text)
-                        onSocketEvent(SessionInput.SocketText(lease, text, clock.nowMillis()))
-                    }
-
-                    override fun onBinary(bytes: ByteArray) {
-                        DiagnosticTrace.socketBinary(bytes.size)
-                        onSocketEvent(SessionInput.SocketBinary(lease, bytes, clock.nowMillis()))
-                    }
-
-                    override fun onClosed(code: Int, reason: String) {
-                        DiagnosticTrace.emit("ws.closed $code $reason")
-                        signal.complete(Unit)
-                        onSocketEvent(SessionInput.SocketClosed(lease, code, reason, clock.nowMillis()))
-                    }
-
-                    override fun onFailure(message: String) {
-                        DiagnosticTrace.emit("ws.fail $message")
-                        signal.complete(Unit)
-                        onSocketEvent(SessionInput.SocketFailed(lease, message, clock.nowMillis()))
-                    }
-                },
-            )
-            var closeNow = false
+            var superseded: WebSocketHandle? = null
+            var staleSignal: CompletableDeferred<Unit>? = null
+            var staleLease: Long? = null
             handleLock.withLock {
-                // 建连期间租约可能已被关闭（网络切换/重连）：直接关掉这条，避免幽灵 socket
-                if (closedLeases.remove(lease.leaseId)) {
-                    closeNow = true
-                } else {
-                    handles[lease.leaseId] = handle
-                    handleClients[lease.leaseId] = lease.clientId
+                staleLease = handleClients.entries.firstOrNull { it.value == lease.clientId }?.key
+                if (staleLease != null) {
+                    superseded = handles.remove(staleLease!!)
+                    handleClients.remove(staleLease!!)
+                    staleSignal = closeSignals[staleLease!!]
                 }
             }
-            if (closeNow) {
-                handle.close(1000, "superseded")
-                DiagnosticTrace.emit("ws.open closed race gen${lease.generation}")
+            if (superseded != null) {
+                superseded!!.close(1000, "superseded")
+                val closed = withTimeoutOrNull(2_000) { staleSignal?.await() ?: Unit }
+                DiagnosticTrace.emit("ws.supersede gen${lease.generation} closed=${closed != null}")
             }
-        } catch (t: Throwable) {
-            enqueue(SessionInput.SocketFailed(lease, t.message ?: "WebSocket 打开失败", clock.nowMillis()))
+            // 建连之前就已经被要求关闭（网络切换/重连）：这条租约直接作废，不建 socket。
+            var cancelled = false
+            handleLock.withLock { cancelled = closedLeases.remove(lease.leaseId) }
+            if (cancelled) {
+                DiagnosticTrace.emit("ws.open cancelled gen${lease.generation}")
+                return
+            }
+            try {
+                val signal = CompletableDeferred<Unit>()
+                handleLock.withLock { closeSignals[lease.leaseId] = signal }
+                val handle = sockets.open(
+                    lease.wsUrl,
+                    object : WebSocketListener {
+                        override fun onOpen() {
+                            DiagnosticTrace.emit("ws.ok gen${lease.generation}")
+                            onSocketEvent(SessionInput.SocketOpened(lease, clock.nowMillis()))
+                        }
+
+                        override fun onText(text: String) {
+                            DiagnosticTrace.socketText(text)
+                            onSocketEvent(SessionInput.SocketText(lease, text, clock.nowMillis()))
+                        }
+
+                        override fun onBinary(bytes: ByteArray) {
+                            DiagnosticTrace.socketBinary(bytes.size)
+                            onSocketEvent(SessionInput.SocketBinary(lease, bytes, clock.nowMillis()))
+                        }
+
+                        override fun onClosed(code: Int, reason: String) {
+                            DiagnosticTrace.emit("ws.closed $code $reason")
+                            signal.complete(Unit)
+                            onSocketEvent(SessionInput.SocketClosed(lease, code, reason, clock.nowMillis()))
+                        }
+
+                        override fun onFailure(message: String) {
+                            DiagnosticTrace.emit("ws.fail $message")
+                            signal.complete(Unit)
+                            onSocketEvent(SessionInput.SocketFailed(lease, message, clock.nowMillis()))
+                        }
+                    },
+                )
+                var closeNow = false
+                handleLock.withLock {
+                    // 建连期间租约被关闭：直接关掉，并且等它真的关掉再由下一条连接接管
+                    if (closedLeases.remove(lease.leaseId)) {
+                        closeNow = true
+                    } else {
+                        handles[lease.leaseId] = handle
+                        handleClients[lease.leaseId] = lease.clientId
+                    }
+                }
+                if (closeNow) {
+                    handle.close(1000, "superseded")
+                    withTimeoutOrNull(2_000) { signal.await() }
+                    DiagnosticTrace.emit("ws.open closed race gen${lease.generation}")
+                }
+            } catch (t: Throwable) {
+                enqueue(SessionInput.SocketFailed(lease, t.message ?: "WebSocket 打开失败", clock.nowMillis()))
+            }
         }
     }
 
     private suspend fun closeSocket(leaseId: Long) {
         var handle: WebSocketHandle? = null
+        var signal: CompletableDeferred<Unit>? = null
         handleLock.withLock {
             handle = handles.remove(leaseId)
             handleClients.remove(leaseId)
+            signal = closeSignals[leaseId]
             if (handle == null) {
-                // 建连还没返回：记下来，openSocket 完成后立刻关掉，避免泄漏一条 socket
+                // 建连还没完成：记下来，openSocket 里会立刻作废这条租约
                 closedLeases.add(leaseId)
             }
         }
         handle?.close(1000, "superseded")
         if (handle != null) {
-            // 等关闭回调到达，调用方（例如换租约）可以据此确认服务端已注销旧 sid
-            withTimeoutOrNull(2_000) { closeSignals[leaseId]?.await() }
+            withTimeoutOrNull(2_000) { signal?.await() }
         }
         handleLock.withLock { closeSignals.remove(leaseId) }
     }
