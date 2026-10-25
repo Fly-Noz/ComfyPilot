@@ -1,6 +1,7 @@
 package com.comfypilot.core.net
 
 import com.comfypilot.core.Harness
+import com.comfypilot.core.testConfig
 import com.comfypilot.core.cellular
 import com.comfypilot.core.offline
 import com.comfypilot.core.wifi
@@ -74,7 +75,8 @@ class ScenarioTest {
 
     @Test
     fun scenario4_silentWebSocketDeathRecoversByHistory() {
-        val harness = Harness()
+        // 预算不翻倍（max 等于初始静默）时才允许直接重连
+        val harness = Harness(testConfig.copy(progressSilenceMaxMs = 5_000))
         val lease = harness.startWithNetwork(wifi)
         harness.ws(lease, """{"type":"execution_start","data":{"prompt_id":"p1"}}""")
 

@@ -811,8 +811,31 @@ class SessionReducer(
         }
         if (overdue.isEmpty()) return ReduceResult(state)
 
+        // 视频大模型单步可能就要几分钟，而且模型加载/offload 阶段一条进度都没有。
+        // 先翻倍静默预算（最多到 progressSilenceMaxMs），别急着断开重连：
+        // 重连会让界面上的进度归零，长任务就永远停在 0%。
+        val extendable = overdue.filter { task ->
+            (task.silenceBudgetMs ?: config.progressSilenceMs) < config.progressSilenceMaxMs
+        }
+        val hopeless = overdue.filter { task ->
+            (task.silenceBudgetMs ?: config.progressSilenceMs) >= config.progressSilenceMaxMs
+        }
+        if (hopeless.isEmpty()) {
+            var next = state
+            extendable.forEach { task ->
+                val capped = ((task.silenceBudgetMs ?: config.progressSilenceMs) * 2)
+                    .coerceAtMost(config.progressSilenceMaxMs)
+                next = next.copy(
+                    tasks = next.tasks + (
+                        task.id to task.copy(silenceBudgetMs = capped, lastProgressAtMs = now)
+                        ),
+                )
+            }
+            return ReduceResult(next)
+        }
+
         val lease = state.lease ?: return ReduceResult(state)
-        val ids = overdue.mapNotNull { it.promptId }
+        val ids = hopeless.mapNotNull { it.promptId }
         val delay = config.backoffMs(1, jitter)
         return ReduceResult(
             state.copy(

@@ -18,8 +18,16 @@ import kotlin.test.assertTrue
 class SessionHostFreezeTest {
 
     /** 连接 + 提交 + 进入 Running，作为冻结前的现场。 */
-    private fun runningTask(progressSilenceMs: Long = 60_000): HostDriver {
-        val driver = HostDriver(testSessionConfig(progressSilenceMs = progressSilenceMs))
+    private fun runningTask(
+        progressSilenceMs: Long = 60_000,
+        progressSilenceMaxMs: Long = 120_000,
+    ): HostDriver {
+        val driver = HostDriver(
+            testSessionConfig(
+                progressSilenceMs = progressSilenceMs,
+                progressSilenceMaxMs = progressSilenceMaxMs,
+            ),
+        )
         driver.host.start()
         val wsId = driver.connect()
         val submitId = HostDriver.submit(driver)
@@ -47,7 +55,8 @@ class SessionHostFreezeTest {
 
     @Test
     fun `monitored silence still trips the watchdog`() {
-        val driver = runningTask(progressSilenceMs = 10_000)
+        // 上限等于初始预算：不再翻倍，直接触发重连
+        val driver = runningTask(progressSilenceMs = 10_000, progressSilenceMaxMs = 10_000)
 
         // 正常在监控：每一秒 pump 一次，累计超过静默预算。
         repeat(15) { driver.pump(1_000) }

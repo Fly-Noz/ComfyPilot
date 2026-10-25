@@ -2019,6 +2019,8 @@ private fun ActivePreview(
     val frame = preview?.takeIf { it.promptId == null || it.promptId == task.promptId }
     val progress = task.progress
     val percent = progress?.percent ?: 0
+    // 大模型（尤其视频）在首步之前没有任何 progress：这时别显示 0%，让人以为没跑。
+    val waitingFirstStep = (progress == null || progress.max <= 0.0) && task.state is TaskState.Running
 
     Column(
         modifier = Modifier
@@ -2047,7 +2049,11 @@ private fun ActivePreview(
                     )
                     if (task.state is TaskState.Running) {
                         Text(
-                            text = "若一直不出现，确认 ComfyUI 以 --preview-method auto 启动",
+                            text = if (progress == null || progress.max <= 0.0) {
+                                "大模型首步可能较慢，已自动延长超时，可继续等待"
+                            } else {
+                                "若一直不出现，确认 ComfyUI 以 --preview-method auto 启动"
+                            },
                             color = c.heroText.copy(alpha = 0.55f),
                             fontSize = 9.5.sp,
                         )
@@ -2075,19 +2081,21 @@ private fun ActivePreview(
                 }
             }
             Text(
-                text = "$percent",
+                text = if (waitingFirstStep) "··" else "$percent",
                 style = c.gradientStyle().copy(
                     fontSize = 34.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = (-1).sp,
                 ),
             )
-            Text(
-                text = "%",
-                color = c.textDim,
-                fontSize = 10.sp,
-                modifier = Modifier.padding(bottom = 6.dp),
-            )
+            if (!waitingFirstStep) {
+                Text(
+                    text = "%",
+                    color = c.textDim,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(bottom = 6.dp),
+                )
+            }
         }
 
         SpectrumProgress(fraction = percent / 100f, height = 8.dp)

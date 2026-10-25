@@ -1,6 +1,7 @@
 package com.comfypilot.core.net
 
 import com.comfypilot.core.Harness
+import com.comfypilot.core.testConfig
 import com.comfypilot.core.wifi
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -11,8 +12,8 @@ import kotlin.test.assertTrue
  * 进度静默看门狗：WS 看起来还连着，但 ComfyUI 可能已经死了。
  */
 class ProgressWatchdogTest {
-    private fun runningHarness(): Pair<Harness, ConnectionLease> {
-        val harness = Harness()
+    private fun runningHarness(maxSilenceMs: Long = 40_000): Pair<Harness, ConnectionLease> {
+        val harness = Harness(testConfig.copy(progressSilenceMaxMs = maxSilenceMs))
         val lease = harness.startWithNetwork(wifi)
         harness.ws(lease, """{"type":"execution_start","data":{"prompt_id":"p1"}}""")
         return harness to lease
@@ -20,7 +21,7 @@ class ProgressWatchdogTest {
 
     @Test
     fun silenceBeyondBudgetTriggersReconnect() {
-        val (harness, lease) = runningHarness()
+        val (harness, lease) = runningHarness(maxSilenceMs = 5_000)
 
         harness.advance(4_999)
         harness.send(SessionInput.Tick(harness.now))
@@ -33,6 +34,38 @@ class ProgressWatchdogTest {
         assertEquals(ReconnectCause.PROGRESS_TIMEOUT, reconnecting.cause)
         assertTrue(harness.effects.filterIsInstance<SessionEffect.CloseSocket>().any { it.leaseId == lease.leaseId })
         assertTrue(harness.notices.any { it is UserNotice.ProgressTimeout })
+    }
+
+    /**
+     * 长任务：单步超过静默预算时先延长预算，不重连，进度不被清零。
+     */
+    @Test
+    fun longStepExtendsBudgetBeforeReconnect() {
+        val (harness, lease) = runningHarness(maxSilenceMs = 40_000)
+
+        harness.advance(5_001)
+        harness.send(SessionInput.Tick(harness.now))
+
+        assertIs<SessionPhase.Connected>(harness.state.phase)
+        assertEquals(10_000L, harness.state.tasks.getValue("p1").silenceBudgetMs)
+        assertTrue(harness.effects.filterIsInstance<SessionEffect.CloseSocket>().isEmpty())
+
+        harness.advance(10_001)
+        harness.send(SessionInput.Tick(harness.now))
+
+        assertIs<SessionPhase.Connected>(harness.state.phase)
+        assertEquals(20_000L, harness.state.tasks.getValue("p1").silenceBudgetMs)
+
+        // 继续静默到预算上限后才允许重连
+        harness.advance(20_001)
+        harness.send(SessionInput.Tick(harness.now))
+        assertIs<SessionPhase.Connected>(harness.state.phase)
+
+        harness.advance(40_001)
+        harness.send(SessionInput.Tick(harness.now))
+        val reconnecting = assertIs<SessionPhase.Reconnecting>(harness.state.phase)
+        assertEquals(ReconnectCause.PROGRESS_TIMEOUT, reconnecting.cause)
+        assertTrue(harness.effects.filterIsInstance<SessionEffect.CloseSocket>().any { it.leaseId == lease.leaseId })
     }
 
     @Test
@@ -49,7 +82,7 @@ class ProgressWatchdogTest {
 
     @Test
     fun staleLeaseProgressDoesNotResetWatchdog() {
-        val (harness, _) = runningHarness()
+        val (harness, _) = runningHarness(maxSilenceMs = 5_000)
         val stale = harness.lease()
 
         harness.advance(5_001)
@@ -79,7 +112,7 @@ class ProgressWatchdogTest {
 
     @Test
     fun reconnectResumesWithBackoffThenRecovers() {
-        val (harness, _) = runningHarness()
+        val (harness, _) = runningHarness(maxSilenceMs = 5_000)
         harness.advance(5_001)
         harness.send(SessionInput.Tick(harness.now))
         val first = assertIs<SessionPhase.Reconnecting>(harness.state.phase)
