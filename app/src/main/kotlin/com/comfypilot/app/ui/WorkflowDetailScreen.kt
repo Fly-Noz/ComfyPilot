@@ -2049,6 +2049,22 @@ private fun ActivePreview(
         ) {
             if (frame != null) {
                 LivePreviewImage(bytes = frame.image, modifier = Modifier.matchParentSize())
+                // 重连/切后台期间不会再收到帧：明确标注这是"最后一帧"和它有多旧，
+                // 避免把旧画面当成实时采样。
+                val ageSeconds = ((nowMs - frame.receivedAtMs) / 1000).coerceAtLeast(0)
+                if (ageSeconds >= 15) {
+                    Text(
+                        text = "最后一帧 · ${ageSeconds} 秒前",
+                        color = c.heroText.copy(alpha = 0.8f),
+                        fontSize = 9.5.sp,
+                        fontFamily = SpectrumMono,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(10.dp)
+                            .background(Color.Black.copy(alpha = 0.42f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
             } else {
                 Column(
                     modifier = Modifier.align(Alignment.Center),

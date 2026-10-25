@@ -89,4 +89,29 @@ class PollHistoryTest {
 
         assertEquals(TaskState.Running, harness.state.tasks.getValue("p1").state)
     }
+
+    @Test
+    fun lastPreviewSurvivesReconnect() {
+        val (harness, lease) = running()
+        harness.send(SessionInput.SocketBinary(lease, previewFrame(), harness.now))
+        assertTrue(harness.state.preview != null, "收到预览帧后应当有画面")
+
+        // socket 断掉并重连（对应切后台被系统掐断）
+        harness.send(SessionInput.SocketFailed(lease, "Software caused connection abort", harness.now))
+        harness.advance(1_001)
+        harness.send(SessionInput.Tick(harness.now))
+        val nextLease = (harness.state.phase as SessionPhase.Connecting).lease
+        harness.send(SessionInput.SocketOpened(nextLease, harness.now))
+
+        assertTrue(
+            harness.state.preview != null,
+            "重连不应清空最后一帧：否则界面会从有图退回等待画面",
+        )
+    }
+
+    /** type=1 的预览帧：4 字节 type + JPEG 头。 */
+    private fun previewFrame(): ByteArray = byteArrayOf(
+        0, 0, 0, 1,
+        0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(),
+    )
 }

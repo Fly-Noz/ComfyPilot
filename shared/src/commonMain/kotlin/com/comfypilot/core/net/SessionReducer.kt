@@ -158,7 +158,9 @@ class SessionReducer(
         if (phase.lease.leaseId != input.lease.leaseId) return ReduceResult(state)
 
         val effects = mutableListOf<SessionEffect>()
-        var next = state.copy(preview = null, monitor = null)
+        // 重连不丢最后一帧：ComfyUI 只在采样过程中发 preview，重连后要等下一帧，
+        // 期间清空会让界面从有图变成"等待采样画面…"，看起来像任务退回去了。
+        var next = state.copy(monitor = null)
 
         // 建连期间还在提交的任务：结果不可知，不能假装它成功或失败。
         state.tasks.values.filter { it.state is TaskState.Submitting }.forEach { draft ->
@@ -225,7 +227,7 @@ class SessionReducer(
                     startedAtMs = now,
                 ),
                 queue = null,
-                preview = null,
+                // 与 openLease 一致：断线只是"暂时收不到"，最后一帧留着并标陈旧。
                 monitor = null,
             ),
             listOf(
@@ -1192,7 +1194,8 @@ class SessionReducer(
             phase = SessionPhase.Connecting(lease, attempt, now),
             nextLeaseId = leaseId + 1,
             queue = null,
-            preview = null,
+            // preview 保留：重连期间旧帧仍然是"最后一次看到的画面"，
+            // 由界面按 receivedAtMs 标注陈旧，而不是直接消失。
             monitor = null,
         )
         return ReduceResult(next, listOf(SessionEffect.OpenSocket(lease)))
