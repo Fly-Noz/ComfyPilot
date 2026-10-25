@@ -395,32 +395,36 @@ class SessionReducer(
 
         val burst = state.previewBurst
         if (burst != null) {
-            // VHS 连续发帧。为了不让界面每帧都重新解码整组，这里只在
-            // "攒满一轮" 时更新预览动画（seq+1），中间的帧只进缓冲。
+            // VHS 连续发帧：攒满 length 帧就发一轮动画（seq+1）并从缓冲里扣掉这一轮。
+            // 不要用"取最后 length 帧"的做法——那样缓冲到上限后每帧都满足整除条件，
+            // 会每帧都发新动画，宿主每帧重解码整组，反而只看得见最早那几帧。
             val frames = state.previewFrames + decoded.image
-            val trimmed = if (frames.size > burst.length * 2) frames.takeLast(burst.length) else frames
             val lastFrame = PreviewFrame(
                 promptId = promptId,
                 nodeId = decoded.nodeId ?: burst.nodeId,
                 image = decoded.image,
                 receivedAtMs = input.nowMs,
             )
-            val completeRound = trimmed.size >= burst.length && trimmed.size % burst.length == 0
             val previous = state.previewAnimation
-            val animation = if (completeRound) {
+            val animation = if (frames.size >= burst.length) {
                 com.comfypilot.core.event.PreviewAnimation(
                     promptId = promptId,
                     nodeId = burst.nodeId,
                     rate = burst.rate,
                     seq = (previous?.seq ?: 0L) + 1,
-                    frames = trimmed.takeLast(burst.length),
+                    frames = frames.take(burst.length),
                 )
             } else {
                 previous
             }
+            val remaining = if (frames.size >= burst.length) {
+                frames.drop(burst.length)
+            } else {
+                frames
+            }
             return ReduceResult(
                 state.copy(
-                    previewFrames = trimmed,
+                    previewFrames = remaining,
                     previewAnimation = animation,
                     preview = lastFrame,
                     tasks = state.tasks + (
@@ -432,6 +436,7 @@ class SessionReducer(
                 ),
             )
         }
+
         val touched = task.copy(lastProgressAtMs = input.nowMs, updatedAtMs = input.nowMs)
         return ReduceResult(
             state.copy(
