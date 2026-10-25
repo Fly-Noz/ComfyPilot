@@ -16,6 +16,7 @@ class ComfyPilotApplication : Application(), Application.ActivityLifecycleCallba
 
     override fun onCreate() {
         super.onCreate()
+        com.comfypilot.app.DiagnosticsLog.attach(this)
         TaskNotifications.ensureChannels(this)
         registerActivityLifecycleCallbacks(this)
         TaskNotificationBridge.start(this)

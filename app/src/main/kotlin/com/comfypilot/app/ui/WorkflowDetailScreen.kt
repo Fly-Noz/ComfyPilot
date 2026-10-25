@@ -2060,17 +2060,12 @@ private fun ActivePreview(
             tag = if (task.state is TaskState.Running) "LIVE" else "QUEUED",
             live = task.state is TaskState.Running,
         ) {
-            val cached = remember(task.promptId, task.updatedAtMs) {
-                com.comfypilot.app.PreviewFrameCache.frames(task.promptId)
-            }
             if (gifUrl != null) {
                 LoopingAnimatedImage(url = gifUrl, modifier = Modifier.matchParentSize())
             } else if (animation != null && animation.frames.size >= 2) {
-                // VHS 一层：服务端一次发一组帧并给出帧率，按 rate 循环就是网页端的效果
+                // 只有服务端明确发来"一组帧 + 帧率"时才循环播放；跨步累积的帧混在一起
+                // 会把不同清晰度的画面反复拼接，看起来反而更乱，所以不再做那种轮播。
                 VhsAnimationPlayback(animation = animation, modifier = Modifier.matchParentSize())
-            } else if (cached.size >= 2) {
-                // 视频采样：服务端每步一张，网页端靠前端把历史帧循环播放才显得连续
-                LoopingFrames(frames = cached, modifier = Modifier.matchParentSize())
             } else if (frame != null) {
                 LivePreviewImage(bytes = frame.image, modifier = Modifier.matchParentSize())
                 // 重连/切后台期间不会再收到帧：明确标注这是"最后一帧"和它有多旧，
@@ -2641,24 +2636,7 @@ private fun GraphIconButton(onClick: () -> Unit) {
     }
 }
 
-/** 把已收到的采样帧按顺序循环播放（网页端同款观感）。 */
-@Composable
-private fun LoopingFrames(frames: List<android.graphics.Bitmap>, modifier: Modifier = Modifier) {
-    var index by remember(frames.size) { mutableStateOf(0) }
-    LaunchedEffect(frames.size) {
-        while (frames.size >= 2) {
-            kotlinx.coroutines.delay(160)
-            index = (index + 1) % frames.size
-        }
-    }
-    val bitmap = frames.getOrNull(index) ?: frames.last()
-    Image(
-        bitmap = bitmap.asImageBitmap(),
-        contentDescription = "采样预览",
-        modifier = modifier,
-        contentScale = ContentScale.Fit,
-    )
-}
+
 
 /** 按 VHS 声明的帧率循环播放一组预览帧。 */
 @Composable

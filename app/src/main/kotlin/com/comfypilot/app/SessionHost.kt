@@ -117,9 +117,7 @@ object SessionHost {
         collector = scope.launch {
             created.state.collect { snapshot ->
                 _state.value = snapshot
-                // 视频工作流每步只推一张 JPEG，网页端看起来"在动"是前端把历史帧循环播放。
-                // 这里把预览帧累积起来，界面按序列循环，复现同样的观感。
-                PreviewFrameCache.record(snapshot.preview)
+
                 val phase = describePhase(snapshot.phase)
                 if (phase != lastPhaseLog) {
                     lastPhaseLog = phase

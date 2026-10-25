@@ -5,6 +5,7 @@ import com.comfypilot.core.DiagnosticTrace
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,6 +30,13 @@ object DiagnosticsLog {
     private val _lines = MutableStateFlow<List<String>>(emptyList())
     val lines: StateFlow<List<String>> = _lines.asStateFlow()
 
+    /** 落盘文件：logcat 缓冲在真机上经常被冲掉，排查时直接读这个文件。 */
+    private var logFile: File? = null
+
+    fun attach(context: android.content.Context) {
+        logFile = File(context.filesDir, "diagnostics.log")
+    }
+
     /** 装上共享层的 sink；重复调用无副作用。 */
     fun install() {
         DiagnosticTrace.sink = { raw -> append(raw) }
@@ -46,6 +54,12 @@ object DiagnosticsLog {
             _lines.value = buffer.toList()
         }
         Log.d(TAG, raw)
+        val line = "${timeFormat.format(Date())} $raw"
+        runCatching {
+            val file = logFile ?: return@runCatching
+            if (file.length() > 2_000_000) file.delete()
+            file.appendText(line + "\n")
+        }
     }
 
     fun clear() {
