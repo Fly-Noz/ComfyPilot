@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -27,13 +28,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.comfypilot.app.ui.theme.Spectrum
 import com.comfypilot.app.ui.theme.SpectrumMono
@@ -56,6 +62,7 @@ fun AddressField(
 ) {
     val c = Spectrum.colors
     var menuOpen by remember { mutableStateOf(false) }
+    var fieldSize by remember { mutableStateOf(IntSize.Zero) }
     val shape = RoundedCornerShape(12.dp)
     val items = history
 
@@ -63,6 +70,7 @@ fun AddressField(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .onSizeChanged { fieldSize = it }
                 .clip(shape)
                 .background(c.card)
                 .border(1.dp, c.border, shape)
@@ -119,93 +127,99 @@ fun AddressField(
             )
         }
 
-        DropdownMenu(
-            expanded = menuOpen,
-            onDismissRequest = { menuOpen = false },
-            shape = RoundedCornerShape(18.dp),
-            containerColor = c.dialog,
-            tonalElevation = 0.dp,
-            shadowElevation = 10.dp,
-            offset = DpOffset(0.dp, 6.dp),
-            properties = PopupProperties(focusable = false),
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) {
-                Text(
-                    text = "最近的地址",
-                    color = c.textDim,
-                    fontSize = 9.sp,
-                    fontFamily = SpectrumMono,
-                    letterSpacing = 0.8.sp,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                )
-                if (items.isEmpty()) {
+        if (menuOpen) {
+            val density = LocalDensity.current
+            Popup(
+                alignment = Alignment.TopStart,
+                offset = IntOffset(0, fieldSize.height + with(density) { 6.dp.roundToPx() }),
+                onDismissRequest = { menuOpen = false },
+                properties = PopupProperties(focusable = false, dismissOnClickOutside = true),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .width(with(density) { fieldSize.width.coerceAtLeast(1).toDp() })
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(c.dialog)
+                        .border(1.dp, c.border, RoundedCornerShape(18.dp))
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                ) {
                     Text(
-                        text = "还没有保存过的地址",
-                        color = c.textMuted,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        text = "最近的地址",
+                        color = c.textDim,
+                        fontSize = 9.sp,
+                        fontFamily = SpectrumMono,
+                        letterSpacing = 0.8.sp,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     )
-                }
-                items.forEachIndexed { index, item ->
-                    if (index > 0) {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(horizontal = 8.dp),
-                            thickness = 1.dp,
-                            color = c.border,
+                    if (items.isEmpty()) {
+                        Text(
+                            text = "还没有保存过的地址",
+                            color = c.textMuted,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
                         )
                     }
-                    val current = item == value.trim()
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                            ) {
-                                menuOpen = false
-                                onPickHistory(item)
-                            }
-                            .padding(horizontal = 10.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text(
-                            text = item,
-                            color = c.text,
-                            fontSize = 11.5.sp,
-                            fontFamily = SpectrumMono,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (current) {
-                            Text(
-                                text = "当前",
-                                color = c.accent,
-                                fontSize = 9.sp,
-                                fontFamily = SpectrumMono,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(999.dp))
-                                    .background(c.accentSoft)
-                                    .padding(horizontal = 7.dp, vertical = 2.dp),
+                    items.forEachIndexed { index, item ->
+                        if (index > 0) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                                thickness = 1.dp,
+                                color = c.border,
                             )
                         }
-                        Text(
-                            text = "✕",
-                            color = c.textDim,
-                            fontSize = 12.sp,
+                        val current = item == value.trim()
+                        Row(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(999.dp))
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
                                 ) {
-                                    onDeleteHistory(item)
+                                    menuOpen = false
+                                    onPickHistory(item)
                                 }
-                                .padding(horizontal = 6.dp, vertical = 6.dp),
-                        )
+                                .padding(horizontal = 10.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = item,
+                                color = c.text,
+                                fontSize = 11.5.sp,
+                                fontFamily = SpectrumMono,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (current) {
+                                Text(
+                                    text = "当前",
+                                    color = c.accent,
+                                    fontSize = 9.sp,
+                                    fontFamily = SpectrumMono,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(999.dp))
+                                        .background(c.accentSoft)
+                                        .padding(horizontal = 7.dp, vertical = 2.dp),
+                                )
+                            }
+                            Text(
+                                text = "✕",
+                                color = c.textDim,
+                                fontSize = 12.sp,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null,
+                                    ) {
+                                        onDeleteHistory(item)
+                                    }
+                                    .padding(horizontal = 6.dp, vertical = 6.dp),
+                            )
+                        }
                     }
                 }
             }
