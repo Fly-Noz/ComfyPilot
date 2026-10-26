@@ -339,6 +339,8 @@ struct Index {
   private pageVisible: boolean = true;
   /** 已经发过完成通知的任务，避免状态帧重复触发。 */
   private doneNotified: Set<string> = new Set<string>();
+  /** 本次进程第一次拿到任务列表时，把"已经是终态"的旧任务标记为已通知。 */
+  private notificationSeeded: boolean = false;
   private dismissedStore: DismissedErrorStore = new DismissedErrorStore();
   /** 性能条复用一个 HttpRequest 句柄，页面离场时 destroy()。 */
   private statsRequest: http.HttpRequest | null = null;
@@ -735,6 +737,16 @@ struct Index {
     this.generation = state.generation;
     this.network = state.validated ? `${state.network}（已验证）` : state.network;
     this.tasks = state.tasks;
+    // 冷启动/重启后 tasks 里会带回历史终态任务；不先标记的话，切后台会把它们
+    // 当成"新完成"重新弹一遍通知。
+    if (!this.notificationSeeded) {
+      this.tasks.forEach((task: BridgeTask) => {
+        if (this.isTerminalState(task.state)) {
+          this.doneNotified.add(task.id);
+        }
+      });
+      this.notificationSeeded = true;
+    }
     this.syncTaskAnimations(state.tasks);
     if (!this.pageVisible) {
       this.updateTaskNotification();
@@ -1414,6 +1426,8 @@ struct Index {
     this.running = false;
     this.label = '未连接';
     this.tasks = [];
+    this.doneNotified.clear();
+    this.notificationSeeded = false;
     this.catalog = emptyCatalog();
     this.selectedPath = '';
     this.view = emptyView();
