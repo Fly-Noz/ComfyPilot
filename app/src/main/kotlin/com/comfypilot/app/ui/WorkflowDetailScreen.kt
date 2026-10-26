@@ -266,8 +266,15 @@ private fun DetailBody(
     }
     var noteTarget by remember { mutableStateOf<WorkflowNodeView?>(null) }
     var noteDraft by remember { mutableStateOf("") }
+    val draftStore = remember(context) { WorkflowDraftStore(context.applicationContext) }
+    // 参数草稿按工作流路径存本机：打开时自动加载，改完自动保存（不写回主机）。
     var overrides by remember(document.path) {
-        mutableStateOf<Map<Int, Map<String, JsonElement>>>(emptyMap())
+        mutableStateOf(draftStore.loadOverrides(document.path))
+    }
+    LaunchedEffect(document.path, overrides) {
+        // 输入框连续输入时做个短延迟，避免每个字符都写一次 SharedPreferences。
+        kotlinx.coroutines.delay(250)
+        draftStore.saveOverrides(document.path, overrides)
     }
 
     // 单节点旁路开关存在会话状态里：Activity 重建（配置刷新）后仍然保留，

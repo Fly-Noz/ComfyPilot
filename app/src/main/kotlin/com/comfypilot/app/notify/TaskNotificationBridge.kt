@@ -27,6 +27,16 @@ object TaskNotificationBridge {
     @Volatile
     private var foreground: Boolean = true
 
+    /**
+     * 本次进程里是否真的进过前台。
+     *
+     * 保活服务是 START_STICKY：进程被回收后系统会把它拉起来，Application 重新连接、
+     * 恢复上次的运行中任务；任务结束时如果只看 foreground=false 就发通知，用户会
+     * 觉得"明明没开 App 却收到完成通知"。这里要求至少进过一次前台才允许发。
+     */
+    @Volatile
+    private var hasBeenForeground: Boolean = false
+
     private val finishedSeen = mutableSetOf<String>()
     private var lastProgressText: String = ""
     private var lastUpdateAtMs: Long = 0L
@@ -45,6 +55,7 @@ object TaskNotificationBridge {
         foreground = value
         val context = appContext ?: return
         if (value) {
+            hasBeenForeground = true
             // 回到应用：任务通知（运行中与已完成）都清掉，避免占着通知栏
             TaskNotifications.cancelTaskNotifications(context)
             lastProgressText = ""
@@ -61,7 +72,7 @@ object TaskNotificationBridge {
         }
 
         val active = tasks.filter { it.isActive }.maxByOrNull { it.updatedAtMs }
-        if (!foreground) {
+        if (!foreground && hasBeenForeground) {
             if (active != null) {
                 val text = progressSignature(active)
                 val now = System.currentTimeMillis()
@@ -79,7 +90,7 @@ object TaskNotificationBridge {
         tasks.filter { it.isTerminal }.forEach { task ->
             if (finishedSeen.add(task.id)) {
                 TaskNotifications.cancelProgress(context)
-                if (!foreground) {
+                if (!foreground && hasBeenForeground) {
                     TaskNotifications.showFinished(context, task)
                 }
             }

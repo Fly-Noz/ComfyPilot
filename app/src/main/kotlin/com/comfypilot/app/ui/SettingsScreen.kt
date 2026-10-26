@@ -1,5 +1,6 @@
 package com.comfypilot.app.ui
 
+import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -37,6 +38,12 @@ import com.comfypilot.app.ui.theme.SpectrumScaffold
 import com.comfypilot.app.ui.theme.SpectrumTopBar
 import com.comfypilot.app.ui.theme.ThemeMode
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 
 /**
  * 设置页。目前只有外观一项：跟随系统 / 深色 / 浅色。
@@ -50,6 +57,9 @@ fun SettingsScreen(
     onBack: () -> Unit,
 ) {
     val c = Spectrum.colors
+    val context = LocalContext.current
+    val draftStore = remember { WorkflowDraftStore(context.applicationContext) }
+    var confirmReset by remember { mutableStateOf(false) }
 
     SpectrumScaffold(
         topBar = { SpectrumTopBar(title = "设置", onBack = onBack) },
@@ -99,6 +109,32 @@ fun SettingsScreen(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
+                text = "工作流参数",
+                color = c.textDim,
+                fontSize = 10.sp,
+                fontFamily = SpectrumMono,
+                letterSpacing = 1.2.sp,
+            )
+
+            GlassCard(padding = PaddingValues(6.dp)) {
+                SpectrumLinkRow(
+                    label = "恢复所有参数设置为默认",
+                    value = "清除本机保存的参数草稿",
+                    onClick = { confirmReset = true },
+                )
+            }
+
+            Text(
+                text = "参数草稿只存在本机，不会写回主机或工作流文件。",
+                color = c.textDim,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                modifier = Modifier.padding(horizontal = 2.dp),
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
                 text = "更多设置后续补充。",
                 color = c.textDim,
                 fontSize = 11.sp,
@@ -112,6 +148,26 @@ fun SettingsScreen(
                     label = "关于",
                     value = "版本、作者与开源许可",
                     onClick = onAbout,
+                )
+            }
+
+            if (confirmReset) {
+                AlertDialog(
+                    onDismissRequest = { confirmReset = false },
+                    title = { Text("恢复所有参数？") },
+                    text = {
+                        Text("会清除本机保存的所有工作流参数，下次打开工作流时按文件默认值显示。不会影响主机上的工作流文件。")
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            confirmReset = false
+                            draftStore.clearAll()
+                            Toast.makeText(context, "已恢复，重新打开工作流生效", Toast.LENGTH_SHORT).show()
+                        }) { Text("恢复默认") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { confirmReset = false }) { Text("取消") }
+                    },
                 )
             }
         }
