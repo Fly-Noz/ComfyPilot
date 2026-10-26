@@ -1,3 +1,4 @@
+import { image } from '@kit.ImageKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
@@ -16,6 +17,11 @@ export interface ImageUploadResult {
   ok: boolean;
   reference: string;
   message: string;
+}
+
+interface CompressedImage {
+  name: string;
+  bytes: Uint8Array;
 }
 
 interface UploadImageResponse {
@@ -61,13 +67,68 @@ export class ImageUploader {
       if (read !== stat.size) {
         throw new Error('读取图片不完整');
       }
+      const original = new Uint8Array(buffer);
+      const compressed = await this.compressForUpload(uri, original);
       return {
-        filename: this.filenameFromUri(uri),
-        bytes: new Uint8Array(buffer),
+        filename: compressed.name,
+        bytes: compressed.bytes,
         uri: uri,
       };
     } finally {
       fileIo.closeSync(file);
+    }
+  }
+
+  /**
+   * 上传前压缩：最长边限制 2048、JPEG q90。
+   *
+   * 相册原图经常 5–20 MB，经 Tailscale/热点上传会直接撞上 60s 超时；
+   * 压到 1 MB 左右既快又够 LoadImage 用。小图/已很小的图保持原样。
+   */
+  private async compressForUpload(
+    uri: string,
+    original: Uint8Array,
+  ): Promise<CompressedImage> {
+    const baseName = this.filenameFromUri(uri);
+    if (original.length <= 2 * 1024 * 1024) {
+      // 仍然检查尺寸：2MB 以内但 6000px 的图也压一下
+    }
+    const source = image.createImageSource(uri);
+    let pixelMap: image.PixelMap | undefined = undefined;
+    const packer = image.createImagePacker();
+    try {
+      const info = await source.getImageInfo();
+      const width = info.size.width;
+      const height = info.size.height;
+      const maxSide = Math.max(width, height);
+      if (original.length <= 2 * 1024 * 1024 && maxSide <= 2048) {
+        return { name: baseName, bytes: original };
+      }
+      const scale = maxSide > 2048 ? 2048 / maxSide : 1;
+      const targetWidth = Math.max(1, Math.round(width * scale));
+      const targetHeight = Math.max(1, Math.round(height * scale));
+      const size: image.Size = { width: targetWidth, height: targetHeight };
+      const options: image.DecodingOptions = { desiredSize: size };
+      pixelMap = await source.createPixelMap(options);
+      const packOption: image.PackingOption = { format: 'image/jpeg', quality: 90 };
+      const data = await packer.packToData(pixelMap, packOption);
+      const bytes = new Uint8Array(data);
+      const dot = baseName.lastIndexOf('.');
+      const name = `${dot > 0 ? baseName.substring(0, dot) : baseName}.jpg`;
+      console.info(
+        `CP> upload compressed ${width}x${height} ${original.length}B -> ` +
+        `${targetWidth}x${targetHeight} ${bytes.length}B`,
+      );
+      return { name, bytes };
+    } catch (err) {
+      console.info(`CP> upload compress failed ${(err as Error).message}, 使用原图`);
+      return { name: baseName, bytes: original };
+    } finally {
+      await packer.release();
+      if (pixelMap !== undefined) {
+        await pixelMap.release();
+      }
+      await source.release();
     }
   }
 
@@ -93,7 +154,7 @@ export class ImageUploader {
         extraData: body,
         expectDataType: http.HttpDataType.STRING,
         connectTimeout: 60_000,
-        readTimeout: 60_000,
+        readTimeout: 180_000,
       });
       if (response.responseCode < 200 || response.responseCode >= 300) {
         console.error(`CP> upload HTTP ${response.responseCode}`);

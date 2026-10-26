@@ -44,15 +44,17 @@ export class ArtifactDownloader {
       if (output.image) {
         // 相册对 RGBA PNG 的"中等预览"会解出块状色带（全屏才正常）。
         // 统一转成 JPEG 再写入相册，避开这条解码路径。
-        const jpegPath = await this.convertToJpeg(tempPath);
-        return await this.saveToGallery(context, jpegPath, output, true);
+        const pngPath = await this.convertToPng(tempPath);
+        return await this.saveToGallery(context, pngPath, output, true);
       }
       if (output.video) {
         return await this.saveToGallery(context, tempPath, output, false);
       }
       return await this.saveToDownloads(context, tempPath, output);
     } catch (err) {
-      return { ok: false, name: '', message: this.errorText(err) };
+      const message = this.errorText(err);
+      console.info(`CPERR download/save failed: ${message}`);
+      return { ok: false, name: '', message };
     } finally {
       try {
         fileIo.unlinkSync(tempPath);
@@ -60,7 +62,7 @@ export class ArtifactDownloader {
         // 临时文件不存在或已被系统清理时，不影响已经保存的文件。
       }
       try {
-        fileIo.unlinkSync(`${tempPath}.jpg`);
+        fileIo.unlinkSync(`${tempPath}.png`);
       } catch (ignored) {
         // 临时文件不存在或已被系统清理时，不影响已经保存的文件。
       }
@@ -112,28 +114,202 @@ export class ArtifactDownloader {
     });
   }
 
-  /** 解码后重新编码为 JPEG（q95），避免相册预览对 RGBA PNG 解出色块。 */
-  private async convertToJpeg(tempPath: string): Promise<string> {
+  /**
+   * 解码后自己编码成 8-bit RGB PNG（colorType=2，无 alpha）。
+   *
+   * 原因：相册的"中等预览"对 RGBA PNG 会解出色块，全屏才正常；
+   * ImageKit 的 PNG 打包器不提供去 alpha 的选项（RGB_888 解码在该机也不支持），
+   * 所以这里读出像素、丢掉 alpha、拼 PNG 块，再用系统 zlib 压缩 IDAT。
+   */
+  private async convertToPng(tempPath: string): Promise<string> {
     const source = image.createImageSource(tempPath);
-    const pixelMap = await source.createPixelMap();
-    const packer = image.createImagePacker();
+    let pixelMap: image.PixelMap | undefined = undefined;
     try {
-      const data = await packer.packToData(pixelMap, { format: 'image/jpeg', quality: 95 });
-      const jpegPath = `${tempPath}.jpg`;
-      const file = await fileIo.open(
-        jpegPath,
-        fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC,
+      const info = await source.getImageInfo();
+      const width = info.size.width;
+      const height = info.size.height;
+      console.info(`CPIMG convert start ${width}x${height}`);
+      pixelMap = await source.createPixelMap();
+      const pixelInfo = await pixelMap.getImageInfo();
+      console.info(
+        `CPIMG pixel ${pixelInfo.size.width}x${pixelInfo.size.height} format=${pixelInfo.pixelFormat}`,
       );
+      const rgba = new ArrayBuffer(width * height * 4);
+      await pixelMap.readPixelsToBuffer(rgba);
+      console.info(`CPIMG readPixels ok bytes=${rgba.byteLength}`);
+      const pixels = new Uint8Array(rgba);
+
+      // 每行：filter byte 0 + RGB
+      const stride = width * 3 + 1;
+      const raw = new Uint8Array(stride * height);
+      for (let y = 0; y < height; y++) {
+        const srcRow = y * width * 4;
+        const dstRow = y * stride;
+        raw[dstRow] = 0;
+        for (let x = 0; x < width; x++) {
+          const s = srcRow + x * 4;
+          const d = dstRow + 1 + x * 3;
+          raw[d] = pixels[s];
+          raw[d + 1] = pixels[s + 1];
+          raw[d + 2] = pixels[s + 2];
+        }
+      }
+
+      console.info(`CPIMG raw built stride=${stride} bytes=${raw.length}`);
+      // 不依赖 zlib 文件接口（compressFile 在此机型不产出目标文件）：
+      // 用 deflate 的 stored 块 + zlib 头 + adler32，PNG 规范完全合法。
+      const deflated = this.zlibStored(raw);
+      console.info(`CPIMG deflate stored bytes=${deflated.length}`);
+      const png = this.buildPng(width, height, deflated);
+      const pngPath = `${tempPath}.png`;
+      await this.writeBytes(pngPath, png);
+      await this.logPngHeader(pngPath);
+      return pngPath;
+    } finally {
+      if (pixelMap !== undefined) {
+        await pixelMap.release();
+      }
+      await source.release();
+    }
+  }
+
+  private async writeBytes(path: string, data: Uint8Array): Promise<void> {
+    const file = await fileIo.open(
+      path,
+      fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC,
+    );
+    try {
+      await fileIo.write(file.fd, data.buffer);
+    } finally {
+      fileIo.closeSync(file);
+    }
+  }
+
+  private async readBytes(path: string): Promise<Uint8Array> {
+    const stat = await fileIo.stat(path);
+    const buffer = new ArrayBuffer(stat.size);
+    const file = await fileIo.open(path, fileIo.OpenMode.READ_ONLY);
+    try {
+      await fileIo.read(file.fd, buffer);
+    } finally {
+      fileIo.closeSync(file);
+    }
+    return new Uint8Array(buffer);
+  }
+
+  /** zlib 容器 + deflate stored 块（不压缩），不依赖系统 zlib。 */
+  private zlibStored(raw: Uint8Array): Uint8Array {
+    const blocks = Math.max(1, Math.ceil(raw.length / 65535));
+    const out = new Uint8Array(2 + raw.length + blocks * 5 + 4);
+    out[0] = 0x78;
+    out[1] = 0x01;
+    let offset = 2;
+    let position = 0;
+    while (position < raw.length) {
+      const length = Math.min(65535, raw.length - position);
+      const final = position + length >= raw.length ? 1 : 0;
+      out[offset++] = final;
+      out[offset++] = length & 0xff;
+      out[offset++] = (length >>> 8) & 0xff;
+      out[offset++] = (~length) & 0xff;
+      out[offset++] = ((~length) >>> 8) & 0xff;
+      out.set(raw.subarray(position, position + length), offset);
+      offset += length;
+      position += length;
+    }
+    const adler = this.adler32(raw);
+    out[offset++] = (adler >>> 24) & 0xff;
+    out[offset++] = (adler >>> 16) & 0xff;
+    out[offset++] = (adler >>> 8) & 0xff;
+    out[offset++] = adler & 0xff;
+    return out.subarray(0, offset);
+  }
+
+  private adler32(data: Uint8Array): number {
+    let a = 1;
+    let b = 0;
+    for (let i = 0; i < data.length; i++) {
+      a = (a + data[i]) % 65521;
+      b = (b + a) % 65521;
+    }
+    return ((b << 16) | a) >>> 0;
+  }
+
+  /** 组装 PNG：签名 + IHDR(colorType=2) + IDAT + IEND，每块带 CRC32。 */
+  private buildPng(width: number, height: number, deflated: Uint8Array): Uint8Array {
+    const ihdr = new Uint8Array(13);
+    const view = new DataView(ihdr.buffer);
+    view.setUint32(0, width);
+    view.setUint32(4, height);
+    ihdr[8] = 8;
+    ihdr[9] = 2;
+    ihdr[10] = 0;
+    ihdr[11] = 0;
+    ihdr[12] = 0;
+    const ihdrChunk = this.pngChunk('IHDR', ihdr);
+    const idatChunk = this.pngChunk('IDAT', deflated);
+    const iendChunk = this.pngChunk('IEND', new Uint8Array(0));
+    const signature = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const total = signature.length + ihdrChunk.length + idatChunk.length + iendChunk.length;
+    const out = new Uint8Array(total);
+    let offset = 0;
+    out.set(signature, offset);
+    offset += signature.length;
+    out.set(ihdrChunk, offset);
+    offset += ihdrChunk.length;
+    out.set(idatChunk, offset);
+    offset += idatChunk.length;
+    out.set(iendChunk, offset);
+    return out;
+  }
+
+  private pngChunk(type: string, data: Uint8Array): Uint8Array {
+    const chunk = new Uint8Array(4 + 4 + data.length + 4);
+    const view = new DataView(chunk.buffer);
+    view.setUint32(0, data.length);
+    for (let i = 0; i < 4; i++) {
+      chunk[4 + i] = type.charCodeAt(i);
+    }
+    chunk.set(data, 8);
+    let crc = 0xffffffff;
+    for (let i = 4; i < 8 + data.length; i++) {
+      crc = this.crcTable[(crc ^ chunk[i]) & 0xff] ^ (crc >>> 8);
+    }
+    crc = (crc ^ 0xffffffff) >>> 0;
+    view.setUint32(8 + data.length, crc);
+    return chunk;
+  }
+
+  private crcTable: number[] = (() => {
+    const table: number[] = [];
+    for (let n = 0; n < 256; n++) {
+      let c = n;
+      for (let k = 0; k < 8; k++) {
+        c = (c & 1) !== 0 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      }
+      table.push(c >>> 0);
+    }
+    return table;
+  })();
+
+  /** 打一行转换后 PNG 的 IHDR，确认 colorType 已经是 2（RGB）。 */
+  private async logPngHeader(path: string): Promise<void> {
+    try {
+      const file = await fileIo.open(path, fileIo.OpenMode.READ_ONLY);
       try {
-        await fileIo.write(file.fd, data);
+        const buf = new ArrayBuffer(64);
+        const n = await fileIo.read(file.fd, buf);
+        const bytes = new Uint8Array(buf.slice(0, n));
+        if (bytes.length >= 29) {
+          console.info(
+            `CPIMG converted bitDepth=${bytes[24]} colorType=${bytes[25]} interlace=${bytes[28]}`,
+          );
+        }
       } finally {
         fileIo.closeSync(file);
       }
-      return jpegPath;
-    } finally {
-      await packer.release();
-      await pixelMap.release();
-      await source.release();
+    } catch (err) {
+      console.info(`CPIMG converted head failed ${(err as Error).message}`);
     }
   }
 
@@ -174,7 +350,7 @@ export class ArtifactDownloader {
     const srcUri = fileUri.getUriFromPath(tempPath);
     const configs: photoAccessHelper.PhotoCreationConfig[] = [{
       title: `${this.safeTitle(output)}_${Date.now()}`,
-      fileNameExtension: asImage ? 'jpg' : this.extensionOf(output),
+      fileNameExtension: asImage ? 'png' : this.extensionOf(output),
       photoType: asImage ? photoAccessHelper.PhotoType.IMAGE : photoAccessHelper.PhotoType.VIDEO,
       subtype: photoAccessHelper.PhotoSubtype.DEFAULT,
     }];
@@ -256,7 +432,7 @@ export class ArtifactDownloader {
     } catch (err) {
       console.info(`CPSAVE verify failed ${(err as Error).message}`);
     }
-    const savedName = asImage ? `${this.safeTitle(output)}.jpg` : output.displayName;
+    const savedName = asImage ? `${this.safeTitle(output)}.png` : output.displayName;
     return { ok: true, name: savedName, message: `已保存到相册：${savedName}` };
   }
 
