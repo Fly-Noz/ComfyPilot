@@ -12,12 +12,21 @@ class PinnedNodeStore(context: Context) {
     private val prefs = context.applicationContext
         .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun load(workflowPath: String): Set<Int> =
-        decodePinnedNodeIds(prefs.getString(key(workflowPath), null))
+    fun load(host: String, workflowPath: String): Set<Int> {
+        val scoped = prefs.getString(key(host, workflowPath), null)
+        if (scoped != null) {
+            return decodePinnedNodeIds(scoped)
+        }
+        // 旧版本只按路径存：第一次在某个主机上打开时，把它迁到这个主机。
+        val legacy = prefs.getString(legacyKey(workflowPath), null) ?: return emptySet()
+        prefs.edit().putString(key(host, workflowPath), legacy).remove(legacyKey(workflowPath)).apply()
+        return decodePinnedNodeIds(legacy)
+    }
 
-    fun save(workflowPath: String, nodeIds: Set<Int>) {
+    fun save(host: String, workflowPath: String, nodeIds: Set<Int>) {
         val editor = prefs.edit()
-        val key = key(workflowPath)
+        val key = key(host, workflowPath)
+        editor.remove(legacyKey(workflowPath))
         if (nodeIds.isEmpty()) {
             editor.remove(key)
         } else {
@@ -26,7 +35,10 @@ class PinnedNodeStore(context: Context) {
         editor.apply()
     }
 
-    private fun key(workflowPath: String): String = "workflow:$workflowPath"
+    private fun key(host: String, workflowPath: String): String =
+        if (host.isBlank()) legacyKey(workflowPath) else "$host|workflow:$workflowPath"
+
+    private fun legacyKey(workflowPath: String): String = "workflow:$workflowPath"
 
     private companion object {
         const val PREFS_NAME = "pinned_nodes"

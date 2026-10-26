@@ -19,8 +19,14 @@ class WorkflowDraftStore(context: Context) {
     private val prefs = context.applicationContext
         .getSharedPreferences("workflow_drafts", Context.MODE_PRIVATE)
 
-    fun loadOverrides(path: String): Map<Int, Map<String, JsonElement>> {
-        val raw = prefs.getString(path, null) ?: return emptyMap()
+    fun loadOverrides(host: String, path: String): Map<Int, Map<String, JsonElement>> {
+        val scopedKey = key(host, path)
+        val raw = prefs.getString(scopedKey, null) ?: run {
+            // 旧版本只按路径存：第一次在某个主机打开时迁移过来。
+            val legacy = prefs.getString(path, null) ?: return emptyMap()
+            prefs.edit().putString(scopedKey, legacy).remove(path).apply()
+            legacy
+        }
         val root = runCatching { Json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return emptyMap()
         val result = mutableMapOf<Int, Map<String, JsonElement>>()
         root.forEach { (nodeKey, nodeValue) ->
@@ -31,9 +37,11 @@ class WorkflowDraftStore(context: Context) {
         return result
     }
 
-    fun saveOverrides(path: String, overrides: Map<Int, Map<String, JsonElement>>) {
+    fun saveOverrides(host: String, path: String, overrides: Map<Int, Map<String, JsonElement>>) {
+        val scopedKey = key(host, path)
+        val editor = prefs.edit().remove(path)
         if (overrides.isEmpty()) {
-            prefs.edit().remove(path).apply()
+            editor.remove(scopedKey).apply()
             return
         }
         val json = buildJsonObject {
@@ -46,8 +54,11 @@ class WorkflowDraftStore(context: Context) {
                 )
             }
         }.toString()
-        prefs.edit().putString(path, json).apply()
+        editor.putString(scopedKey, json).apply()
     }
+
+    private fun key(host: String, path: String): String =
+        if (host.isBlank()) path else "$host|$path"
 
     /** 恢复默认：清掉所有工作流的参数草稿。 */
     fun clearAll() {

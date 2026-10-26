@@ -1054,6 +1054,20 @@ struct Index {
     }
   }
 
+  /** 主机标识：去掉协议与路径，只留 host:port，草稿/备注/置顶按它隔离。 */
+  private hostScope(): string {
+    let value = this.baseUrl.trim();
+    const scheme = value.indexOf('://');
+    if (scheme >= 0) {
+      value = value.substring(scheme + 3);
+    }
+    const slash = value.indexOf('/');
+    if (slash >= 0) {
+      value = value.substring(0, slash);
+    }
+    return value.toLowerCase();
+  }
+
   private normalizedBaseUrl(): string {
     let url = this.baseUrl.trim();
     while (url.endsWith('/')) {
@@ -1478,7 +1492,7 @@ struct Index {
     this.bypassConfirmNodeId = -1;
     this.bypassConfirmReason = '';
     // 参数草稿按工作流路径从本机恢复；没有草稿就是空 Map。
-    this.edits = this.draftStore.load(path);
+    this.edits = this.draftStore.load(this.hostScope(), path);
     this.editTick++;
     this.view = emptyView();
     this.viewError = '';
@@ -1486,11 +1500,11 @@ struct Index {
     // 上一次提交的拒绝通知还留在顶部，打开新工作流时不应该继续误导。 
     this.notice = '';
     this.resetUploadState();
-    this.pinnedIds = this.pinnedStore.load(path);
-    this.notes = this.noteStore.load(path);
+    this.pinnedIds = this.pinnedStore.load(this.hostScope(), path);
+    this.notes = this.noteStore.load(this.hostScope(), path);
     // 同一个工作流上次关掉的错误块重新打开时保持关闭（key 由 taskId|errorText 组成， 
     // 换了错误文案就不再匹配，会自动重新显示）。 
-    this.dismissedErrorKey = this.dismissedStore.load(path);
+    this.dismissedErrorKey = this.dismissedStore.load(this.hostScope(), path);
     this.nodeNotesVersion++;
     this.previewUris.clear();
     this.previewVersion++;
@@ -1695,7 +1709,7 @@ struct Index {
     }
     this.draftSaveTimer = setTimeout(() => {
       this.draftSaveTimer = -1;
-      this.draftStore.save(this.selectedPath, this.edits);
+      this.draftStore.save(this.hostScope(), this.selectedPath, this.edits);
     }, 400);
   }
 
@@ -1706,7 +1720,7 @@ struct Index {
       this.draftSaveTimer = -1;
     }
     if (this.selectedPath.length > 0) {
-      this.draftStore.save(this.selectedPath, this.edits);
+      this.draftStore.save(this.hostScope(), this.selectedPath, this.edits);
     }
   }
 
@@ -1915,7 +1929,7 @@ struct Index {
         }
       }
     }
-    this.pinnedStore.save(this.selectedPath, this.pinnedIds);
+    this.pinnedStore.save(this.hostScope(), this.selectedPath, this.pinnedIds);
     this.refreshView(true);
   }
 
@@ -2422,7 +2436,7 @@ struct Index {
 
   private persistNotes(): void {
     this.nodeNotesVersion++;
-    this.noteStore.save(this.selectedPath, this.notes)
+    this.noteStore.save(this.hostScope(), this.selectedPath, this.notes)
       .catch((err: Error) => this.log(`保存备注失败：${err.message}`));
   }
 
@@ -2645,7 +2659,7 @@ struct Index {
     if (this.selectedPath.length === 0) {
       return;
     }
-    this.dismissedStore.save(this.selectedPath, key)
+    this.dismissedStore.save(this.hostScope(), this.selectedPath, key)
       .catch((err: Error) => this.log(`错误关闭状态保存失败：${err.message}`));
   }
 

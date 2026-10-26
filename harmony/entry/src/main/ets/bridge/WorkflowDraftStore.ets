@@ -28,14 +28,23 @@ export class WorkflowDraftStore {
     }
   }
 
-  load(workflowPath: string): Map<string, string | number | boolean | null> {
+  load(host: string, workflowPath: string): Map<string, string | number | boolean | null> {
     const result: Map<string, string | number | boolean | null> = new Map();
     const store = this.store;
     if (store === null || workflowPath.length === 0) {
       return result;
     }
     try {
-      const raw = store.getSync(this.key(workflowPath), '') as string;
+      const scopedKey = this.key(host, workflowPath);
+      let raw = store.getSync(scopedKey, '') as string;
+      if (raw.length === 0) {
+        const legacy = store.getSync(`workflow:${workflowPath}`, '') as string;
+        if (legacy.length > 0) {
+          raw = legacy;
+          store.putSync(scopedKey, legacy);
+          store.delete(`workflow:${workflowPath}`);
+        }
+      }
       if (raw.length === 0) {
         return result;
       }
@@ -52,12 +61,12 @@ export class WorkflowDraftStore {
     return result;
   }
 
-  async save(workflowPath: string, edits: Map<string, string | number | boolean | null>): Promise<void> {
+  async save(host: string, workflowPath: string, edits: Map<string, string | number | boolean | null>): Promise<void> {
     const store = this.store;
     if (store === null || workflowPath.length === 0) {
       return;
     }
-    const key = this.key(workflowPath);
+    const key = this.key(host, workflowPath);
     try {
       if (edits.size === 0) {
         await store.delete(key);
@@ -96,7 +105,7 @@ export class WorkflowDraftStore {
     }
   }
 
-  private key(workflowPath: string): string {
-    return `workflow:${workflowPath}`;
+  private key(host: string, workflowPath: string): string {
+    return host.length > 0 ? `${host}|workflow:${workflowPath}` : `workflow:${workflowPath}`;
   }
 }

@@ -254,27 +254,29 @@ private fun DetailBody(
     onSetNodeBypassed: (Int, Boolean) -> Unit,
 ) {
     val c = Spectrum.colors
+    // 草稿/备注/置顶按"主机 + 工作流路径"隔离：同一工作流在两台主机上互不影响。
+    val hostScope = hostScopeOf(state.lease?.baseUrl ?: "")
     var enabledGraphOverride by remember(document.path) { mutableStateOf<Set<String>?>(null) }
     val context = LocalContext.current
     val pinnedNodeStore = remember(context) { PinnedNodeStore(context.applicationContext) }
     var pinnedNodeIds by remember(document.path) {
-        mutableStateOf(pinnedNodeStore.load(document.path))
+        mutableStateOf(pinnedNodeStore.load(hostScope, document.path))
     }
     val noteStore = remember { NodeNoteStore(context) }
     var nodeNotes by remember(document.path) {
-        mutableStateOf(noteStore.load(document.path))
+        mutableStateOf(noteStore.load(hostScope, document.path))
     }
     var noteTarget by remember { mutableStateOf<WorkflowNodeView?>(null) }
     var noteDraft by remember { mutableStateOf("") }
     val draftStore = remember(context) { WorkflowDraftStore(context.applicationContext) }
     // 参数草稿按工作流路径存本机：打开时自动加载，改完自动保存（不写回主机）。
     var overrides by remember(document.path) {
-        mutableStateOf(draftStore.loadOverrides(document.path))
+        mutableStateOf(draftStore.loadOverrides(hostScope, document.path))
     }
     LaunchedEffect(document.path, overrides) {
         // 输入框连续输入时做个短延迟，避免每个字符都写一次 SharedPreferences。
         kotlinx.coroutines.delay(250)
-        draftStore.saveOverrides(document.path, overrides)
+        draftStore.saveOverrides(hostScope, document.path, overrides)
     }
 
     // 单节点旁路开关存在会话状态里：Activity 重建（配置刷新）后仍然保留，
@@ -428,7 +430,7 @@ private fun DetailBody(
         val wasPinned = nodeId in pinnedNodeIds
         val next = if (wasPinned) pinnedNodeIds - nodeId else pinnedNodeIds + nodeId
         pinnedNodeIds = next
-        pinnedNodeStore.save(document.path, next)
+        pinnedNodeStore.save(hostScope, document.path, next)
         // 置顶/取消置顶都会改变可达节点的位置。新置顶时展开该节点，
         // 两种操作都把列表带回顶部，避免视口跟着节点落到新位置。
         if (fields.nodes.firstOrNull { it.id == nodeId }?.reachable == true) {
@@ -832,7 +834,7 @@ private fun DetailBody(
                 val label = noteDraft.trim()
                 val updated = if (label.isEmpty()) nodeNotes - target.id else nodeNotes + (target.id to label)
                 nodeNotes = updated
-                noteStore.save(document.path, updated)
+                noteStore.save(hostScope, document.path, updated)
                 noteTarget = null
             },
             dismissText = "取消",
@@ -854,7 +856,7 @@ private fun DetailBody(
                     onClick = {
                         val updated = nodeNotes - target.id
                         nodeNotes = updated
-                        noteStore.save(document.path, updated)
+                        noteStore.save(hostScope, document.path, updated)
                         noteTarget = null
                     },
                     height = 34.dp,

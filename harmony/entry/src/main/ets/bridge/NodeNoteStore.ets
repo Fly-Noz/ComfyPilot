@@ -29,14 +29,23 @@ export class NodeNoteStore {
     }
   }
 
-  load(workflowPath: string): Map<number, string> {
+  load(host: string, workflowPath: string): Map<number, string> {
     const result: Map<number, string> = new Map();
     const store = this.store;
     if (store === null || workflowPath.length === 0) {
       return result;
     }
     try {
-      const raw = store.getSync(this.key(workflowPath), '') as string;
+      const scopedKey = this.key(host, workflowPath);
+      let raw = store.getSync(scopedKey, '') as string;
+      if (raw.length === 0) {
+        const legacy = store.getSync(`workflow:${workflowPath}`, '') as string;
+        if (legacy.length > 0) {
+          raw = legacy;
+          store.putSync(scopedKey, legacy);
+          store.delete(`workflow:${workflowPath}`);
+        }
+      }
       raw.split('\n').forEach((line: string) => {
         const split = line.indexOf('\t');
         if (split <= 0) {
@@ -54,12 +63,12 @@ export class NodeNoteStore {
     return result;
   }
 
-  async save(workflowPath: string, notes: Map<number, string>): Promise<void> {
+  async save(host: string, workflowPath: string, notes: Map<number, string>): Promise<void> {
     const store = this.store;
     if (store === null || workflowPath.length === 0) {
       return;
     }
-    const key = this.key(workflowPath);
+    const key = this.key(host, workflowPath);
     try {
       if (notes.size === 0) {
         await store.delete(key);
@@ -78,7 +87,7 @@ export class NodeNoteStore {
     return label.replace(/[\t\n\r]+/g, ' ').trim();
   }
 
-  private key(workflowPath: string): string {
-    return `workflow:${workflowPath}`;
+  private key(host: string, workflowPath: string): string {
+    return host.length > 0 ? `${host}|workflow:${workflowPath}` : `workflow:${workflowPath}`;
   }
 }

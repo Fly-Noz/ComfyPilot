@@ -28,13 +28,22 @@ export class PinnedNodeStore {
     }
   }
 
-  load(workflowPath: string): number[] {
+  load(host: string, workflowPath: string): number[] {
     const store = this.store;
     if (store === null || workflowPath.length === 0) {
       return [];
     }
     try {
-      const raw = store.getSync(this.key(workflowPath), '') as string;
+      const scopedKey = this.key(host, workflowPath);
+      let raw = store.getSync(scopedKey, '') as string;
+      if (raw.length === 0) {
+        const legacy = store.getSync(`workflow:${workflowPath}`, '') as string;
+        if (legacy.length > 0) {
+          raw = legacy;
+          store.putSync(scopedKey, legacy);
+          store.delete(`workflow:${workflowPath}`);
+        }
+      }
       return raw.split(',').map((part: string) => Number(part.trim()))
         .filter((value: number) => Number.isInteger(value) && value > 0);
     } catch (err) {
@@ -43,12 +52,12 @@ export class PinnedNodeStore {
     }
   }
 
-  async save(workflowPath: string, nodeIds: number[]): Promise<void> {
+  async save(host: string, workflowPath: string, nodeIds: number[]): Promise<void> {
     const store = this.store;
     if (store === null || workflowPath.length === 0) {
       return;
     }
-    const key = this.key(workflowPath);
+    const key = this.key(host, workflowPath);
     try {
       if (nodeIds.length === 0) {
         await store.delete(key);
@@ -62,7 +71,7 @@ export class PinnedNodeStore {
     }
   }
 
-  private key(workflowPath: string): string {
-    return `workflow:${workflowPath}`;
+  private key(host: string, workflowPath: string): string {
+    return host.length > 0 ? `${host}|workflow:${workflowPath}` : `workflow:${workflowPath}`;
   }
 }

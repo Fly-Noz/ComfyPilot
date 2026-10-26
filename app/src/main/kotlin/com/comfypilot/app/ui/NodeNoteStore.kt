@@ -12,12 +12,20 @@ class NodeNoteStore(context: Context) {
     private val prefs = context.applicationContext
         .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    fun load(workflowPath: String): Map<Int, String> =
-        decodeNodeNotes(prefs.getString(key(workflowPath), null))
+    fun load(host: String, workflowPath: String): Map<Int, String> {
+        val scoped = prefs.getString(key(host, workflowPath), null)
+        if (scoped != null) {
+            return decodeNodeNotes(scoped)
+        }
+        val legacy = prefs.getString(legacyKey(workflowPath), null) ?: return emptyMap()
+        prefs.edit().putString(key(host, workflowPath), legacy).remove(legacyKey(workflowPath)).apply()
+        return decodeNodeNotes(legacy)
+    }
 
-    fun save(workflowPath: String, notes: Map<Int, String>) {
+    fun save(host: String, workflowPath: String, notes: Map<Int, String>) {
         val editor = prefs.edit()
-        val key = key(workflowPath)
+        val key = key(host, workflowPath)
+        editor.remove(legacyKey(workflowPath))
         val cleaned = notes.filterValues { it.isNotBlank() }
         if (cleaned.isEmpty()) {
             editor.remove(key)
@@ -27,7 +35,10 @@ class NodeNoteStore(context: Context) {
         editor.apply()
     }
 
-    private fun key(workflowPath: String): String = "workflow:$workflowPath"
+    private fun key(host: String, workflowPath: String): String =
+        if (host.isBlank()) legacyKey(workflowPath) else "$host|workflow:$workflowPath"
+
+    private fun legacyKey(workflowPath: String): String = "workflow:$workflowPath"
 
     private companion object {
         const val PREFS_NAME = "node_notes"

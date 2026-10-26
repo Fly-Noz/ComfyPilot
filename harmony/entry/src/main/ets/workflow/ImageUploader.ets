@@ -93,7 +93,10 @@ export class ImageUploader {
     if (original.length <= 2 * 1024 * 1024) {
       // 仍然检查尺寸：2MB 以内但 6000px 的图也压一下
     }
-    const source = image.createImageSource(uri);
+    // 相册返回的是 media URI，createImageSource(string) 拿到的是 undefined；
+    // 必须先打开 fd，再用 fd 创建 ImageSource。
+    const file = await fileIo.open(uri, fileIo.OpenMode.READ_ONLY);
+    const source = image.createImageSource(file.fd);
     let pixelMap: image.PixelMap | undefined = undefined;
     const packer = image.createImagePacker();
     try {
@@ -128,7 +131,10 @@ export class ImageUploader {
       if (pixelMap !== undefined) {
         await pixelMap.release();
       }
-      await source.release();
+      if (source !== undefined) {
+        await source.release();
+      }
+      fileIo.closeSync(file);
     }
   }
 
