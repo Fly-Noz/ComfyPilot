@@ -202,6 +202,7 @@ fun ComfyPilotApp(
                         appearance.save(it)
                     },
                     onAbout = { screen = Screen.About },
+                    onDiagnostics = { screen = Screen.Diagnostics },
                     onBack = { screen = settingsReturn },
                 )
 

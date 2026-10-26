@@ -55,6 +55,7 @@ fun SettingsScreen(
     mode: ThemeMode,
     onModeChange: (ThemeMode) -> Unit,
     onAbout: () -> Unit,
+    onDiagnostics: () -> Unit,
     onBack: () -> Unit,
 ) {
     val c = Spectrum.colors
@@ -132,6 +133,14 @@ fun SettingsScreen(
                 lineHeight = 16.sp,
                 modifier = Modifier.padding(horizontal = 2.dp),
             )
+
+            GlassCard(padding = PaddingValues(6.dp)) {
+                SpectrumLinkRow(
+                    label = "诊断日志",
+                    value = "连接、任务与错误事件",
+                    onClick = onDiagnostics,
+                )
+            }
 
             Spacer(modifier = Modifier.height(4.dp))
 

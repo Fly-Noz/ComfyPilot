@@ -2503,6 +2503,14 @@ struct Index {
     });
   }
 
+  /** 运行中任务多久没有更新（秒）；用来提示"主机可能在加载模型"。 */
+  private taskSilentSeconds(task: BridgeTask): number {
+    if (task.state !== 'Running') {
+      return 0;
+    }
+    return Math.floor((Date.now() - task.updatedAtMs) / 1000);
+  }
+
   private isTraitSelected(trait: number): boolean {
     return this.traitFilter.includes(trait);
   }
@@ -4742,6 +4750,14 @@ struct Index {
         .width('100%')
         .alignItems(VerticalAlign.Bottom)
 
+        if (task.state === 'Running' && this.taskSilentSeconds(task) >= 60) {
+          Text(`已 ${this.taskSilentSeconds(task)} 秒无进度 · 主机可能正在加载模型/换出显存`)
+            .fontSize(10)
+            .lineHeight(14)
+            .fontColor(this.c().warn)
+            .width('100%')
+        }
+
         if (task.error !== null && task.error.length > 0 &&
           !this.isErrorDismissed(task.id, task.error)) {
           Row({ space: 8 }) {
@@ -5130,6 +5146,14 @@ struct Index {
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
+      }
+
+      if (task.state === 'Running' && this.taskSilentSeconds(task) >= 60) {
+        Text(`已 ${this.taskSilentSeconds(task)} 秒没有进度更新 · 主机可能正在加载模型或换出显存`)
+          .fontSize(10)
+          .lineHeight(14)
+          .fontColor(this.c().warn)
+          .width('100%')
       }
 
       if (this.taskThumbnails(task).length > 0) {

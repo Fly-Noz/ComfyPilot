@@ -210,6 +210,16 @@ private fun TaskCard(
                 }
             }
 
+            val silentSeconds = if (running) (nowMs - (task.lastProgressAtMs ?: task.updatedAtMs)) / 1000 else 0
+            if (running && silentSeconds >= 60) {
+                Text(
+                    text = "已 ${silentSeconds} 秒没有进度更新 · 主机可能正在加载模型或换出显存",
+                    color = c.warn,
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
+                )
+            }
+
             if (task.outputs.isNotEmpty()) {
                 Text(
                     text = "输出：${task.outputs.joinToString("、") { it.filename }}",
