@@ -1574,7 +1574,11 @@ struct Index {
       // 宿主的本地副本跟着对齐，不会出现“界面关了但提交没关”的分叉。 
       this.bypassedIds = response.bypassedNodeIds ?? [];
       this.enabledIds = response.enabledNodeIds ?? [];
-      this.pruneEdits();
+      // 节点定义还没到齐时，字段列表是残缺的（节点不在 fields 里）；这时清理会把
+      // 刚从本机草稿恢复的编辑当成"字段已不存在"删掉——冷启动后参数回到默认就是这个原因。
+      if (response.pendingNodeClasses.length === 0) {
+        this.pruneEdits();
+      }
       if (scrollTop) {
         // 等一帧让新的节点顺序完成布局，否则滚动仍会停在旧位置。 
         // 预览标签页下节点列表没有挂载（Scroller 未绑定），此时不滚动。 
@@ -1845,10 +1849,26 @@ struct Index {
         fields.set(this.editKey(field.nodeId, field.inputName), field);
       });
     });
+    const visibleNodes = new Map<number, number>();
+    this.view.nodes.forEach((node: WorkflowNodeView) => visibleNodes.set(node.id, node.fields.length));
     const stale: string[] = [];
     this.edits.forEach((value: string | number | boolean | null, key: string) => {
+      const split = key.split('\u0000');
+      const nodeId = split.length > 0 ? Number(split[0]) : -1;
+      // 节点不在视图里、或节点还没有字段（定义未到齐）时都不能当作"字段已删除"，
+      // 否则冷启动恢复的草稿会在首帧就被清空。
+      if (!visibleNodes.has(nodeId)) {
+        return;
+      }
+      if ((visibleNodes.get(nodeId) ?? 0) === 0) {
+        return;
+      }
       const field = fields.get(key);
-      if (field === undefined || field.linked || !field.widget) {
+      if (field === undefined) {
+        stale.push(key);
+        return;
+      }
+      if (field.linked || !field.widget) {
         stale.push(key);
       }
     });
