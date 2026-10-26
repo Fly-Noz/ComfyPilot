@@ -38,6 +38,8 @@ import com.comfypilot.app.ui.theme.SpectrumMono
 import com.comfypilot.app.ui.theme.SpectrumScaffold
 import com.comfypilot.app.ui.theme.SpectrumTopBar
 import com.comfypilot.app.ui.theme.ThemeMode
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.setValue
@@ -70,7 +72,9 @@ fun SettingsScreen(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .padding(horizontal = 18.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp)
+                .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
