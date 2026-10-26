@@ -21,7 +21,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.fly.comfypilot.android"
+        applicationId = "com.fly.comfypilot.app"
         minSdk = 26
         targetSdk = 37
         versionCode = 2
