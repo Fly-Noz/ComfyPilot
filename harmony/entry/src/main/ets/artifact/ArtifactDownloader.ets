@@ -108,7 +108,7 @@ export class ArtifactDownloader {
     const helper = photoAccessHelper.getPhotoAccessHelper(context);
     const srcUri = fileUri.getUriFromPath(tempPath);
     const configs: photoAccessHelper.PhotoCreationConfig[] = [{
-      title: this.safeTitle(output),
+      title: `${this.safeTitle(output)}_${Date.now()}`,
       fileNameExtension: this.extensionOf(output),
       photoType: output.video ? photoAccessHelper.PhotoType.VIDEO : photoAccessHelper.PhotoType.IMAGE,
       subtype: photoAccessHelper.PhotoSubtype.DEFAULT,
@@ -118,10 +118,29 @@ export class ArtifactDownloader {
       return { ok: false, name: '', message: '已取消保存到相册', cancelled: true };
     }
 
+    // 不用 fd 版 copyFile：相册资产创建后目标文件可能带着预分配/旧尾部，
+    // 直接 copy 偶发写出带色块的坏图。这里先 TRUNC 再分块写满，并 fsync。
     const srcFile = await fileIo.open(srcUri, fileIo.OpenMode.READ_ONLY);
-    const destFile = await fileIo.open(targets[0], fileIo.OpenMode.WRITE_ONLY);
+    const destFile = await fileIo.open(
+      targets[0],
+      fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC,
+    );
     try {
-      await fileIo.copyFile(srcFile.fd, destFile.fd);
+      const chunkSize = 1024 * 1024;
+      const buffer = new ArrayBuffer(chunkSize);
+      let written = 0;
+      while (true) {
+        const read = await fileIo.read(srcFile.fd, buffer);
+        if (read <= 0) {
+          break;
+        }
+        await fileIo.write(destFile.fd, buffer.slice(0, read));
+        written += read;
+      }
+      await fileIo.fsync(destFile.fd);
+      if (written === 0) {
+        throw new Error('写入相册失败：没有写入任何数据');
+      }
     } finally {
       fileIo.closeSync(srcFile);
       fileIo.closeSync(destFile);
