@@ -2183,6 +2183,18 @@ private fun ActivePreview(
             }
         }
 
+        if (task.state is TaskState.Running) {
+            val silentSeconds = ((nowMs - (task.lastProgressAtMs ?: task.updatedAtMs)) / 1000).coerceAtLeast(0)
+            if (silentSeconds >= 60) {
+                Text(
+                    text = "已 ${silentSeconds} 秒无进度 · 主机可能正在加载模型/换出显存",
+                    color = c.warn,
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
+                )
+            }
+        }
+
         SpectrumProgress(fraction = percent / 100f, height = 8.dp)
 
         task.promptId?.let { promptId ->
