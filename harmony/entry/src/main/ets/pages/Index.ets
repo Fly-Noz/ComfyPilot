@@ -19,6 +19,7 @@ import {
   TaskRestoreResult,
 } from '../bridge/ComfyBridge';
 import { PinnedNodeStore } from '../bridge/PinnedNodeStore';
+import { WorkflowDraftStore } from '../bridge/WorkflowDraftStore';
 import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
 import { NodeNoteStore } from '../bridge/NodeNoteStore';
 import { AddressEntry, AddressStore } from '../bridge/AddressStore';
@@ -266,6 +267,13 @@ struct Index {
   @State pulseTaskId: string = '';
   @State submitNotice: string = '';
   @State confirmOpen: boolean = false;
+  /** 统一确认弹窗：所有"需要二次确认"的动作都走这一套样式。 */
+  @State promptConfirmOpen: boolean = false;
+  @State promptTitle: string = '';
+  @State promptMessage: string = '';
+  @State promptPrimary: string = '确定';
+  @State promptDanger: boolean = false;
+  private promptConfirmAction: () => void = () => {};
   @State confirmWarnings: string[] = [];
   @State confirmPrompt: string = '';
 
@@ -342,6 +350,8 @@ struct Index {
   /** 本次进程第一次拿到任务列表时，把"已经是终态"的旧任务标记为已通知。 */
   private notificationSeeded: boolean = false;
   private dismissedStore: DismissedErrorStore = new DismissedErrorStore();
+  private draftStore: WorkflowDraftStore = new WorkflowDraftStore();
+  private draftSaveTimer: number = -1;
   /** 性能条复用一个 HttpRequest 句柄，页面离场时 destroy()。 */
   private statsRequest: http.HttpRequest | null = null;
   private statsTimer: number = -1;
@@ -681,6 +691,7 @@ struct Index {
     // 地址历史和错误关闭状态都必须在第一次连接前就绪。 
     const addressReady: boolean = await this.addressStore.load(context);
     const dismissedReady: boolean = await this.dismissedStore.open(context);
+    const draftReady: boolean = await this.draftStore.open(context);
     // 外观偏好用 preferences 落盘：PersistentStorage 在真机冷启动会丢。
     const savedAppearance: string | null = await this.appearanceStore.load(context);
     if (savedAppearance !== null) {
@@ -1429,6 +1440,7 @@ struct Index {
     this.doneNotified.clear();
     this.notificationSeeded = false;
     this.catalog = emptyCatalog();
+    this.flushDraft();
     this.selectedPath = '';
     this.view = emptyView();
     // 断开后没有“当前工作流”，单节点开关和待确认的关闭框一起作废。 
@@ -1464,7 +1476,8 @@ struct Index {
     this.graphOpen = false;
     this.bypassConfirmNodeId = -1;
     this.bypassConfirmReason = '';
-    this.edits.clear();
+    // 参数草稿按工作流路径从本机恢复；没有草稿就是空 Map。
+    this.edits = this.draftStore.load(path);
     this.editTick++;
     this.view = emptyView();
     this.viewError = '';
@@ -1509,6 +1522,8 @@ struct Index {
     this.expandedIds = [];
     this.expandedSeed = false;
     this.resetUploadState();
+    // 先落盘再清路径：flushDraft 依赖 selectedPath。
+    this.flushDraft();
     this.selectedPath = '';
     this.summaryKey = '';
     this.detailTab = 0;
@@ -1668,6 +1683,28 @@ struct Index {
     return Number.isNaN(numberValue) ? text : numberValue;
   }
 
+  /** 参数改动后 400ms 防抖写一次本机草稿。 */
+  private scheduleDraftSave(): void {
+    if (this.draftSaveTimer !== -1) {
+      clearTimeout(this.draftSaveTimer);
+    }
+    this.draftSaveTimer = setTimeout(() => {
+      this.draftSaveTimer = -1;
+      this.draftStore.save(this.selectedPath, this.edits);
+    }, 400);
+  }
+
+  /** 关闭工作流/切换前立刻落盘，避免防抖窗口内丢失最后一次编辑。 */
+  private flushDraft(): void {
+    if (this.draftSaveTimer !== -1) {
+      clearTimeout(this.draftSaveTimer);
+      this.draftSaveTimer = -1;
+    }
+    if (this.selectedPath.length > 0) {
+      this.draftStore.save(this.selectedPath, this.edits);
+    }
+  }
+
   private editKey(nodeId: number, inputName: string): string {
     return `${nodeId}\u0000${inputName}`;
   }
@@ -1781,6 +1818,7 @@ struct Index {
     this.edits.set(key, text);
     this.editTick++;
     this.scheduleEditRefresh();
+    this.scheduleDraftSave();
   }
 
   private setFieldBool(field: WorkflowFieldView, value: boolean): void {
@@ -1791,6 +1829,7 @@ struct Index {
     this.edits.set(key, value);
     this.editTick++;
     this.scheduleEditRefresh();
+    this.scheduleDraftSave();
   }
 
   /**
@@ -1958,6 +1997,13 @@ struct Index {
     if (impact.breaking) {
       this.bypassConfirmNodeId = node.id;
       this.bypassConfirmReason = impact.reason;
+      this.openPromptConfirm(
+        '关闭节点',
+        `关闭该节点可能导致工作流无法运行，是否确认关闭\n${impact.reason}`,
+        '仍要关闭',
+        true,
+        () => this.confirmNodeBypass(),
+      );
       return;
     }
     this.applyNodeBypass(node.id, true);
@@ -2437,6 +2483,10 @@ struct Index {
     });
   }
 
+  private isTraitSelected(trait: number): boolean {
+    return this.traitFilter.includes(trait);
+  }
+
   private toggleTrait(trait: number): void {
     if (this.traitFilter.includes(trait)) {
       this.traitFilter = this.traitFilter.filter((item: number) => item !== trait);
@@ -2471,7 +2521,13 @@ struct Index {
         // Same as Android: warnings do not block, but ask before submitting.
         this.confirmPrompt = JSON.stringify(response.prompt);
         this.confirmWarnings = warnings;
-        this.confirmOpen = true;
+        this.openPromptConfirm(
+          '提交前确认',
+          `以下提示不会阻止提交：\n${warnings.map((item: string) => `· ${item}`).join('\n')}`,
+          '仍然提交',
+          false,
+          () => this.confirmSubmit(),
+        );
         this.submitNotice = '';
         return;
       }
@@ -2811,15 +2867,15 @@ struct Index {
 
   /** 筛选 chip，对应 Android SpectrumChip。 */
   @Builder
-  Chip(label: string, selected: boolean, action: () => void) {
+  Chip(label: string, trait: number, action: () => void) {
     Text(label)
       .fontSize(11.5)
-      .fontWeight(selected ? FontWeight.Medium : FontWeight.Normal)
-      .fontColor(selected ? this.c().accentInk : this.c().textMuted)
+      .fontWeight(this.isTraitSelected(trait) ? FontWeight.Medium : FontWeight.Normal)
+      .fontColor(this.isTraitSelected(trait) ? this.c().accentInk : this.c().textMuted)
       .padding({ left: 12, right: 12, top: 7, bottom: 7 })
       .borderRadius(999)
-      .backgroundColor(selected ? this.c().accent : this.c().card)
-      .border({ width: 1, color: selected ? this.c().accent : this.c().border })
+      .backgroundColor(this.isTraitSelected(trait) ? this.c().accent : this.c().card)
+      .border({ width: 1, color: this.isTraitSelected(trait) ? this.c().accent : this.c().border })
       .scale(this.pressScaleOptions(`chip-${label}`))
       .onTouch((event: TouchEvent) => this.onPressTouch(event, `chip-${label}`))
       .onClick(() => action())
@@ -4884,10 +4940,10 @@ struct Index {
 
         Scroll() {
           Row({ space: 6 }) {
-            this.Chip('图像输入', this.traitFilter.includes(0), () => this.toggleTrait(0))
-            this.Chip('文本输入', this.traitFilter.includes(1), () => this.toggleTrait(1))
-            this.Chip('数值输入', this.traitFilter.includes(2), () => this.toggleTrait(2))
-            this.Chip('待填写', this.traitFilter.includes(3), () => this.toggleTrait(3))
+            this.Chip('图像输入', 0, () => this.toggleTrait(0))
+            this.Chip('文本输入', 1, () => this.toggleTrait(1))
+            this.Chip('数值输入', 2, () => this.toggleTrait(2))
+            this.Chip('待填写', 3, () => this.toggleTrait(3))
           }
           .padding({ left: 18, right: 18 })
         }
@@ -5571,21 +5627,16 @@ struct Index {
     if (promptId === null || promptId.length === 0 || !this.taskCancelVisible(task)) {
       return;
     }
-    AlertDialog.show({
-      title: '取消这个任务？',
-      message: '会向 ComfyUI 发送中断请求；已在运行的任务可能已经产出部分结果。',
-      primaryButton: {
-        value: '继续等待',
-        action: () => {},
+    this.openPromptConfirm(
+      '取消这个任务？',
+      '会向 ComfyUI 发送中断请求；已在运行的任务可能已经产出部分结果。',
+      '确认取消',
+      true,
+      () => {
+        this.bridge.cancelTask(promptId);
+        this.log(`取消任务：${promptId}`);
       },
-      secondaryButton: {
-        value: '确认取消',
-        action: () => {
-          this.bridge.cancelTask(promptId);
-          this.log(`取消任务：${promptId}`);
-        },
-      },
-    });
+    );
   }
 
   /** 顶栏文字动作，对应 Android TopBarAction（关闭 / 分享）。 */
@@ -6130,6 +6181,99 @@ struct Index {
             .backgroundColor(this.c().errSoft)
             .border({ width: 1, color: this.c().err })
             .onClick(() => this.confirmNodeBypass())
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.End)
+      }
+      .padding(18)
+      .width('84%')
+      .alignItems(HorizontalAlign.Start)
+      .backgroundColor(this.c().dialog)
+      .borderRadius(18)
+      .border({ width: 1, color: this.c().borderStrong })
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor('#66000000')
+  }
+
+  private firePromptConfirm(): void {
+    const action = this.promptConfirmAction;
+    this.promptConfirmOpen = false;
+    this.promptDanger = false;
+    action();
+  }
+
+  /** 统一确认弹窗入口：标题 + 正文 + 主按钮（可标红）。 */
+  private openPromptConfirm(
+    title: string,
+    message: string,
+    primary: string,
+    danger: boolean,
+    action: () => void,
+  ): void {
+    this.promptTitle = title;
+    this.promptMessage = message;
+    this.promptPrimary = primary;
+    this.promptDanger = danger;
+    this.promptConfirmAction = action;
+    this.promptConfirmOpen = true;
+  }
+
+  /**
+   * 应用内唯一的确认弹窗样式：标题 + 正文 + 取消/主按钮。
+   * 取消任务、关闭节点、提交前确认、恢复默认参数都复用它。
+   */
+  @Builder
+  PromptConfirm() {
+    Column() {
+      Column({ space: 10 }) {
+        Text(this.promptTitle)
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.c().text)
+          .width('100%')
+        Text(this.promptMessage)
+          .fontSize(12)
+          .lineHeight(18)
+          .fontColor(this.c().textMuted)
+          .width('100%')
+        Row({ space: 8 }) {
+          Button('取消')
+            .fontSize(12.5)
+            .fontColor(this.c().textMuted)
+            .height(38)
+            .padding({ left: 16, right: 16 })
+            .borderRadius(12)
+            .backgroundColor(this.c().card)
+            .border({ width: 1, color: this.c().borderStrong })
+            .onClick(() => {
+              this.promptConfirmOpen = false;
+            })
+          if (this.promptDanger) {
+            Button(this.promptPrimary)
+              .fontSize(12.5)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.c().err)
+              .height(38)
+              .padding({ left: 16, right: 16 })
+              .borderRadius(12)
+              .backgroundColor(this.c().errSoft)
+              .border({ width: 1, color: this.c().err })
+              .onClick(() => this.firePromptConfirm())
+          } else {
+            Button(this.promptPrimary)
+              .fontSize(12.5)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.c().accentInk)
+              .height(38)
+              .padding({ left: 16, right: 16 })
+              .borderRadius(12)
+              .backgroundColor(Color.Transparent)
+              .linearGradient({ angle: 120, colors: Spectrum.gradientColors(this.c()) })
+              .onClick(() => this.firePromptConfirm())
+          }
         }
         .width('100%')
         .justifyContent(FlexAlign.End)
@@ -6849,6 +6993,7 @@ struct Index {
       Text('设置')
         .fontSize(20)
         .fontWeight(FontWeight.Bold)
+        .fontColor(this.c().text)
         .layoutWeight(1)
       this.GhostAction('返回', true, () => {
         this.goPage(false, () => {
@@ -6858,7 +7003,7 @@ struct Index {
     }
     .width('100%')
 
-    Text('外观').fontSize(11).fontColor(this.c().textDim)
+    Text('外观').fontSize(11).fontColor(this.c().textDim).width('100%').textAlign(TextAlign.Start)
     Row({ space: 6 }) {
       Button('跟随系统')
         .layoutWeight(1)
@@ -6909,7 +7054,44 @@ struct Index {
     .border({ width: 1, color: this.c().border })
     .width('100%')
 
-    Text('诊断日志').fontSize(11).fontColor(this.c().textDim)
+    Text('工作流参数').fontSize(11).fontColor(this.c().textDim).width('100%').textAlign(TextAlign.Start)
+    Row({ space: 8 }) {
+      Column({ space: 3 }) {
+        Text('恢复所有参数设置为默认')
+          .fontSize(14)
+          .fontColor(this.c().text)
+        Text('清除本机保存的参数草稿，不影响主机')
+          .fontSize(10.5)
+          .fontColor(this.c().textDim)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      Text('›')
+        .fontSize(16)
+        .fontColor(this.c().textDim)
+    }
+    .width('100%')
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .alignItems(VerticalAlign.Center)
+    .backgroundColor(this.c().card)
+    .borderRadius(16)
+    .border({ width: 1, color: this.c().border })
+    .onClick(() => {
+      this.openPromptConfirm(
+        '恢复所有参数？',
+        '会清除本机保存的所有工作流参数，下次打开工作流时按文件默认值显示。不会影响主机上的工作流文件。',
+        '恢复默认',
+        true,
+        () => {
+          this.draftStore.clearAll();
+          this.edits.clear();
+          this.editTick++;
+          promptAction.showToast({ message: '已恢复，重新打开工作流生效', duration: 1600 });
+        },
+      );
+    })
+
+    Text('诊断日志').fontSize(11).fontColor(this.c().textDim).width('100%').textAlign(TextAlign.Start)
     this.LogsTab()
 
     // 设置页底部的「关于」入口；点进去后 aboutOpen 打开关于页，返回仍回到设置。 
@@ -7177,11 +7359,8 @@ struct Index {
       if (this.allNodesOpen) {
         this.AllNodesSheet()
       }
-      if (this.confirmOpen) {
-        this.SubmitConfirmDialog()
-      }
-      if (this.bypassConfirmNodeId >= 0) {
-        this.BypassConfirmDialog()
+      if (this.promptConfirmOpen) {
+        this.PromptConfirm()
       }
       if (this.graphOpen) {
         WorkflowGraphOverlay({

@@ -345,13 +345,24 @@ fun SpectrumChip(
         animationSpec = tween(170),
         label = "chip-text",
     )
+    // 底色也参与选中动画：只改文字颜色在小屏上几乎看不出来。
+    val chipFill by animateColorAsState(
+        targetValue = if (selected) c.accentSoft else c.card,
+        animationSpec = tween(170),
+        label = "chip-fill-color",
+    )
+    val chipBorder by animateColorAsState(
+        targetValue = if (selected) c.accentBorder else c.border,
+        animationSpec = tween(170),
+        label = "chip-border",
+    )
     val chipInteraction = remember { MutableInteractionSource() }
     Box(
         modifier = base
             .pressFeedback(chipInteraction, pressedScale = 0.95f)
             .clip(shape)
-            .background(c.card)
-            .border(1.dp, c.border, shape)
+            .background(chipFill)
+            .border(1.dp, chipBorder, shape)
             .clickable(
                 interactionSource = chipInteraction,
                 indication = null,

@@ -2195,18 +2195,22 @@ private fun ActivePreview(
     }
     val cancelId = task.promptId
     if (confirmCancel && cancelId != null) {
-        AlertDialog(
-            onDismissRequest = { confirmCancel = false },
-            title = { Text("取消这个任务？") },
-            text = { Text("会向 ComfyUI 发送中断请求；已在运行的任务可能已经产出部分结果。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmCancel = false
-                    onCancel(cancelId)
-                }) { Text("确认取消") }
+        SpectrumDialog(
+            title = "取消这个任务？",
+            onDismiss = { confirmCancel = false },
+            confirmText = "确认取消",
+            onConfirm = {
+                confirmCancel = false
+                onCancel(cancelId)
             },
-            dismissButton = {
-                TextButton(onClick = { confirmCancel = false }) { Text("继续等待") }
+            dismissText = "继续等待",
+            body = {
+                Text(
+                    text = "会向 ComfyUI 发送中断请求；已在运行的任务可能已经产出部分结果。",
+                    color = c.textMuted,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                )
             },
         )
     }

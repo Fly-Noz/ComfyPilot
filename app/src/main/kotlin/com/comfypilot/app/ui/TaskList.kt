@@ -20,9 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -38,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.comfypilot.app.ui.theme.GhostButton
 import com.comfypilot.app.ui.theme.PillTone
+import com.comfypilot.app.ui.theme.SpectrumDialog
 import com.comfypilot.app.ui.theme.Spectrum
 import com.comfypilot.app.ui.theme.SpectrumMono
 import com.comfypilot.app.ui.theme.SpectrumPill
@@ -262,18 +261,22 @@ private fun TaskCard(
     }
 
     if (confirmCancel) {
-        AlertDialog(
-            onDismissRequest = { confirmCancel = false },
-            title = { Text("取消这个任务？") },
-            text = { Text("会向 ComfyUI 发送中断请求；已在运行的任务可能已经产出部分结果。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmCancel = false
-                    onCancel(task)
-                }) { Text("确认取消") }
+        SpectrumDialog(
+            title = "取消这个任务？",
+            onDismiss = { confirmCancel = false },
+            confirmText = "确认取消",
+            onConfirm = {
+                confirmCancel = false
+                onCancel(task)
             },
-            dismissButton = {
-                TextButton(onClick = { confirmCancel = false }) { Text("继续等待") }
+            dismissText = "继续等待",
+            body = {
+                Text(
+                    text = "会向 ComfyUI 发送中断请求；已在运行的任务可能已经产出部分结果。",
+                    color = c.textMuted,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                )
             },
         )
     }

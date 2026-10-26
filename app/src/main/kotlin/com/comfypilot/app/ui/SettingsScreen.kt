@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.comfypilot.app.ui.theme.GlassCard
+import com.comfypilot.app.ui.theme.SpectrumDialog
 import com.comfypilot.app.ui.theme.Spectrum
 import com.comfypilot.app.ui.theme.SpectrumMono
 import com.comfypilot.app.ui.theme.SpectrumScaffold
@@ -152,21 +153,23 @@ fun SettingsScreen(
             }
 
             if (confirmReset) {
-                AlertDialog(
-                    onDismissRequest = { confirmReset = false },
-                    title = { Text("恢复所有参数？") },
-                    text = {
-                        Text("会清除本机保存的所有工作流参数，下次打开工作流时按文件默认值显示。不会影响主机上的工作流文件。")
+                SpectrumDialog(
+                    title = "恢复所有参数？",
+                    onDismiss = { confirmReset = false },
+                    confirmText = "恢复默认",
+                    onConfirm = {
+                        confirmReset = false
+                        draftStore.clearAll()
+                        Toast.makeText(context, "已恢复，重新打开工作流生效", Toast.LENGTH_SHORT).show()
                     },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            confirmReset = false
-                            draftStore.clearAll()
-                            Toast.makeText(context, "已恢复，重新打开工作流生效", Toast.LENGTH_SHORT).show()
-                        }) { Text("恢复默认") }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { confirmReset = false }) { Text("取消") }
+                    dismissText = "取消",
+                    body = {
+                        Text(
+                            text = "会清除本机保存的所有工作流参数，下次打开工作流时按文件默认值显示。不会影响主机上的工作流文件。",
+                            color = c.textMuted,
+                            fontSize = 12.sp,
+                            lineHeight = 18.sp,
+                        )
                     },
                 )
             }

@@ -20,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
@@ -28,6 +29,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.comfypilot.android.service.ComfyForegroundService
 import com.comfypilot.app.notify.NotificationIssue
 import com.comfypilot.app.notify.checkNotificationIssue
+import com.comfypilot.app.ui.theme.Spectrum
+import com.comfypilot.app.ui.theme.SpectrumDialog
 import com.comfypilot.app.ui.ComfyPilotApp
 
 class MainActivity : ComponentActivity() {
@@ -98,26 +101,26 @@ class MainActivity : ComponentActivity() {
             // 权限缺失时系统弹窗已经弹过；这里只处理"权限有、但总开关/通道被关"的情况，
             // 这两项无法程序化申请，只能引导去系统设置。
             if (!dismissed && (issue == NotificationIssue.AppDisabled || issue == NotificationIssue.ChannelBlocked)) {
-                AlertDialog(
-                    onDismissRequest = { dismissed = true },
-                    title = { Text("任务通知不可用") },
-                    text = {
+                SpectrumDialog(
+                    title = "任务通知不可用",
+                    onDismiss = { dismissed = true },
+                    confirmText = "去开启",
+                    onConfirm = {
+                        dismissed = true
+                        openNotificationSettings()
+                    },
+                    dismissText = "以后再说",
+                    body = {
                         Text(
-                            if (issue == NotificationIssue.AppDisabled) {
+                            text = if (issue == NotificationIssue.AppDisabled) {
                                 "系统里 ComfyPilot 的通知被关闭了。开启后才能看到任务进度和完成提醒；后台保活也会更容易被系统回收。"
                             } else {
                                 "任务通知的两个通道（运行进度 / 任务完成）被单独关闭了。开启后才能在后台看到进度与完成提醒。"
                             },
+                            color = Spectrum.colors.textMuted,
+                            fontSize = 12.sp,
+                            lineHeight = 18.sp,
                         )
-                    },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            dismissed = true
-                            openNotificationSettings()
-                        }) { Text("去开启") }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { dismissed = true }) { Text("以后再说") }
                     },
                 )
             }
