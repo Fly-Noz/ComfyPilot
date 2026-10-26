@@ -25,6 +25,8 @@ echo  ComfyUI 本地模式启动中...
 echo ========================================
 echo.
 echo  仅本机可访问：http://127.0.0.1:8188
+echo  [!] 手机、平板、其它电脑都连不上这个地址；
+echo      要远程连接请改用 run_remote.bat。
 echo.
 
 "%PY%" -s "%~dp0ComfyUI\main.py" --windows-standalone-build
