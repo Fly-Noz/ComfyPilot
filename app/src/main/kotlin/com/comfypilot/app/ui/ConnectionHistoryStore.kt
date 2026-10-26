@@ -40,6 +40,17 @@ class ConnectionHistoryStore(context: Context) {
             .apply()
     }
 
+    /** 删除一条历史；如果删的是默认值，回退到剩下的第一条。 */
+    fun remove(url: String) {
+        val value = url.trim()
+        val next = history().filter { it != value }
+        val editor = prefs.edit().putString(KEY_HISTORY, next.joinToString("\n"))
+        if (last() == value) {
+            editor.putString(KEY_LAST, next.firstOrNull() ?: "")
+        }
+        editor.apply()
+    }
+
     private companion object {
         const val PREFS_NAME = "connection_history"
         const val KEY_LAST = "last"

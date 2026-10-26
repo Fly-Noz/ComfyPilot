@@ -110,6 +110,10 @@ fun ConnectScreen(
                         historyStore.record(picked)
                         history = historyStore.history()
                     },
+                    onDeleteHistory = { removed ->
+                        historyStore.remove(removed)
+                        history = historyStore.history()
+                    },
                     onCommit = { historyStore.saveLast(it) },
                     placeholder = "http://主机IP:8188",
                 )

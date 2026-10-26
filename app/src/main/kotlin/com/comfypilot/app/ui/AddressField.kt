@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -45,6 +46,7 @@ fun AddressField(
     onValueChange: (String) -> Unit,
     history: List<String>,
     onPickHistory: (String) -> Unit,
+    onDeleteHistory: (String) -> Unit,
     onCommit: (String) -> Unit,
     placeholder: String,
     modifier: Modifier = Modifier,
@@ -52,10 +54,7 @@ fun AddressField(
     val c = Spectrum.colors
     var menuOpen by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
-    val items = remember(history, value) {
-        // 当前输入值不重复出现在历史里。
-        history.filter { it != value.trim() }
-    }
+    val items = history
 
     Box(modifier = modifier) {
         Row(
@@ -75,7 +74,7 @@ fun AddressField(
                     .padding(vertical = 8.dp)
                     .onFocusChanged { state ->
                         if (state.isFocused) {
-                            menuOpen = items.isNotEmpty()
+                            menuOpen = true
                         } else {
                             menuOpen = false
                             onCommit(value)
@@ -118,30 +117,68 @@ fun AddressField(
         }
 
         DropdownMenu(
-            expanded = menuOpen && items.isNotEmpty(),
+            expanded = menuOpen,
             onDismissRequest = { menuOpen = false },
             containerColor = c.dialog,
             properties = PopupProperties(focusable = false),
         ) {
             Text(
-                text = "最近使用",
+                text = "最近的地址",
                 color = c.textDim,
                 fontSize = 9.5.sp,
                 fontFamily = SpectrumMono,
                 letterSpacing = 0.8.sp,
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
             )
+            if (items.isEmpty()) {
+                Text(
+                    text = "还没有保存过的地址",
+                    color = c.textMuted,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                )
+            }
             items.forEach { item ->
+                val current = item == value.trim()
                 DropdownMenuItem(
                     text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                text = item,
+                                color = c.text,
+                                fontSize = 11.5.sp,
+                                fontFamily = SpectrumMono,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                            if (current) {
+                                Text(
+                                    text = "当前",
+                                    color = c.accent,
+                                    fontSize = 9.sp,
+                                    fontFamily = SpectrumMono,
+                                )
+                            }
+                        }
+                    },
+                    trailingIcon = {
                         Text(
-                            text = item,
-                            color = c.text,
-                            fontSize = 11.5.sp,
-                            fontFamily = SpectrumMono,
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                            text = "✕",
+                            color = c.textDim,
+                            fontSize = 12.sp,
+                            modifier = Modifier
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                ) {
+                                    onDeleteHistory(item)
+                                }
+                                .padding(horizontal = 6.dp, vertical = 6.dp),
                         )
                     },
                     onClick = {
