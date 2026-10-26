@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,6 +31,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.PopupProperties
@@ -119,59 +122,82 @@ fun AddressField(
         DropdownMenu(
             expanded = menuOpen,
             onDismissRequest = { menuOpen = false },
+            shape = RoundedCornerShape(18.dp),
             containerColor = c.dialog,
+            tonalElevation = 0.dp,
+            shadowElevation = 10.dp,
+            offset = DpOffset(0.dp, 6.dp),
             properties = PopupProperties(focusable = false),
         ) {
-            Text(
-                text = "最近的地址",
-                color = c.textDim,
-                fontSize = 9.5.sp,
-                fontFamily = SpectrumMono,
-                letterSpacing = 0.8.sp,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-            )
-            if (items.isEmpty()) {
+            Column(modifier = Modifier.padding(horizontal = 6.dp, vertical = 6.dp)) {
                 Text(
-                    text = "还没有保存过的地址",
-                    color = c.textMuted,
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    text = "最近的地址",
+                    color = c.textDim,
+                    fontSize = 9.sp,
+                    fontFamily = SpectrumMono,
+                    letterSpacing = 0.8.sp,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                 )
-            }
-            items.forEach { item ->
-                val current = item == value.trim()
-                DropdownMenuItem(
-                    text = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Text(
-                                text = item,
-                                color = c.text,
-                                fontSize = 11.5.sp,
-                                fontFamily = SpectrumMono,
-                                fontWeight = FontWeight.Medium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                            if (current) {
-                                Text(
-                                    text = "当前",
-                                    color = c.accent,
-                                    fontSize = 9.sp,
-                                    fontFamily = SpectrumMono,
-                                )
+                if (items.isEmpty()) {
+                    Text(
+                        text = "还没有保存过的地址",
+                        color = c.textMuted,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                    )
+                }
+                items.forEachIndexed { index, item ->
+                    if (index > 0) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 8.dp),
+                            thickness = 1.dp,
+                            color = c.border,
+                        )
+                    }
+                    val current = item == value.trim()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                            ) {
+                                menuOpen = false
+                                onPickHistory(item)
                             }
+                            .padding(horizontal = 10.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = item,
+                            color = c.text,
+                            fontSize = 11.5.sp,
+                            fontFamily = SpectrumMono,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (current) {
+                            Text(
+                                text = "当前",
+                                color = c.accent,
+                                fontSize = 9.sp,
+                                fontFamily = SpectrumMono,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(c.accentSoft)
+                                    .padding(horizontal = 7.dp, vertical = 2.dp),
+                            )
                         }
-                    },
-                    trailingIcon = {
                         Text(
                             text = "✕",
                             color = c.textDim,
                             fontSize = 12.sp,
                             modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null,
@@ -180,12 +206,8 @@ fun AddressField(
                                 }
                                 .padding(horizontal = 6.dp, vertical = 6.dp),
                         )
-                    },
-                    onClick = {
-                        menuOpen = false
-                        onPickHistory(item)
-                    },
-                )
+                    }
+                }
             }
         }
     }
