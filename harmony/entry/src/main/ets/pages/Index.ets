@@ -1064,7 +1064,8 @@ struct Index {
 
   /** 输入框为空时用上次连通的地址当占位，避免冷启动后忘了上次连的是哪台机器。 */
   private addressPlaceholder(): string {
-    return this.lastUsedUrl.length > 0 ? this.lastUsedUrl : 'http://192.168.1.10:8188';
+    // 占位符只给格式示例，绝不能带上一次用过的真实地址：空输入框截图会泄露内网 IP/隧道域名。
+    return 'http://主机IP:8188';
   }
 
   /** 下拉面板里的「当前」标记：和输入框里规范化后的地址比较。 */

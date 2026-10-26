@@ -90,7 +90,7 @@ fun DebugScreen(
                             history = historyStore.history()
                         },
                         onCommit = { historyStore.saveLast(it) },
-                        placeholder = "http://192.168.1.10:8188",
+                        placeholder = "http://主机IP:8188",
                     )
                     Spacer(Modifier.height(10.dp))
                     Row(
