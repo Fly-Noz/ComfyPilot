@@ -1,5 +1,7 @@
 package com.comfypilot.app.ui
 
+import android.os.SystemClock
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -63,6 +65,9 @@ fun AddressField(
     val c = Spectrum.colors
     var menuOpen by remember { mutableStateOf(false) }
     var fieldSize by remember { mutableStateOf(IntSize.Zero) }
+    // 点面板外部时 Popup 先触发 onDismiss，再轮到按钮自己的 onClick；
+    // 记录这次收起的时间，避免"收起后立刻又被当成展开"而闪一下。
+    var lastDismissAt by remember { mutableStateOf(0L) }
     val shape = RoundedCornerShape(12.dp)
     val items = history
 
@@ -87,7 +92,9 @@ fun AddressField(
                         if (state.isFocused) {
                             menuOpen = true
                         } else {
-                            menuOpen = false
+                            // 不要在这里关面板：点右侧箭头会让输入框先失焦，
+                            // 这里关一次、onClick 再开一次，就会"收起又展开"。
+                            // 收起交给 Popup 的点击外部 dismiss。
                             onCommit(value)
                         }
                     },
@@ -122,7 +129,10 @@ fun AddressField(
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                    ) { menuOpen = !menuOpen }
+                    ) {
+                        val now = SystemClock.uptimeMillis()
+                        menuOpen = if (now - lastDismissAt < 350L) false else !menuOpen
+                    }
                     .padding(horizontal = 6.dp, vertical = 8.dp),
             )
         }
@@ -132,7 +142,10 @@ fun AddressField(
             Popup(
                 alignment = Alignment.TopStart,
                 offset = IntOffset(0, fieldSize.height + with(density) { 6.dp.roundToPx() }),
-                onDismissRequest = { menuOpen = false },
+                onDismissRequest = {
+                    menuOpen = false
+                    lastDismissAt = SystemClock.uptimeMillis()
+                },
                 properties = PopupProperties(focusable = false, dismissOnClickOutside = true),
             ) {
                 Column(
