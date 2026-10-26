@@ -5,7 +5,7 @@
 | 项 | 值 | 说明 |
 |---|---|---|
 | 鸿蒙 bundleName | `com.fly.comfypilot` | AGC 注册后**不可修改** |
-| Android applicationId | `com.fly.comfypilot` | 与鸿蒙一致；已上架后不可修改 |
+| Android applicationId | `com.fly.comfypilot.android` | 与鸿蒙 bundleName 区分（卓易通等安卓兼容层要求不同包名）；已上架后不可修改 |
 | 版本 | `0.2.0` / versionCode `2` | 每次上传必须递增 versionCode |
 
 ## 一、账号与资质
