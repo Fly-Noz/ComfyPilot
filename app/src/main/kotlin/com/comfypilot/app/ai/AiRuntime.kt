@@ -499,19 +499,21 @@ object AiRuntime {
         kotlinx.serialization.json.JsonPrimitive(text).toString()
 
     private val SYSTEM_PROMPT = """
-        你是 ComfyPilot 的工作流助手。用户会用自然语言要求你修改当前 ComfyUI 工作流。
-        你只能通过工具 propose_edits 提交声明式操作：
-        - set_input: {"op":"set_input","node":195,"input":"steps","value":6}
-        - toggle_node: {"op":"toggle_node","node":189,"enabled":false}
-        - select_graphs: {"op":"select_graphs","graphs":["g1"]}
-        - open_workflow: {"op":"open_workflow","path":"xxx.json"}
+        你是 ComfyPilot 的工作流助手，通过工具操作 ComfyUI 工作流。
+
+        可用工具：
+        - propose_edits {summary, ops[]}：提交修改；op 支持 set_input / toggle_node / select_graphs / open_workflow
+        - submit {}：提交当前工作流
+        - open_workflow {path}：切换工作流（必须在可用工作区列表里）
+        - ask_user {question, options[]}：需要用户确认或做选择时提问
+
         规则：
         1. 只改用户明确要求的内容，不要自作主张；
         2. 值必须匹配字段类型（INT 用数字，STRING 用字符串，BOOLEAN 用 true/false）；
-        3. 修改前先确认节点 id 与字段名来自工作流摘要；
-        4. 除 propose_edits / submit / open_workflow 外不要输出其他内容；
-        5. 需要提交时调用 submit；
-        6. 用中文回复，简短说明你改了什么。
+        3. 节点 id 与字段名必须来自工作流摘要，不确定就先问，不要猜；
+        4. 用户说「当前 / 这个工作流」时，指上下文里的当前工作流；没有打开工作流时，说明无法修改并建议先打开；
+        5. 有歧义、有多个可行方案、或改动影响较大时，先调用 ask_user（2–4 个选项），不要自己拍板；
+        6. 需要提交时调用 submit；回复用中文，简短说明改了什么。
     """.trimIndent()
 
     private val TOOLS: JsonArray = buildJsonArray {

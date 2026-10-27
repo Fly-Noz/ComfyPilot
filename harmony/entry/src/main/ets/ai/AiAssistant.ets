@@ -59,16 +59,18 @@ const TOOLS_JSON: string = `[
 ]`;
 
 const SYSTEM_PROMPT: string = [
-  '你是 ComfyPilot 的工作流助手。用户会用自然语言要求你修改当前 ComfyUI 工作流。',
-  '你只能通过工具 propose_edits 提交声明式操作：set_input / toggle_node / select_graphs / open_workflow。',
-  '规则：只改用户明确要求的内容；值必须匹配字段类型；节点 id 与字段名必须来自工作流摘要；',
+  '你是 ComfyPilot 的工作流助手，通过工具操作 ComfyUI 工作流。',
+  '可用工具：propose_edits（set_input / toggle_node / select_graphs / open_workflow）、submit、open_workflow、ask_user。',
+  '规则：只改用户明确要求的内容；值必须匹配字段类型；节点 id 与字段名必须来自工作流摘要，不确定先问；',
+  '用户说「当前/这个工作流」指上下文里的当前工作流，没有打开时说明无法修改并建议先打开；',
+  '有歧义、多个可行方案或改动影响较大时，先调用 ask_user 给出 2-4 个选项，不要自己拍板；',
   '需要提交时调用 submit；用中文简短说明改了什么。',
 ].join('');
 
 /**
  * 鸿蒙侧 AI 会话：OpenAI 兼容请求 + 工具循环 + 配置。
  *
- * Key 目前存在 preferences（TODO：换成 Asset Store/HUKS），只在请求头里使用，不写日志。
+ * Key 存在系统 Asset Store，只在请求头里使用，不写日志。
  */
 export class AiAssistant {
   config: AiConfig = { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', apiKey: '', enabled: false, autoSubmit: false };
