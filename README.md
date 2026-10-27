@@ -21,6 +21,9 @@
 
 ---
 
+> **非官方项目**：与 ComfyUI 官方无关，也与 GitHub 上同名的 ComfyPilot（MCP server）项目无关。
+> 本项目只是通过公开的 HTTP / WebSocket 协议连接用户自建的 ComfyUI，不包含 ComfyUI 代码，也不提供任何在线生成服务。
+
 ## 功能
 
 ### 工作流与参数
