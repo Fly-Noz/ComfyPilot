@@ -186,6 +186,19 @@ class PageAiHost implements AiHost {
   openWorkflow: (path: string) => boolean = () => false;
   availableWorkflows: () => string[] = () => [];
   currentWorkflow: () => string = () => '';
+  queryGraphs: () => string = () => '{"graphs":[]}';
+  queryNodes: (args: string) => string = () => '{"nodes":[]}';
+  queryNode: (args: string) => string = () => '{"error":"未实现"}';
+  digestJson: () => string = () => '{}';
+}
+
+interface NodeQueryProbe {
+  query?: string;
+  limit?: number;
+}
+
+interface NodeIdProbe {
+  id?: number;
 }
 
 interface AiBridgeEdit {
@@ -6511,6 +6524,70 @@ struct Index {
     return `已选 ${count} 个`;
   }
 
+  private aiSummaryJson(): string {
+    const nodes: string[] = [];
+    let reachable = 0;
+    this.view.nodes.forEach((node: WorkflowNodeView) => {
+      if (node.reachable) {
+        reachable++;
+      }
+      nodes.push(`{"id":${node.id},"class":${JSON.stringify(node.type)},"title":${JSON.stringify(node.title ?? node.displayName)},"enabled":${node.enabled},"reachable":${node.reachable}}`);
+    });
+    return `{"path":${JSON.stringify(this.selectedPath)},"graphs":${this.aiGraphsJson()},"counts":{"nodes":${this.view.nodes.length},"reachable":${reachable}},"nodeIndex":[${nodes.join(',')}]}`;
+  }
+
+  private aiGraphsJson(): string {
+    const items: string[] = [];
+    this.view.graphs.forEach((graph: WorkflowGraphView) => {
+      items.push(`{"id":${JSON.stringify(graph.id)},"title":${JSON.stringify(graph.title)},"selected":${this.graphIds.includes(graph.id)}}`);
+    });
+    return `{"graphs":[${items.join(',')}]}`;
+  }
+
+  private aiNodesJson(args: string): string {
+    let needle = '';
+    let limit = 40;
+    try {
+      const probe = JSON.parse(args) as NodeQueryProbe;
+      needle = (probe.query ?? '').toLowerCase();
+      limit = probe.limit ?? 40;
+    } catch (err) {
+    }
+    const items: string[] = [];
+    this.view.nodes.forEach((node: WorkflowNodeView) => {
+      if (items.length >= limit) {
+        return;
+      }
+      const title = node.title ?? node.displayName;
+      if (needle.length > 0 &&
+        !title.toLowerCase().includes(needle) &&
+        !node.type.toLowerCase().includes(needle) &&
+        `${node.id}` !== needle) {
+        return;
+      }
+      items.push(`{"id":${node.id},"class":${JSON.stringify(node.type)},"title":${JSON.stringify(title)},"enabled":${node.enabled},"reachable":${node.reachable}}`);
+    });
+    return `{"nodes":[${items.join(',')}]}`;
+  }
+
+  private aiNodeJson(args: string): string {
+    let id = -1;
+    try {
+      const probe = JSON.parse(args) as NodeIdProbe;
+      id = probe.id ?? -1;
+    } catch (err) {
+    }
+    const node = this.view.nodes.find((item: WorkflowNodeView) => item.id === id);
+    if (node === undefined) {
+      return '{"ok":false,"error":"节点不存在"}';
+    }
+    const fields: string[] = [];
+    node.fields.forEach((field: WorkflowFieldView) => {
+      fields.push(`{"name":${JSON.stringify(field.inputName)},"type":${JSON.stringify(field.type)},"value":${JSON.stringify(field.value)},"editable":${field.widget && !field.linked}}`);
+    });
+    return `{"id":${node.id},"class":${JSON.stringify(node.type)},"title":${JSON.stringify(node.title ?? node.displayName)},"fields":[${fields.join(',')}]}`;
+  }
+
   private registerAiHost(): void {
     const host = new PageAiHost();
     host.buildViewJson = () => this.aiViewJson();
@@ -6532,6 +6609,10 @@ struct Index {
       return picked.length > 0 ? picked : [this.selectedPath];
     };
     host.currentWorkflow = () => this.selectedPath;
+    host.queryGraphs = () => this.aiGraphsJson();
+    host.queryNodes = (args: string) => this.aiNodesJson(args);
+    host.queryNode = (args: string) => this.aiNodeJson(args);
+    host.digestJson = () => this.aiSummaryJson();
     this.ai.host = host;
   }
 

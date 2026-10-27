@@ -617,6 +617,7 @@ private fun DetailBody(
                                 type = field.type,
                                 value = field.value,
                                 editable = field.widget && !field.linked,
+                                options = field.options,
                             )
                         },
                     )

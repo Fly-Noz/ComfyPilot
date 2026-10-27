@@ -49,6 +49,10 @@ export interface AiHost {
   openWorkflow(path: string): boolean;
   availableWorkflows(): string[];
   currentWorkflow(): string;
+  queryGraphs(): string;
+  queryNodes(args: string): string;
+  queryNode(args: string): string;
+  digestJson(): string;
 }
 
 const TOOLS_JSON: string = `[
@@ -214,7 +218,7 @@ export class AiAssistant {
 
   private async loop(host: AiHost): Promise<void> {
     for (let round = 0; round < 5; round++) {
-      const digest = host.buildViewJson();
+      const digest = host.digestJson();
       this.tokens = Math.floor(digest.length / 4);
       const paths = host.availableWorkflows();
       const systemMessages: AiChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }];
@@ -268,6 +272,15 @@ export class AiAssistant {
       }
       this.pending = { proposalJson: args, summary: summary, changes: outcome.changes };
       return `{"ok":true,"pending":true}`;
+    }
+    if (name === 'list_graphs') {
+      return host.queryGraphs();
+    }
+    if (name === 'list_nodes') {
+      return host.queryNodes(args);
+    }
+    if (name === 'get_node') {
+      return host.queryNode(args);
     }
     if (name === 'ask_user') {
       const probe = JSON.parse(args) as AskProbe;
