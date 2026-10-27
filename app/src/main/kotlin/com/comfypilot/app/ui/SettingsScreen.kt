@@ -64,6 +64,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val draftStore = remember { WorkflowDraftStore(context.applicationContext) }
     var confirmReset by remember { mutableStateOf(false) }
+    var aiOpen by remember { mutableStateOf(false) }
 
     SpectrumScaffold(
         topBar = { SpectrumTopBar(title = "设置", onBack = onBack) },
@@ -144,6 +145,11 @@ fun SettingsScreen(
                     value = "连接、任务与错误事件",
                     onClick = onDiagnostics,
                 )
+                SpectrumLinkRow(
+                    label = "AI 助手",
+                    value = "接口地址、模型与 API Key",
+                    onClick = { aiOpen = true },
+                )
             }
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -163,6 +169,10 @@ fun SettingsScreen(
                     value = "版本、作者与开源许可",
                     onClick = onAbout,
                 )
+            }
+
+            if (aiOpen) {
+                AiSettingsDialog(onDismiss = { aiOpen = false })
             }
 
             if (confirmReset) {

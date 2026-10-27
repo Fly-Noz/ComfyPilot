@@ -64,6 +64,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -113,6 +114,14 @@ import com.comfypilot.app.ui.theme.GlassCard
 import com.comfypilot.app.ui.theme.GradientButton
 import com.comfypilot.app.ui.theme.PillTone
 import com.comfypilot.app.ui.theme.pressFeedback
+import com.comfypilot.app.ai.AiRuntime
+import com.comfypilot.app.ai.AiWorkflowHost
+import com.comfypilot.core.ai.AiApplyResult
+import com.comfypilot.core.ai.AiEditState
+import com.comfypilot.core.ai.AiField
+import com.comfypilot.core.ai.AiGraph
+import com.comfypilot.core.ai.AiNode
+import com.comfypilot.core.ai.AiWorkflowView
 import com.comfypilot.app.ui.theme.Spectrum
 import com.comfypilot.app.ui.theme.pressFeedback
 import com.comfypilot.app.ui.theme.SpectrumArt
@@ -582,6 +591,68 @@ private fun DetailBody(
             }
 
             is PromptBuild.Blocked -> blockedProblems = decision.problems
+        }
+    }
+
+    val sessionBypassed = state.bypassedNodeIds
+    val sessionEnabled = state.enabledNodeIds
+    LaunchedEffect(analysis, overrides, enabledGraphOverride, sessionBypassed) {
+        AiRuntime.host = object : AiWorkflowHost {
+            override fun digest(): AiWorkflowView = AiWorkflowView(
+                path = document.path,
+                nodes = analysis.fields.nodes.map { node ->
+                    AiNode(
+                        id = node.id,
+                        className = node.type,
+                        title = node.title ?: node.displayName,
+                        enabled = node.enabled,
+                        reachable = node.reachable,
+                        fields = node.fields.map { field ->
+                            AiField(
+                                nodeId = field.nodeId,
+                                input = field.inputName,
+                                type = field.type,
+                                value = field.value,
+                                editable = field.widget && !field.linked,
+                            )
+                        },
+                    )
+                },
+                graphs = analysis.graphs.map { graph ->
+                    AiGraph(
+                        id = graph.id,
+                        title = graph.title,
+                        selected = graph.id in (enabledGraphOverride ?: analysis.selectedGraphIds),
+                    )
+                },
+            )
+
+            override fun editState(): AiEditState =
+                AiEditState(overrides, sessionBypassed, sessionEnabled, enabledGraphOverride)
+
+            override fun applyEdit(next: AiEditState): AiApplyResult {
+                overrides = next.overrides
+                next.graphs?.let { enabledGraphOverride = it }
+                val toDisable = next.bypassed - sessionBypassed
+                val toEnable = sessionBypassed - next.bypassed
+                toDisable.forEach { onSetNodeBypassed(it, false) }
+                toEnable.forEach { onSetNodeBypassed(it, true) }
+                return AiApplyResult(next, emptyList(), emptyList())
+            }
+
+            override fun submitCurrent(): Boolean {
+                val decision = WorkflowDecisions.decide(analysis = analysis, overrides = overrides)
+                if (!decision.canSubmit || decision.warnings.isNotEmpty()) return false
+                submit()
+                return true
+            }
+
+            override fun openWorkflow(path: String): Boolean = false
+        }
+    }
+    DisposableEffect(document.path) {
+        onDispose {
+            AiRuntime.host = null
         }
     }
 

@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.comfypilot.app.SessionHost
+import com.comfypilot.app.ai.AiRuntime
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.comfypilot.app.ui.theme.AppearanceStore
@@ -70,6 +71,7 @@ fun ComfyPilotApp(
 ) {
     val context = LocalContext.current
     val appearance = remember(context) { AppearanceStore(context.applicationContext) }
+    LaunchedEffect(Unit) { AiRuntime.attach(context.applicationContext) }
 
     // 回到前台补一次对账：WebSocket 半死时收不到事件，不能让任务一直停在排队中。
     LifecycleResumeEffect(Unit) {
@@ -232,6 +234,9 @@ fun ComfyPilotApp(
                     },
                 )
             }
+
+            // AI 悬浮球：只在已连接时出现。
+            AiFloatingOverlay(visible = state.lease != null)
         }
     }
 }
