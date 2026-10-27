@@ -6571,74 +6571,158 @@ struct Index {
 
   @Builder
   AiPanel() {
-    Column() {
-      Column({ space: 8 }) {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#66000000')
+        .onClick(() => { this.aiOpen = false; })
+
+      Column() {
+        // 头部
         Row({ space: 8 }) {
-          Text('AI 助手').fontSize(15).fontWeight(FontWeight.Bold).fontColor(this.c().text)
-          Text(`≈${this.ai.tokens} tokens`).fontSize(9).fontFamily('monospace').fontColor(this.c().textDim)
-          Blank()
-          Text('✕').fontSize(14).fontColor(this.c().textDim)
+          Stack() {
+            Text('AI')
+              .fontSize(11)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#FFFFFF')
+          }
+          .width(30)
+          .height(30)
+          .borderRadius(15)
+          .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+
+          Column({ space: 1 }) {
+            Text('AI 助手').fontSize(14).fontColor(this.c().text)
+            Text(this.ai.config.model.length > 0 ? this.ai.config.model : '未配置模型')
+              .fontSize(9)
+              .fontFamily('monospace')
+              .fontColor(this.c().textDim)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+
+          Text(`≈${this.ai.tokens}`)
+            .fontSize(9)
+            .fontFamily('monospace')
+            .fontColor(this.c().textDim)
+            .padding({ left: 7, right: 7, top: 3, bottom: 3 })
+            .backgroundColor(this.c().card)
+            .borderRadius(8)
+
+          Text('✕')
+            .fontSize(13)
+            .fontColor(this.c().textDim)
+            .padding(6)
             .onClick(() => { this.aiOpen = false; })
         }
         .width('100%')
+        .padding({ left: 14, right: 10, top: 12, bottom: 10 })
+
+        Divider().strokeWidth(1).color(this.c().border)
 
         Scroll() {
-          Column({ space: 6 }) {
-            ForEach(this.ai.messages, (message: AiChatMessage) => {
-              Text(message.content.length > 0 ? message.content : '…')
-                .fontSize(11.5)
-                .lineHeight(17)
-                .fontColor(message.role === 'user' ? this.c().text : this.c().textMuted)
-                .width('100%')
-                .padding(8)
-                .borderRadius(10)
-                .backgroundColor(message.role === 'user' ? this.c().cardStrong : this.c().card)
+          Column({ space: 8 }) {
+            if (this.ai.messages.length === 0) {
+              Text('想改哪里？').fontSize(13).fontColor(this.c().textMuted).width('100%').textAlign(TextAlign.Center).margin({ top: 24 })
+              Text('试试「把步数改成 8」或「关闭 Save Video」')
+                .fontSize(10.5).fontColor(this.c().textDim).width('100%').textAlign(TextAlign.Center)
+            }
+            ForEach(this.ai.messages, (message: AiChatMessage, index: number) => {
+              Row() {
+                Text(message.content.length > 0 ? message.content : '…')
+                  .fontSize(12)
+                  .lineHeight(17)
+                  .fontColor(message.role === 'user' ? this.c().text : this.c().textMuted)
+                  .padding({
+                    left: 11, right: 11, top: 8, bottom: 8,
+                  })
+                  .backgroundColor(message.role === 'user' ? this.c().accentSoft : this.c().card)
+                  .borderRadius(12)
+                  .border({ width: 1, color: message.role === 'user' ? this.c().accentBorder : this.c().border })
+                  .constraintSize({ maxWidth: '84%' })
+              }
+              .width('100%')
+              .justifyContent(message.role === 'user' ? FlexAlign.End : FlexAlign.Start)
             }, (message: AiChatMessage, index: number) => `${index}:${message.content.substring(0, 24)}`)
+
             if (this.ai.pending !== null) {
-              Column({ space: 4 }) {
-                Text(this.ai.pending.summary).fontSize(11.5).fontColor(this.c().text)
-                ForEach(this.ai.pending.changes.slice(0, 6), (change: string) => {
-                  Text(`· ${change}`).fontSize(10).fontColor(this.c().textMuted)
+              Column({ space: 5 }) {
+                Text(this.ai.pending.summary).fontSize(12).fontColor(this.c().text)
+                ForEach(this.ai.pending.changes.slice(0, 6), (change: string, index: number) => {
+                  Text(`· ${change}`).fontSize(10.5).fontColor(this.c().textMuted)
                 }, (change: string, index: number) => `${index}:${change}`)
-                Row({ space: 10 }) {
-                  Text('应用').fontSize(11.5).fontColor(this.c().accent)
+                Row({ space: 8 }) {
+                  Text('应用')
+                    .fontSize(11)
+                    .fontColor(this.c().accent)
+                    .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                    .backgroundColor(this.c().card)
+                    .borderRadius(9)
                     .onClick(() => { this.ai.confirmPending(false); this.aiRev = this.ai.bump(); })
-                  Text('应用并提交').fontSize(11.5).fontColor(this.c().accent)
+                  Text('应用并提交')
+                    .fontSize(11)
+                    .fontColor('#FFFFFF')
+                    .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                    .borderRadius(9)
+                    .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
                     .onClick(() => { this.ai.confirmPending(true); this.aiRev = this.ai.bump(); })
-                  Text('取消').fontSize(11.5).fontColor(this.c().textDim)
+                  Text('取消')
+                    .fontSize(11)
+                    .fontColor(this.c().textDim)
+                    .padding({ left: 8, right: 8, top: 6, bottom: 6 })
                     .onClick(() => { this.ai.cancelPending(); this.aiRev = this.ai.bump(); })
                 }
+                .width('100%')
+                .margin({ top: 3 })
               }
               .width('100%')
               .alignItems(HorizontalAlign.Start)
-              .padding(8)
-              .borderRadius(10)
+              .padding(11)
               .backgroundColor(this.c().accentSoft)
+              .borderRadius(12)
+              .border({ width: 1, color: this.c().accentBorder })
             }
+
             if (this.ai.error.length > 0) {
               Text(this.ai.error).fontSize(10.5).fontColor(this.c().err).width('100%')
             }
             if (this.ai.busy) {
-              Text('正在请求模型…').fontSize(10).fontColor(this.c().textDim)
+              Text('正在请求模型…').fontSize(10).fontColor(this.c().textDim).width('100%')
             }
           }
           .width('100%')
           .alignItems(HorizontalAlign.Start)
+          .padding({ left: 12, right: 12, top: 10, bottom: 10 })
         }
         .layoutWeight(1)
         .width('100%')
+        .scrollBar(BarState.Off)
 
+        // 输入区
         Row({ space: 8 }) {
           TextInput({ text: this.aiInput, placeholder: '让 AI 改参数、开关节点…' })
             .layoutWeight(1)
-            .height(38)
-            .fontSize(11.5)
+            .height(40)
+            .fontSize(12)
             .fontColor(this.c().text)
             .placeholderColor(this.c().textDim)
+            .backgroundColor(this.c().card)
+            .borderRadius(18)
+            .border({ width: 1, color: this.c().border })
             .onChange((value: string) => { this.aiInput = value; })
-          Text('发送')
-            .fontSize(12.5)
-            .fontColor(this.ai.busy ? this.c().textDim : this.c().accent)
+
+          Text('↑')
+            .fontSize(17)
+            .fontColor('#FFFFFF')
+            .width(38)
+            .height(38)
+            .textAlign(TextAlign.Center)
+            .borderRadius(19)
+            .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+            .opacity(this.ai.busy ? 0.5 : 1)
             .onClick(() => {
               if (this.ai.busy || this.aiInput.trim().length === 0) {
                 return;
@@ -6649,18 +6733,18 @@ struct Index {
             })
         }
         .width('100%')
+        .padding({ left: 12, right: 12, top: 8, bottom: 12 })
       }
       .width('92%')
-      .height('70%')
-      .padding(14)
-      .borderRadius(20)
+      .height('72%')
       .backgroundColor(this.c().dialog)
+      .borderRadius(22)
       .border({ width: 1, color: this.c().borderStrong })
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
     }
     .width('100%')
     .height('100%')
-    .justifyContent(FlexAlign.Center)
-    .backgroundColor('#66000000')
+    .alignContent(Alignment.Center)
   }
 
   @Builder

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -36,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -160,49 +162,121 @@ fun AiChatDialog(onDismiss: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxWidth(0.94f)
-                .heightIn(min = 480.dp, max = 640.dp)
-                .clip(RoundedCornerShape(22.dp))
+                .heightIn(min = 480.dp, max = 660.dp)
+                .clip(RoundedCornerShape(24.dp))
                 .background(c.dialog)
-                .border(1.dp, c.borderStrong, RoundedCornerShape(22.dp))
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .border(1.dp, c.borderStrong, RoundedCornerShape(24.dp)),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("AI 助手", color = c.text, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            // 头部：渐变标识 + 标题/模型 + token + 关闭
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 12.dp, top = 14.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(c.gradientBrush()),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("AI", color = Color.White, fontSize = 11.sp, fontFamily = SpectrumMono)
+                }
+                androidx.compose.foundation.layout.Spacer(Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("AI 助手", color = c.text, fontSize = 14.sp)
+                    Text(
+                        text = snapshot.config.model.ifBlank { "未配置模型" },
+                        color = c.textDim,
+                        fontSize = 9.5.sp,
+                        fontFamily = SpectrumMono,
+                        maxLines = 1,
+                    )
+                }
                 Text(
-                    text = "≈${snapshot.tokens} tokens",
+                    text = "≈${snapshot.tokens}",
                     color = c.textDim,
                     fontSize = 9.sp,
                     fontFamily = SpectrumMono,
-                )
-                Text(
-                    text = "✕",
-                    color = c.textDim,
-                    fontSize = 14.sp,
                     modifier = Modifier
-                        .clickableNoRipple(onDismiss)
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(c.card)
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
                 )
+                Box(
+                    modifier = Modifier
+                        .padding(start = 6.dp)
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .clickableNoRipple(onDismiss),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("✕", color = c.textDim, fontSize = 13.sp)
+                }
             }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(c.border),
+            )
 
             LazyColumn(
                 state = listState,
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp),
             ) {
+                if (snapshot.messages.isEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 26.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text("想改哪里？", color = c.textMuted, fontSize = 13.sp)
+                            Text(
+                                "试试「把步数改成 8」或「关闭 Save Video」",
+                                color = c.textDim,
+                                fontSize = 10.5.sp,
+                            )
+                        }
+                    }
+                }
                 items(snapshot.messages) { message ->
                     val mine = message.role == "user" && !message.content.startsWith("（工具结果）")
-                    Row(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+                    ) {
                         Text(
                             text = message.content.ifBlank { "…" },
                             color = if (mine) c.text else c.textMuted,
                             fontSize = 12.sp,
                             lineHeight = 17.sp,
                             modifier = Modifier
-                                .fillMaxWidth(0.85f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(if (mine) c.cardStrong else c.card)
-                                .padding(9.dp),
+                                .fillMaxWidth(0.84f)
+                                .clip(
+                                    RoundedCornerShape(
+                                        topStart = 14.dp,
+                                        topEnd = 14.dp,
+                                        bottomStart = if (mine) 14.dp else 4.dp,
+                                        bottomEnd = if (mine) 4.dp else 14.dp,
+                                    ),
+                                )
+                                .background(if (mine) c.accentSoft else c.card)
+                                .border(
+                                    1.dp,
+                                    if (mine) c.accentBorder else c.border,
+                                    RoundedCornerShape(14.dp),
+                                )
+                                .padding(horizontal = 11.dp, vertical = 8.dp),
                         )
                     }
                 }
@@ -212,146 +286,145 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp)
+                        .clip(RoundedCornerShape(14.dp))
                         .background(c.accentSoft)
-                        .padding(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                        .border(1.dp, c.accentBorder, RoundedCornerShape(14.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     Text(pending.summary, color = c.text, fontSize = 12.sp)
                     pending.changes.take(6).forEach {
                         Text("· ${it.label}", color = c.textMuted, fontSize = 10.5.sp)
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            text = "应用",
-                            color = c.accent,
-                            fontSize = 12.sp,
-                            modifier = Modifier
-                                .clickableNoRipple { AiRuntime.confirmPending(submit = false) }
-                                .padding(6.dp),
-                        )
-                        Text(
-                            text = "应用并提交",
-                            color = c.accent,
-                            fontSize = 12.sp,
-                            modifier = Modifier
-                                .clickableNoRipple { AiRuntime.confirmPending(submit = true) }
-                                .padding(6.dp),
-                        )
-                        Text(
-                            text = "取消",
-                            color = c.textDim,
-                            fontSize = 12.sp,
-                            modifier = Modifier
-                                .clickableNoRipple { AiRuntime.cancelPending() }
-                                .padding(6.dp),
-                        )
+                    Row(
+                        modifier = Modifier.padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        PendingAction("应用", c.accent, c.card) {
+                            AiRuntime.confirmPending(submit = false)
+                        }
+                        PendingAction("应用并提交", Color.White, c.accent) {
+                            AiRuntime.confirmPending(submit = true)
+                        }
+                        PendingAction("取消", c.textDim, Color.Transparent) {
+                            AiRuntime.cancelPending()
+                        }
                     }
                 }
             }
 
             snapshot.error?.let {
-                Text(it, color = c.err, fontSize = 11.sp, lineHeight = 15.sp)
+                Text(
+                    text = it,
+                    color = c.err,
+                    fontSize = 10.5.sp,
+                    lineHeight = 15.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                )
             }
             if (snapshot.busy) {
-                Text("正在请求模型…", color = c.textDim, fontSize = 10.5.sp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(10.dp),
+                        strokeWidth = 1.5.dp,
+                        color = c.accent,
+                    )
+                    androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
+                    Text("正在请求模型…", color = c.textDim, fontSize = 10.sp)
+                }
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("让 AI 改参数、开关节点…", fontSize = 11.sp) },
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
-                    singleLine = true,
-                )
-                Text(
-                    text = "发送",
-                    color = if (snapshot.busy) c.textDim else c.accent,
-                    fontSize = 13.sp,
+            // 输入区
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
                     modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(c.card)
+                        .border(1.dp, c.border, RoundedCornerShape(18.dp))
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                ) {
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = input,
+                        onValueChange = { input = it },
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            color = c.text,
+                            fontSize = 12.sp,
+                        ),
+                        cursorBrush = androidx.compose.ui.graphics.SolidColor(c.accent),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 9.dp),
+                        decorationBox = { inner ->
+                            if (input.isEmpty()) {
+                                Text(
+                                    "让 AI 改参数、开关节点…",
+                                    color = c.textDim,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                            inner()
+                        },
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .background(if (snapshot.busy) SolidColor(c.cardStrong) else c.gradientBrush())
                         .clickableNoRipple {
                             if (!snapshot.busy && input.isNotBlank()) {
                                 AiRuntime.send(input)
                                 input = ""
                             }
-                        }
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
-                )
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("↑", color = Color.White, fontSize = 17.sp)
+                }
             }
         }
     }
 }
 
-/** 设置页与对话里共用的配置编辑器。 */
 @Composable
-fun AiConfigEditor(
-    initial: AiConfig,
-    onSave: (AiConfig) -> Unit,
+private fun PendingAction(
+    label: String,
+    textColor: Color,
+    background: Color,
+    onClick: () -> Unit,
 ) {
     val c = Spectrum.colors
-    var baseUrl by remember { mutableStateOf(initial.baseUrl) }
-    var model by remember { mutableStateOf(initial.model) }
-    var apiKey by remember { mutableStateOf(initial.apiKey) }
-    var autoSubmit by remember { mutableStateOf(initial.autoSubmit) }
-
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(
-            value = baseUrl,
-            onValueChange = { baseUrl = it },
-            label = { Text("接口地址（OpenAI 兼容）", fontSize = 10.sp) },
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.5.sp),
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = model,
-            onValueChange = { model = it },
-            label = { Text("模型名", fontSize = 10.sp) },
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.5.sp),
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = apiKey,
-            onValueChange = { apiKey = it },
-            label = { Text("API Key（只存本机）", fontSize = 10.sp) },
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.5.sp),
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("AI 修改后自动提交", color = c.textMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
-            Switch(checked = autoSubmit, onCheckedChange = { autoSubmit = it })
-        }
-        Text(
-            text = "关掉时，AI 会先展示 diff，由你确认后再应用。",
-            color = c.textDim,
-            fontSize = 9.5.sp,
-        )
-        Text(
-            text = "保存",
-            color = c.accent,
-            fontSize = 12.5.sp,
-            modifier = Modifier
-                .clickableNoRipple {
-                    onSave(
-                        AiConfig(
-                            baseUrl = baseUrl.trim(),
-                            model = model.trim(),
-                            apiKey = apiKey.trim(),
-                            autoSubmit = autoSubmit,
-                        ),
-                    )
-                }
-                .padding(vertical = 6.dp),
-        )
-    }
+    Text(
+        text = label,
+        color = textColor,
+        fontSize = 11.sp,
+        modifier = Modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(background)
+            .border(
+                1.dp,
+                if (background == Color.Transparent) c.border else Color.Transparent,
+                RoundedCornerShape(10.dp),
+            )
+            .clickableNoRipple(onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    )
 }
-
 
 /** 设置页入口：只编辑配置，不打开对话。 */
 @Composable
@@ -379,6 +452,98 @@ fun AiSettingsDialog(onDismiss: () -> Unit) {
                     snapshot = AiRuntime.snapshot()
                     onDismiss()
                 },
+            )
+        }
+    }
+}
+
+/** 设置页里编辑 AI 配置：开关、接口、模型、Key、自动提交。 */
+@Composable
+fun AiConfigEditor(
+    initial: AiConfig,
+    onSave: (AiConfig) -> Unit,
+) {
+    val c = Spectrum.colors
+    var enabled by remember { mutableStateOf(initial.enabled) }
+    var baseUrl by remember { mutableStateOf(initial.baseUrl) }
+    var model by remember { mutableStateOf(initial.model) }
+    var apiKey by remember { mutableStateOf(initial.apiKey) }
+    var autoSubmit by remember { mutableStateOf(initial.autoSubmit) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("启用 AI 助手", color = c.text, fontSize = 13.sp)
+                Text("关闭后悬浮球隐藏，不发起请求", color = c.textDim, fontSize = 10.sp)
+            }
+            Switch(checked = enabled, onCheckedChange = { enabled = it })
+        }
+        AiField("接口地址（OpenAI 兼容）", baseUrl, false) { baseUrl = it }
+        AiField("模型名", model, false) { model = it }
+        AiField("API Key（只存本机）", apiKey, true) { apiKey = it }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("AI 修改后自动提交", color = c.textMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+            Switch(checked = autoSubmit, onCheckedChange = { autoSubmit = it })
+        }
+        Text(
+            text = "关闭时先展示 diff，确认后再应用。",
+            color = c.textDim,
+            fontSize = 9.5.sp,
+        )
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(c.gradientBrush())
+                .clickableNoRipple {
+                    onSave(
+                        AiConfig(
+                            baseUrl = baseUrl.trim(),
+                            model = model.trim(),
+                            apiKey = apiKey.trim(),
+                            enabled = enabled,
+                            autoSubmit = autoSubmit,
+                        ),
+                    )
+                }
+                .padding(horizontal = 16.dp, vertical = 9.dp),
+        ) {
+            Text("保存", color = Color.White, fontSize = 12.5.sp)
+        }
+    }
+}
+
+@Composable
+private fun AiField(
+    label: String,
+    value: String,
+    secret: Boolean,
+    onChange: (String) -> Unit,
+) {
+    val c = Spectrum.colors
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, color = c.textDim, fontSize = 9.5.sp)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(c.card)
+                .border(1.dp, c.border, RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 2.dp),
+        ) {
+            androidx.compose.foundation.text.BasicTextField(
+                value = value,
+                onValueChange = onChange,
+                singleLine = true,
+                visualTransformation = if (secret) {
+                    PasswordVisualTransformation()
+                } else {
+                    androidx.compose.ui.text.input.VisualTransformation.None
+                },
+                textStyle = androidx.compose.ui.text.TextStyle(color = c.text, fontSize = 12.sp),
+                cursorBrush = SolidColor(c.accent),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 9.dp),
             )
         }
     }
