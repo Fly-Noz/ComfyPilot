@@ -620,6 +620,8 @@ private fun DetailBody(
                                 value = field.value,
                                 editable = field.widget && !field.linked,
                                 options = field.options,
+                                fromNode = field.fromNodeId,
+                                fromSlot = field.fromSlot,
                             )
                         },
                     )

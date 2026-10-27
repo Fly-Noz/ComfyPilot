@@ -20,6 +20,9 @@ data class WorkflowField(
     val widget: Boolean,
     val required: Boolean,
     val common: Boolean,
+    /** 该输入由哪个节点驱动（穿透旁路后）；可编辑控件为 null。 */
+    val fromNodeId: Int? = null,
+    val fromSlot: Int? = null,
 ) {
     /** 没有可用值、需要用户填/连线的字段；用于把这类节点排在输入区最前面。 */
     val needsInput: Boolean
@@ -231,11 +234,16 @@ object WorkflowFields {
         val byName = definition.inputs.associateBy { it.name }
 
         val linkedNames = mutableSetOf<String>()
+        val origins = mutableMapOf<String, ResolvedLink>()
         node.inputs.forEachIndexed { index, input ->
             if (input.linkId == null) return@forEachIndexed
             val base = byName[input.name] ?: byName[input.name.substringBeforeLast('.', "")]
             if (base == null) return@forEachIndexed
-            if (resolver.resolve(node, index) != null) linkedNames += base.name
+            val resolved = resolver.resolve(node, index)
+            if (resolved != null) {
+                linkedNames += base.name
+                origins[base.name] = resolved
+            }
         }
 
         val labels = node.inputs.associate { it.name to it.localizedName }
@@ -258,6 +266,8 @@ object WorkflowFields {
                 widget = declared.isWidget,
                 required = declared.required,
                 common = isCommon(node.type, declared),
+                fromNodeId = origins[declared.name]?.nodeId,
+                fromSlot = origins[declared.name]?.slot,
             )
 
             if (declared.autogrow) {

@@ -6595,7 +6595,8 @@ struct Index {
     }
     const fields: string[] = [];
     node.fields.forEach((field: WorkflowFieldView) => {
-      fields.push(`{"name":${JSON.stringify(field.inputName)},"type":${JSON.stringify(field.type)},"value":${JSON.stringify(field.value)},"editable":${field.widget && !field.linked}}`);
+      const origin = field.fromNodeId !== undefined ? `,"fromNode":${field.fromNodeId},"fromSlot":${field.fromSlot ?? 0}` : '';
+      fields.push(`{"name":${JSON.stringify(field.inputName)},"type":${JSON.stringify(field.type)},"value":${JSON.stringify(field.value)},"editable":${field.widget && !field.linked}${origin}}`);
     });
     return `{"id":${node.id},"class":${JSON.stringify(node.type)},"title":${JSON.stringify(node.title ?? node.displayName)},"fields":[${fields.join(',')}]}`;
   }
