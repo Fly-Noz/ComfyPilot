@@ -7208,7 +7208,7 @@ struct Index {
         .fontSize(17)
         .fontWeight(FontWeight.Bold)
         .fontColor(this.c().text)
-      Text('本项目以 GNU General Public License v3.0 发布；你可以自由使用、修改与分发，衍生作品需同样以 GPL-3.0 开源；完整协议见仓库根目录 LICENSE。')
+      Text('本项目以 GNU General Public License v3.0 发布；你可以自由使用、修改与分发，衍生作品需同样以 GPL-3.0 开源；完整协议见仓库根目录 LICENSE；Compose、OkHttp 等第三方组件的许可见 THIRD_PARTY_NOTICES.md。')
         .fontSize(12)
         .lineHeight(19)
         .fontColor(this.c().textMuted)

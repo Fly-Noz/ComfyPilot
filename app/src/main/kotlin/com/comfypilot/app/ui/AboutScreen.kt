@@ -66,7 +66,7 @@ private const val ABOUT_DESCRIPTION =
 private const val LICENSE_BODY =
     "本项目以 GNU General Public License v3.0 发布；" +
         "你可以自由使用、修改与分发，但衍生作品需同样以 GPL-3.0 开源；" +
-        "完整协议文本见仓库根目录的 LICENSE 文件。"
+        "完整协议文本见仓库根目录的 LICENSE 文件；Compose、OkHttp 等第三方组件的许可见 THIRD_PARTY_NOTICES.md。"
 
 private const val AI_FOOTNOTE =
     "本项目的部分界面、文案与图标由 AI 辅助生成。"

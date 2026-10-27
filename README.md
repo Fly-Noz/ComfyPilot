@@ -24,6 +24,8 @@
 > **非官方项目**：与 ComfyUI 官方无关，也与 GitHub 上同名的 ComfyPilot（MCP server）项目无关。
 > 本项目只是通过公开的 HTTP / WebSocket 协议连接用户自建的 ComfyUI，不包含 ComfyUI 代码，也不提供任何在线生成服务。
 
+> 演示截图中的图片均由 AI 生成，非真实人物。
+
 ## 功能
 
 ### 工作流与参数
@@ -194,6 +196,6 @@ App 里填 `http://<主机IP>:8188`，主机 IP 用启动脚本打印的那个�
 
 ## 许可证与声明
 
-- 代码以 **GPL-3.0** 发布，见 [LICENSE](LICENSE)；
+- 代码以 **GPL-3.0** 发布，见 [LICENSE](LICENSE)；第三方组件许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)；
 - 本项目是第三方客户端，与 ComfyUI 官方无关；ComfyUI 及其相关名称归其作者所有；
 - 使用本工具提交的工作流、模型与生成内容，由使用者自行负责合规性。
