@@ -6731,6 +6731,13 @@ struct Index {
             .backgroundColor(this.c().card)
             .borderRadius(8)
 
+          if (this.ai.busy) {
+            Text('停止')
+              .fontSize(10)
+              .fontColor(this.c().err)
+              .padding(6)
+              .onClick(() => { this.ai.stop(); this.aiRev = this.ai.bump(); })
+          }
           Text('✕')
             .fontSize(13)
             .fontColor(this.c().textDim)

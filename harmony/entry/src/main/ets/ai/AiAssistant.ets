@@ -87,6 +87,8 @@ export class AiAssistant {
   host: AiHost | null = null;
 
   private store: preferences.Preferences | null = null;
+  private client: http.HttpRequest | null = null;
+  private cancelled: boolean = false;
   private secrets: AiSecretStore = new AiSecretStore();
   private version: number = 0;
 
@@ -158,6 +160,7 @@ export class AiAssistant {
       return;
     }
     this.busy = true;
+    this.cancelled = false;
     this.error = '';
     this.pending = null;
     this.messages = [...this.messages, { role: 'user', content: prompt }];
@@ -192,6 +195,18 @@ export class AiAssistant {
     this.bump();
   }
 
+  stop(): void {
+    this.cancelled = true;
+    const client = this.client;
+    if (client !== null) {
+      client.destroy();
+      this.client = null;
+    }
+    this.busy = false;
+    this.error = '已停止';
+    this.bump();
+  }
+
   cancelPending(): void {
     this.pending = null;
     this.bump();
@@ -218,6 +233,9 @@ export class AiAssistant {
 
   private async loop(host: AiHost): Promise<void> {
     for (let round = 0; round < 5; round++) {
+      if (this.cancelled) {
+        return;
+      }
       const digest = host.digestJson();
       this.tokens = Math.floor(digest.length / 4);
       const paths = host.availableWorkflows();
@@ -254,6 +272,9 @@ export class AiAssistant {
   }
 
   private executeTool(name: string, args: string, host: AiHost): string {
+    if (this.host !== host) {
+      return '{"ok":false,"error":"工作流已关闭，请重新打开后再试"}';
+    }
     if (name === 'propose_edits') {
       const probe = JSON.parse(args) as Record<string, Object>;
       const summary = (probe.summary as string) ?? '';
@@ -311,6 +332,7 @@ export class AiAssistant {
   private async request(body: string): Promise<AiResponseMessage> {
     const base = this.config.baseUrl.trim().replace(/\/+$/, '');
     const client = http.createHttp();
+    this.client = client;
     try {
       const response = await client.request(`${base}/chat/completions`, {
         method: http.RequestMethod.POST,
@@ -334,6 +356,9 @@ export class AiAssistant {
       return choice.message;
     } finally {
       client.destroy();
+      if (this.client === client) {
+        this.client = null;
+      }
     }
   }
 }

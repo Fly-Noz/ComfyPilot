@@ -14,6 +14,7 @@ import com.comfypilot.core.ai.AiEdits
 import com.comfypilot.core.ai.AiWorkflowView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -257,7 +258,7 @@ object AiRuntime {
         pending = null
         error = null
         busy = true
-        scope.launch {
+        job = scope.launch {
             try {
                 runLoop(currentHost)
             } catch (err: Throwable) {
@@ -297,7 +298,7 @@ object AiRuntime {
         messages = messages + AiChatMessage("user", answer)
         val currentHost = host ?: return
         busy = true
-        scope.launch {
+        job = scope.launch {
             try {
                 runLoop(currentHost)
             } catch (err: Throwable) {
@@ -306,6 +307,14 @@ object AiRuntime {
                 busy = false
             }
         }
+    }
+
+    /** 停止进行中的请求与工具循环。 */
+    fun stop() {
+        job?.cancel()
+        job = null
+        busy = false
+        error = "已停止"
     }
 
     private suspend fun runLoop(currentHost: AiWorkflowHost) {
@@ -353,8 +362,9 @@ object AiRuntime {
         }
     }
 
-    private fun executeTool(name: String, argsJson: String, currentHost: AiWorkflowHost): String =
-        when (name) {
+    private fun executeTool(name: String, argsJson: String, currentHost: AiWorkflowHost): String {
+        if (host !== currentHost) return """{"ok":false,"error":"工作流已关闭，请重新打开后再试"}"""
+        return when (name) {
             "propose_edits" -> {
                 val proposal = AiEdits.parse(argsJson)
                 if (proposal == null) {
@@ -461,7 +471,9 @@ object AiRuntime {
 
             else -> """{"ok":false,"error":"未知工具 $name"}"""
         }
+    }
 
+    private var job: Job? = null
     private var currentHostPaths: List<String> = emptyList()
     private var currentHostPath: String = ""
 

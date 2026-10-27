@@ -117,6 +117,15 @@ fun AiFloatingOverlay(visible: Boolean) {
                 fontSize = 12.sp,
                 fontFamily = SpectrumMono,
             )
+            if (!open && (AiRuntime.pending != null || AiRuntime.question != null)) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(9.dp)
+                        .clip(CircleShape)
+                        .background(c.err),
+                )
+            }
         }
     }
 
@@ -205,6 +214,16 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                         .background(c.card)
                         .padding(horizontal = 7.dp, vertical = 3.dp),
                 )
+                if (snapshot.busy) {
+                    Text(
+                        "停止",
+                        color = c.err,
+                        fontSize = 10.sp,
+                        modifier = Modifier
+                            .clickableNoRipple { AiRuntime.stop() }
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .padding(start = 6.dp)
