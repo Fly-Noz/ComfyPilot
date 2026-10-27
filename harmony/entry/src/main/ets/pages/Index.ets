@@ -7952,14 +7952,14 @@ struct Index {
       if (this.allNodesOpen) {
         this.AllNodesSheet()
       }
-      if (this.promptConfirmOpen) {
-        this.PromptConfirm()
-      }
       if (this.aiPageOpen) {
         this.AiSettingsPage()
       }
       if (this.advancedOpen) {
         this.AdvancedPage()
+      }
+      if (this.promptConfirmOpen) {
+        this.PromptConfirm()
       }
       if (this.graphOpen) {
         WorkflowGraphOverlay({
