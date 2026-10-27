@@ -21,6 +21,17 @@
 
 ---
 
+<div align="center">
+
+<img src="docs/assets/demo.gif" width="260" alt="采样预览：循环动画，随采样逐步清晰">
+<img src="docs/assets/workflows.jpg" width="260" alt="工作流列表">
+
+<sub>左：采样动画预览 · 右：工作流列表</sub>
+
+</div>
+
+---
+
 ## 能做什么
 
 - **工作流**：读取服务器上的工作流列表，节点按图分组，参数、开关、节点图选择都能在手机上改
