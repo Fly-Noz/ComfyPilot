@@ -21,16 +21,11 @@
 
 ---
 
-<div align="center">
+## 界面
 
-<img src="docs/assets/demo.gif" width="260" alt="采样预览：循环动画，随采样逐步清晰">
-<img src="docs/assets/workflows.jpg" width="260" alt="工作流列表">
-
-<sub>左：采样动画预览 · 右：工作流列表</sub>
-
-</div>
-
----
+| 采样预览 | 工作流列表 |
+| :---: | :---: |
+| ![采样动画预览](docs/assets/demo.gif) | ![工作流列表](docs/assets/workflows.jpg) |
 
 ## 能做什么
 
@@ -114,6 +109,8 @@ Windows 便携版可以直接用仓库里的脚本（放到 ComfyUI 便携版根
 ### 3. 连接
 
 App 里填 `http://<主机IP>:8188`，主机 IP 用启动脚本打印的那个：
+
+![连接界面](docs/assets/connect.jpg)
 
 - 同一 WiFi/热点：用 `WLAN` / `以太网` 的地址；
 - 跨网络：主机和手机都加入同一个 Tailscale/ZeroTier 网络，填虚拟网卡地址（`100.x`）；
