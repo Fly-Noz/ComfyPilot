@@ -6480,7 +6480,6 @@ struct Index {
       }
       return { ok: false, errors: errors, changes: [], openWorkflow: '' };
     }
-    this.edits.clear();
     const edits = result.edits ?? [];
     edits.forEach((edit: AiBridgeEdit) => {
       this.edits.set(`${edit.node}\u0000${edit.input}`, edit.value);

@@ -639,7 +639,16 @@ private fun DetailBody(
                 AiEditState(overrides, sessionBypassed, sessionEnabled, enabledGraphOverride)
 
             override fun applyEdit(next: AiEditState): AiApplyResult {
-                overrides = next.overrides
+                // 只合并 AI 真正改动的键，保留用户在等待期间的手动修改。
+                val merged = overrides.toMutableMap()
+                next.overrides.forEach { (nodeId, fields) ->
+                    val currentFields = merged[nodeId].orEmpty().toMutableMap()
+                    fields.forEach { (name, value) ->
+                        if (currentFields[name] != value) currentFields[name] = value
+                    }
+                    if (currentFields.isNotEmpty()) merged[nodeId] = currentFields
+                }
+                overrides = merged
                 next.graphs?.let { enabledGraphOverride = it }
                 val toDisable = next.bypassed - sessionBypassed
                 val toEnable = sessionBypassed - next.bypassed
