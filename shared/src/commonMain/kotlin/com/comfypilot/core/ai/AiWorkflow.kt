@@ -29,6 +29,8 @@ data class AiNode(
     val enabled: Boolean,
     val reachable: Boolean,
     val fields: List<AiField>,
+    /** 节点所属的输出图；多图工作流用来判断启用哪个图。 */
+    val graphId: String? = null,
 )
 
 data class AiGraph(
@@ -121,6 +123,7 @@ object AiDigest {
                         put("id", graph.id)
                         put("title", graph.title)
                         put("selected", state.graphs?.contains(graph.id) ?: graph.selected)
+                        put("nodeCount", view.nodes.count { it.graphId == graph.id })
                     },
                 )
             }
@@ -141,6 +144,7 @@ object AiDigest {
                         put("title", node.title)
                         put("enabled", state.isEnabled(node))
                         put("reachable", node.reachable)
+                        node.graphId?.let { put("graph", it) }
                     },
                 )
             }
@@ -195,6 +199,7 @@ object AiQuery {
                             put("title", node.title)
                             put("enabled", state.isEnabled(node))
                             put("reachable", node.reachable)
+                            node.graphId?.let { put("graph", it) }
                             put("editableFields", node.fields.count { it.editable })
                         },
                     )

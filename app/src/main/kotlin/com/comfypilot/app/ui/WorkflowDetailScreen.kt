@@ -610,6 +610,8 @@ private fun DetailBody(
                         title = node.title ?: node.displayName,
                         enabled = node.enabled,
                         reachable = node.reachable,
+                        graphId = analysis.graphs
+                            .firstOrNull { it.nodeIds.contains(node.id) }?.id,
                         fields = node.fields.map { field ->
                             AiField(
                                 nodeId = field.nodeId,

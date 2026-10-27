@@ -6531,7 +6531,13 @@ struct Index {
       if (node.reachable) {
         reachable++;
       }
-      nodes.push(`{"id":${node.id},"class":${JSON.stringify(node.type)},"title":${JSON.stringify(node.title ?? node.displayName)},"enabled":${node.enabled},"reachable":${node.reachable}}`);
+      let graphId = '';
+      this.view.graphs.forEach((graph: WorkflowGraphView) => {
+        if (graph.nodeIds.includes(node.id)) {
+          graphId = graph.id;
+        }
+      });
+      nodes.push(`{"id":${node.id},"class":${JSON.stringify(node.type)},"title":${JSON.stringify(node.title ?? node.displayName)},"enabled":${node.enabled},"reachable":${node.reachable},"graph":${JSON.stringify(graphId)}}`);
     });
     return `{"path":${JSON.stringify(this.selectedPath)},"graphs":${this.aiGraphsJson()},"counts":{"nodes":${this.view.nodes.length},"reachable":${reachable}},"nodeIndex":[${nodes.join(',')}]}`;
   }
@@ -6539,7 +6545,7 @@ struct Index {
   private aiGraphsJson(): string {
     const items: string[] = [];
     this.view.graphs.forEach((graph: WorkflowGraphView) => {
-      items.push(`{"id":${JSON.stringify(graph.id)},"title":${JSON.stringify(graph.title)},"selected":${this.graphIds.includes(graph.id)}}`);
+      items.push(`{"id":${JSON.stringify(graph.id)},"title":${JSON.stringify(graph.title)},"selected":${this.graphIds.includes(graph.id)},"nodeCount":${graph.nodeIds.length}}`);
     });
     return `{"graphs":[${items.join(',')}]}`;
   }
@@ -6565,7 +6571,13 @@ struct Index {
         `${node.id}` !== needle) {
         return;
       }
-      items.push(`{"id":${node.id},"class":${JSON.stringify(node.type)},"title":${JSON.stringify(title)},"enabled":${node.enabled},"reachable":${node.reachable}}`);
+      let graphId = '';
+      this.view.graphs.forEach((graph: WorkflowGraphView) => {
+        if (graph.nodeIds.includes(node.id)) {
+          graphId = graph.id;
+        }
+      });
+      items.push(`{"id":${node.id},"class":${JSON.stringify(node.type)},"title":${JSON.stringify(title)},"enabled":${node.enabled},"reachable":${node.reachable},"graph":${JSON.stringify(graphId)}}`);
     });
     return `{"nodes":[${items.join(',')}]}`;
   }
