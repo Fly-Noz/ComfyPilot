@@ -383,6 +383,9 @@ struct Index {
   private draftStore: WorkflowDraftStore = new WorkflowDraftStore();
   private ai: AiAssistant = new AiAssistant();
   @State aiRev: number = 0;
+  @State aiEnabled: boolean = false;
+  @State aiPageOpen: boolean = false;
+  @State advancedOpen: boolean = false;
   @State aiOpen: boolean = false;
   @State aiSettingsOpen: boolean = false;
   @State aiInput: string = '';
@@ -739,6 +742,7 @@ struct Index {
     const dismissedReady: boolean = await this.dismissedStore.open(context);
     const draftReady: boolean = await this.draftStore.open(context);
     await this.ai.open(context);
+    this.aiEnabled = this.ai.config.enabled;
     // 外观偏好用 preferences 落盘：PersistentStorage 在真机冷启动会丢。
     const savedAppearance: string | null = await this.appearanceStore.load(context);
     if (savedAppearance !== null) {
@@ -7399,6 +7403,141 @@ struct Index {
   }
 
   @Builder
+  AiSettingsPage() {
+    Column({ space: 14 }) {
+      Row({ space: 8 }) {
+        Text('AI 助手').fontSize(20).fontWeight(FontWeight.Bold).fontColor(this.c().text).layoutWeight(1)
+        this.GhostAction('返回', true, () => { this.aiPageOpen = false; })
+      }
+      .width('100%')
+
+      Row({ space: 8 }) {
+        Column({ space: 3 }) {
+          Text('启用 AI 助手').fontSize(14).fontColor(this.c().text)
+          Text('关闭后悬浮球隐藏，不发起请求').fontSize(10.5).fontColor(this.c().textDim)
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        Toggle({ type: ToggleType.Switch, isOn: this.aiEnabled })
+          .onChange((value: boolean) => {
+            const next: AiConfig = {
+              baseUrl: this.ai.config.baseUrl,
+              model: this.ai.config.model,
+              apiKey: this.ai.config.apiKey,
+              enabled: value,
+              autoSubmit: this.ai.config.autoSubmit,
+            };
+            this.ai.saveConfig(next);
+            this.aiEnabled = value;
+            this.aiRev = this.ai.bump();
+          })
+      }
+      .width('100%')
+      .padding(14)
+      .backgroundColor(this.c().card)
+      .borderRadius(16)
+      .border({ width: 1, color: this.c().border })
+
+      if (this.aiEnabled) {
+        Column({ space: 8 }) {
+          TextInput({ text: this.aiBaseUrl, placeholder: '接口地址（OpenAI 兼容）' })
+            .fontSize(11).height(36).fontColor(this.c().text).placeholderColor(this.c().textDim)
+            .onChange((value: string) => { this.aiBaseUrl = value; })
+          TextInput({ text: this.aiModel, placeholder: '模型名' })
+            .fontSize(11).height(36).fontColor(this.c().text).placeholderColor(this.c().textDim)
+            .onChange((value: string) => { this.aiModel = value; })
+          TextInput({ text: this.aiKey, placeholder: 'API Key（只存本机）' })
+            .type(InputType.Password).fontSize(11).height(36).fontColor(this.c().text).placeholderColor(this.c().textDim)
+            .onChange((value: string) => { this.aiKey = value; })
+          Row({ space: 8 }) {
+            Text('AI 修改后自动提交').fontSize(10.5).fontColor(this.c().textMuted).layoutWeight(1)
+            Toggle({ type: ToggleType.Switch, isOn: this.aiAutoSubmit })
+              .onChange((value: boolean) => { this.aiAutoSubmit = value; })
+          }
+          .width('100%')
+          Text('保存').fontSize(12).fontColor(this.c().accent)
+            .onClick(() => {
+              const next: AiConfig = {
+                baseUrl: this.aiBaseUrl.trim(),
+                model: this.aiModel.trim(),
+                apiKey: this.aiKey.trim(),
+                enabled: true,
+                autoSubmit: this.aiAutoSubmit,
+              };
+              this.ai.saveConfig(next);
+              this.aiEnabled = true;
+              this.aiRev = this.ai.bump();
+              promptAction.showToast({ message: '已保存', duration: 1600 });
+            })
+        }
+        .width('100%')
+        .padding(12)
+        .backgroundColor(this.c().card)
+        .borderRadius(16)
+        .border({ width: 1, color: this.c().border })
+      }
+
+      Text('API Key 只保存在本机安全存储；启用后，工作流结构与参数会发送给你配置的模型服务商。')
+        .fontSize(10.5).lineHeight(16).fontColor(this.c().textDim).width('100%')
+    }
+    .width('100%')
+    .height('100%')
+    .padding({ left: 18, right: 18, top: 14 + px2vp(this.statusBarPx) })
+    .backgroundColor(this.c().background)
+  }
+
+  @Builder
+  AdvancedPage() {
+    Column({ space: 14 }) {
+      Row({ space: 8 }) {
+        Text('高级').fontSize(20).fontWeight(FontWeight.Bold).fontColor(this.c().text).layoutWeight(1)
+        this.GhostAction('返回', true, () => { this.advancedOpen = false; })
+      }
+      .width('100%')
+
+      Text('诊断日志').fontSize(11).fontColor(this.c().textDim).width('100%')
+      Scroll() {
+        this.LogsTab()
+      }
+      .layoutWeight(1)
+      .width('100%')
+
+      Row({ space: 8 }) {
+        Column({ space: 3 }) {
+          Text('恢复所有参数设置为默认').fontSize(14).fontColor(this.c().text)
+          Text('清除本机保存的参数草稿，不影响主机').fontSize(10.5).fontColor(this.c().textDim)
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        Text('›').fontSize(16).fontColor(this.c().textDim)
+      }
+      .width('100%')
+      .padding(14)
+      .backgroundColor(this.c().card)
+      .borderRadius(16)
+      .border({ width: 1, color: this.c().border })
+      .onClick(() => {
+        this.openPromptConfirm(
+          '恢复所有参数？',
+          '会清除本机保存的所有工作流参数，下次打开工作流时按文件默认值显示。不会影响主机上的工作流文件。',
+          '恢复默认',
+          true,
+          () => {
+            this.draftStore.clearAll();
+            this.edits.clear();
+            this.editTick++;
+            promptAction.showToast({ message: '已恢复，重新打开工作流生效', duration: 1600 });
+          },
+        );
+      })
+    }
+    .width('100%')
+    .height('100%')
+    .padding({ left: 18, right: 18, top: 14 + px2vp(this.statusBarPx) })
+    .backgroundColor(this.c().background)
+  }
+
+  @Builder
   SettingsPanel() {
     Row({ space: 8 }) {
       Text('设置')
@@ -7465,27 +7604,14 @@ struct Index {
     .border({ width: 1, color: this.c().border })
     .width('100%')
 
-    Text('AI 助手').fontSize(11).fontColor(this.c().textDim).width('100%').textAlign(TextAlign.Start)
-
     Row({ space: 8 }) {
       Column({ space: 3 }) {
-        Text('启用 AI 助手').fontSize(14).fontColor(this.c().text)
-        Text('关闭后悬浮球隐藏，不发起请求').fontSize(10.5).fontColor(this.c().textDim)
+        Text('AI 助手').fontSize(14).fontColor(this.c().text)
+        Text(this.aiEnabled ? '已启用' : '未启用 · 接口、模型与 Key').fontSize(10.5).fontColor(this.c().textDim)
       }
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
-      Toggle({ type: ToggleType.Switch, isOn: this.ai.config.enabled })
-        .onChange((value: boolean) => {
-          const next: AiConfig = {
-            baseUrl: this.ai.config.baseUrl,
-            model: this.ai.config.model,
-            apiKey: this.ai.config.apiKey,
-            enabled: value,
-            autoSubmit: this.ai.config.autoSubmit,
-          };
-          this.ai.saveConfig(next);
-          this.aiRev = this.ai.bump();
-        })
+      Text('›').fontSize(16).fontColor(this.c().textDim)
     }
     .width('100%')
     .padding({ left: 14, right: 14, top: 12, bottom: 12 })
@@ -7493,70 +7619,16 @@ struct Index {
     .backgroundColor(this.c().card)
     .borderRadius(16)
     .border({ width: 1, color: this.c().border })
+    .onClick(() => { this.aiPageOpen = true; })
 
-    if (this.ai.config.enabled) {
-      Column({ space: 8 }) {
-        TextInput({ text: this.aiBaseUrl, placeholder: '接口地址（OpenAI 兼容）' })
-          .fontSize(11)
-          .height(36)
-          .fontColor(this.c().text)
-          .placeholderColor(this.c().textDim)
-          .onChange((value: string) => { this.aiBaseUrl = value; })
-        TextInput({ text: this.aiModel, placeholder: '模型名' })
-          .fontSize(11)
-          .height(36)
-          .fontColor(this.c().text)
-          .placeholderColor(this.c().textDim)
-          .onChange((value: string) => { this.aiModel = value; })
-        TextInput({ text: this.aiKey, placeholder: 'API Key（只存本机）' })
-          .type(InputType.Password)
-          .fontSize(11)
-          .height(36)
-          .fontColor(this.c().text)
-          .placeholderColor(this.c().textDim)
-          .onChange((value: string) => { this.aiKey = value; })
-        Row({ space: 8 }) {
-          Text('AI 修改后自动提交').fontSize(10.5).fontColor(this.c().textMuted).layoutWeight(1)
-          Toggle({ type: ToggleType.Switch, isOn: this.aiAutoSubmit })
-            .onChange((value: boolean) => { this.aiAutoSubmit = value; })
-        }
-        .width('100%')
-        Text('保存 AI 设置').fontSize(12).fontColor(this.c().accent)
-          .onClick(() => {
-            const next: AiConfig = {
-              baseUrl: this.aiBaseUrl.trim(),
-              model: this.aiModel.trim(),
-              apiKey: this.aiKey.trim(),
-              enabled: true,
-              autoSubmit: this.aiAutoSubmit,
-            };
-            this.ai.saveConfig(next);
-            this.aiRev = this.ai.bump();
-            promptAction.showToast({ message: '已保存', duration: 1600 });
-          })
-      }
-      .width('100%')
-      .padding(12)
-      .backgroundColor(this.c().card)
-      .borderRadius(16)
-      .border({ width: 1, color: this.c().border })
-    }
-
-    Text('工作流参数').fontSize(11).fontColor(this.c().textDim).width('100%').textAlign(TextAlign.Start)
     Row({ space: 8 }) {
       Column({ space: 3 }) {
-        Text('恢复所有参数设置为默认')
-          .fontSize(14)
-          .fontColor(this.c().text)
-        Text('清除本机保存的参数草稿，不影响主机')
-          .fontSize(10.5)
-          .fontColor(this.c().textDim)
+        Text('高级').fontSize(14).fontColor(this.c().text)
+        Text('诊断日志、参数重置').fontSize(10.5).fontColor(this.c().textDim)
       }
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
-      Text('›')
-        .fontSize(16)
-        .fontColor(this.c().textDim)
+      Text('›').fontSize(16).fontColor(this.c().textDim)
     }
     .width('100%')
     .padding({ left: 14, right: 14, top: 12, bottom: 12 })
@@ -7564,23 +7636,7 @@ struct Index {
     .backgroundColor(this.c().card)
     .borderRadius(16)
     .border({ width: 1, color: this.c().border })
-    .onClick(() => {
-      this.openPromptConfirm(
-        '恢复所有参数？',
-        '会清除本机保存的所有工作流参数，下次打开工作流时按文件默认值显示。不会影响主机上的工作流文件。',
-        '恢复默认',
-        true,
-        () => {
-          this.draftStore.clearAll();
-          this.edits.clear();
-          this.editTick++;
-          promptAction.showToast({ message: '已恢复，重新打开工作流生效', duration: 1600 });
-        },
-      );
-    })
-
-    Text('诊断日志').fontSize(11).fontColor(this.c().textDim).width('100%').textAlign(TextAlign.Start)
-    this.LogsTab()
+    .onClick(() => { this.advancedOpen = true; })
 
     // 设置页底部的「关于」入口；点进去后 aboutOpen 打开关于页，返回仍回到设置。 
     Row({ space: 8 }) {
@@ -7850,6 +7906,12 @@ struct Index {
       if (this.promptConfirmOpen) {
         this.PromptConfirm()
       }
+      if (this.aiPageOpen) {
+        this.AiSettingsPage()
+      }
+      if (this.advancedOpen) {
+        this.AdvancedPage()
+      }
       if (this.graphOpen) {
         WorkflowGraphOverlay({
           graph: this.view.graph,
@@ -7897,7 +7959,7 @@ struct Index {
           },
         })
       }
-      if (this.running && this.ai.config.enabled) {
+      if (this.running && this.aiEnabled) {
         this.AiBall()
       }
       if (this.aiOpen) {
