@@ -79,6 +79,7 @@ const SYSTEM_PROMPT: string = [
 export class AiAssistant {
   config: AiConfig = { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', apiKey: '', enabled: false, autoSubmit: false };
   messages: AiChatMessage[] = [];
+  actions: string[] = [];
   pending: AiPending | null = null;
   question: AiQuestion | null = null;
   busy: boolean = false;
@@ -188,6 +189,7 @@ export class AiAssistant {
       this.bump();
       return;
     }
+    this.actions = [...this.actions, ...outcome.changes].slice(-50);
     this.messages = [...this.messages, { role: 'assistant', content: `已应用：${pending.summary}` }];
     if (submit && !host.submit()) {
       this.error = '提交失败：工作流还有未填字段';
@@ -283,6 +285,7 @@ export class AiAssistant {
         if (!outcome.ok) {
           return `{"ok":false,"errors":${JSON.stringify(outcome.errors.join('；'))}}`;
         }
+        this.actions = [...this.actions, ...outcome.changes, '提交任务'].slice(-50);
         host.submit();
         this.messages = [...this.messages, { role: 'assistant', content: `已自动应用并提交：${summary}` }];
         return '{"ok":true,"applied":true,"submitted":true}';
@@ -314,11 +317,13 @@ export class AiAssistant {
       return '{"ok":true,"waiting":true}';
     }
     if (name === 'submit') {
+      this.actions = [...this.actions, '提交任务'].slice(-50);
       return `{"ok":${host.submit()}}`;
     }
     if (name === 'open_workflow') {
       const probe = JSON.parse(args) as Record<string, Object>;
       const path = (probe.path as string) ?? '';
+      this.actions = [...this.actions, `切换工作流：${path}`].slice(-50);
       return `{"ok":${host.openWorkflow(path)}}`;
     }
     return `{"ok":false,"error":"未知工具 ${name}"}`;

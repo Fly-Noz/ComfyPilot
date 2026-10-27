@@ -6751,6 +6751,14 @@ struct Index {
 
         Scroll() {
           Column({ space: 8 }) {
+            ForEach(this.ai.actions.slice(-20), (action: string, index: number) => {
+              Text(`· ${action}`)
+                .fontSize(9.5)
+                .fontFamily('monospace')
+                .fontColor(this.c().textDim)
+                .width('100%')
+            }, (action: string, index: number) => `${index}:${action}`)
+
             if (this.ai.messages.length === 0) {
               Text('想改哪里？').fontSize(13).fontColor(this.c().textMuted).width('100%').textAlign(TextAlign.Center).margin({ top: 24 })
               Text('试试「把步数改成 8」或「关闭 Save Video」')

@@ -251,6 +251,15 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp),
             ) {
+                items(snapshot.actions.takeLast(20)) { action ->
+                    Text(
+                        "· $action",
+                        color = c.textDim,
+                        fontSize = 9.5.sp,
+                        fontFamily = SpectrumMono,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
                 if (snapshot.messages.isEmpty()) {
                     item {
                         Column(

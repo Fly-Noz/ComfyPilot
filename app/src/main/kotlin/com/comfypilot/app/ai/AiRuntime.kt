@@ -78,6 +78,7 @@ data class AiChatMessage(
 data class AiQuestion(val question: String, val options: List<String>)
 
 data class AiSnapshot(
+    val actions: List<String>,
     val messages: List<AiChatMessage>,
     val pending: AiPendingEdit?,
     val question: AiQuestion?,
@@ -178,6 +179,8 @@ object AiRuntime {
 
     var config: AiConfig by mutableStateOf(AiConfig())
         private set
+    var actions: List<String> = emptyList()
+        private set
     var messages: List<AiChatMessage> = emptyList()
         private set
     var pending: AiPendingEdit? = null
@@ -236,7 +239,7 @@ object AiRuntime {
     }
 
     fun snapshot(): AiSnapshot =
-        AiSnapshot(messages, pending, question, busy, error, tokenEstimate, config)
+        AiSnapshot(actions, messages, pending, question, busy, error, tokenEstimate, config)
 
     fun send(prompt: String) {
         val text = prompt.trim()
@@ -278,6 +281,7 @@ object AiRuntime {
             error = result.errors.joinToString("\n")
             return
         }
+        actions = actions + edit.changes.map { it.label }
         messages = messages + AiChatMessage("assistant", "已应用：${edit.summary}")
         if (submit) {
             if (!currentHost.submitCurrent()) {
@@ -386,6 +390,7 @@ object AiRuntime {
                             if (!applied.ok) {
                                 """{"ok":false,"errors":${quote(applied.errors.joinToString("；"))}}"""
                             } else {
+                                actions = actions + result.changes.map { it.label } + "提交任务"
                                 currentHost.submitCurrent()
                                 messages = messages + AiChatMessage(
                                     "assistant",
@@ -451,6 +456,7 @@ object AiRuntime {
             }
 
             "submit" -> {
+                actions = actions + "提交任务"
                 val ok = currentHost.submitCurrent()
                 """{"ok":$ok}"""
             }
@@ -464,6 +470,7 @@ object AiRuntime {
                 } else if (path !in allowedPaths(currentHost)) {
                     """{"ok":false,"error":"该工作流不在当前 AI 工作区内"}"""
                 } else {
+                    actions = actions + "切换工作流：$path"
                     val ok = currentHost.openWorkflow(path)
                     """{"ok":$ok}"""
                 }
