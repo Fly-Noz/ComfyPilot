@@ -11,8 +11,16 @@ ComfyUI_windows_portable\
 ├─ ComfyUI\
 ├─ python_embeded\
 ├─ run_local.bat     ← 放这里
-└─ run_remote.bat    ← 放这里
+├─ run_remote.bat    ← 放这里
+└─ list-ip.ps1       ← 放这里（run_remote 用它列网卡与 IP）
 ```
+
+## 编码
+
+两个 `.bat` 以 **GBK（cp936）+ CRLF** 保存，脚本里把代码页固定为 `936`；
+`list-ip.ps1` 只含 ASCII，避免 PowerShell 5.1 按 ANSI 读取时中文注释乱码。
+原因是 cmd.exe 会在启动代码页下逐行解析批处理文件，UTF-8 中文行会被截断，
+出现 `'…' 不是内部或外部命令`。编辑时请保持 GBK 与 CRLF，不要另存为 UTF-8。
 
 ## 用法
 

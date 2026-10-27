@@ -1,32 +1,32 @@
 @echo off
-chcp 65001 >nul
+chcp 936 >nul
 setlocal
 cd /d "%~dp0"
 
-rem æ”¾åœ¨ ComfyUI ä¾¿æºç‰ˆæ ¹ç›®å½•ï¼šä¸Ž ComfyUI\ã€python_embeded\ åŒçº§ã€‚
+rem ·ÅÔÚ ComfyUI ±ãÐ¯°æ¸ùÄ¿Â¼£ºÓë ComfyUI\¡¢python_embeded\ Í¬¼¶¡£
 set "PY=%~dp0python_embeded\python.exe"
 if not exist "%PY%" set "PY=%~dp0python\python.exe"
 
 if not exist "%PY%" (
-    echo [é”™è¯¯] æ‰¾ä¸åˆ° Pythonã€‚
-    echo         è¯·æŠŠæœ¬è„šæœ¬æ”¾åˆ° ComfyUI ä¾¿æºç‰ˆæ ¹ç›®å½•ï¼ˆä¸Ž ComfyUIã€python_embeded åŒçº§ï¼‰ã€‚
+    echo [´íÎó] ÕÒ²»µ½ Python¡£
+    echo         Çë°Ñ±¾½Å±¾·Åµ½ ComfyUI ±ãÐ¯°æ¸ùÄ¿Â¼£¨Óë ComfyUI¡¢python_embeded Í¬¼¶£©¡£
     pause
     exit /b 1
 )
 if not exist "%~dp0ComfyUI\main.py" (
-    echo [é”™è¯¯] æ‰¾ä¸åˆ° ComfyUI\main.pyã€‚
-    echo         æœ¬è„šæœ¬å¿…é¡»å’Œ ComfyUI æ–‡ä»¶å¤¹æ”¾åœ¨ä¸€èµ·ã€‚
+    echo [´íÎó] ÕÒ²»µ½ ComfyUI\main.py¡£
+    echo         ±¾½Å±¾±ØÐëºÍ ComfyUI ÎÄ¼þ¼Ð·ÅÔÚÒ»Æð¡£
     pause
     exit /b 1
 )
 
 echo ========================================
-echo  ComfyUI æœ¬åœ°æ¨¡å¼å¯åŠ¨ä¸­...
+echo  ComfyUI ±¾µØÄ£Ê½Æô¶¯ÖÐ...
 echo ========================================
 echo.
-echo  ä»…æœ¬æœºå¯è®¿é—®ï¼šhttp://127.0.0.1:8188
-echo  [!] æ‰‹æœºã€å¹³æ¿ã€å…¶å®ƒç”µè„‘éƒ½è¿žä¸ä¸Šè¿™ä¸ªåœ°å€ï¼›
-echo      è¦è¿œç¨‹è¿žæŽ¥è¯·æ”¹ç”¨ run_remote.batã€‚
+echo  ½ö±¾»ú¿É·ÃÎÊ£ºhttp://127.0.0.1:8188
+echo  [!] ÊÖ»ú¡¢Æ½°å¡¢ÆäËüµçÄÔ¶¼Á¬²»ÉÏÕâ¸öµØÖ·£»
+echo      ÒªÔ¶³ÌÁ¬½ÓÇë¸ÄÓÃ run_remote.bat¡£
 echo.
 
 "%PY%" -s "%~dp0ComfyUI\main.py" --windows-standalone-build

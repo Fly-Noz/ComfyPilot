@@ -1,36 +1,107 @@
 # ComfyPilot
 
-用 Kotlin Multiplatform 写核心、以原生 UI 分别实现 Android 与 HarmonyOS 的 ComfyUI 移动客户端。
+**ComfyUI 的移动客户端：Android + HarmonyOS NEXT，双端共享一套 Kotlin 核心。**
 
-连上 ComfyUI 之后可以浏览服务器上的工作流、调参数、按节点图启停、提交任务，并实时查看采样预览与产物（图片 / 视频 / 音频）。
+不用再守着电脑看采样。连上你自己的 ComfyUI 之后，手机上就能浏览工作流、改参数、提交任务、看采样预览和产物。
 
-## 功能
+> 当前版本 **0.2.0 Beta**。下载见 [Releases](https://github.com/Fly-Noz/ComfyPilot/releases)。
 
-- **连接管理**：地址历史（本机保存最近 8 条）、自动重连、断线提示
-- **工作流目录**：置顶、刷新、按目录浏览 `/user_data/workflows`
-- **详情页**
-  - 节点卡片按图分组，展开/收起，字段错峰入场
-  - 每个节点可单独启用/关闭（旁路），关闭关键节点前会做构建试算并弹确认框
-  - 字符串多行编辑、图片上传（`/upload/image`）、单节点备注
-  - 性能监控条：内存 / 显存 / CPU / GPU / 温度 / 队列 / 版本，可收起
-- **任务与产物**
-  - 实时进度、取消任务、队列计数
-  - 产物列表、下载保存、图片预览、视频首帧 + 内嵌播放
-- **主题**：深色 / 浅色 / 跟随系统，光谱渐变背景与毛玻璃控件
-- **双端一致**：Android 与 HarmonyOS 共用同一套共享逻辑与视觉规范
+---
 
-## 结构
+## 能做什么
+
+- **工作流**：读取服务器上的工作流列表，节点按图分组，参数、开关、节点图选择都能在手机上改
+- **参数草稿**：改过的参数按「主机 + 工作流」存在本机，退出重进自动恢复，不写回主机
+- **采样预览**：服务端装了 [VideoHelperSuite](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) 时，采样过程能看到循环动画，随采样推进逐轮变清晰
+- **任务**：实时进度、取消、排队计数；切后台/锁屏可收进度与完成通知
+- **产物**：图片/视频/GIF 预览，保存到相册或下载目录
+- **连接**：地址历史、自动重连、后台保活；断线重连后保留最后一帧
+- **监控**：内存/显存来自官方 `/system_stats`；CPU/GPU/温度需要 [ComfyUI-Crystools](https://github.com/crystian/ComfyUI-Crystools)
+- **外观**：深色/浅色/跟随系统，双端同一套视觉规范
+
+## 支持范围
+
+| 平台 | 要求 | 包名 |
+|---|---|---|
+| Android | 8.0+（minSdk 26），APK 直接安装 | `com.fly.comfypilot.app` |
+| HarmonyOS NEXT | 5.0.0(12)+，HAP 需签名后安装 | `com.fly.comfypilot` |
+
+两端功能对齐，但**包名不同**（鸿蒙上的安卓兼容层按包名识别，不能相同）。
+
+## 架构
 
 ```
-shared/     Kotlin Multiplatform 核心：会话状态机、API、工作流解析与提示词构建
+┌──────────────────────┐      ┌──────────────────────────┐
+│ Android (Compose)    │      │ HarmonyOS (ArkTS/ArkUI)  │
+│  app/                │      │  harmony/                │
+└──────────┬───────────┘      └────────────┬─────────────┘
+           │ Kotlin 直接调用                 │ C ABI（napi）
+           ▼                                 ▼
+┌──────────────────────────────────────────────────────────┐
+│ shared/  Kotlin Multiplatform 核心                        │
+│  会话状态机、WebSocket/HTTP、工作流解析、提示词构建、      │
+│  任务状态、预览帧解码、桥协议                              │
+└──────────────────────────────────────────────────────────┘
+                                             ▲
+                              ohos/  Kotlin/Native → libcomfypilot_core.so
+```
+
+Android 直接依赖 `shared`；鸿蒙通过 `ohos/` 把共享层编译成 `.so`，ArkTS 用 C ABI 调用，网络与文件系统仍由 ArkTS 宿主执行。
+
+## 仓库结构
+
+```
+shared/     KMP 核心：状态机、API、工作流/提示词、预览解码
 app/        Android 客户端（Jetpack Compose）
-ohos/       Kotlin/Native 共享层编译工程，产出 HarmonyOS 用的 .so
-harmony/    HarmonyOS 客户端（ArkTS + ArkUI），通过 C ABI 调共享层
-docs/       设计资产、阶段性文档
-tools/      本地开发工具（TCP 转发、mock ComfyUI）
+ohos/       Kotlin/Native 工程，产出鸿蒙用的 .so
+harmony/    HarmonyOS 客户端（ArkTS + ArkUI）
+tools/
+  comfyui/  ComfyUI 启动脚本（本地/远程）与 IP 获取
+  mock-comfyui/  离线假服务端，UI 调试用
+  comfy-proxy.mjs  本机端口转发（配合 adb reverse / hdc rport）
+docs/       设计资产、上架与隐私文档、阶段性记录
 ```
+
+## 快速开始
+
+### 1. 服务端
+
+ComfyUI 需要允许局域网访问：
+
+```bat
+python main.py --listen --preview-method auto
+```
+
+Windows 便携版可以直接用仓库里的脚本（放到 ComfyUI 便携版根目录，与 `ComfyUI\`、`python_embeded\` 同级）：
+
+- `tools/comfyui/run_remote.bat`：带 `--listen` 启动，并打印本机 IPv4 + 网卡名
+- `tools/comfyui/run_local.bat`：只监听 `127.0.0.1`
+- `tools/comfyui/list-ip.ps1`：给 `run_remote.bat` 列网卡用
+
+详见 [tools/comfyui/README.md](tools/comfyui/README.md)。
+
+> `--listen` 没有登录认证，只在可信网络使用；公网请走 VPN 或内网穿透，并在外层加访问控制。
+
+### 2. 客户端
+
+- **Android**：从 Releases 下载 `ComfyPilot-*.apk` 安装（项目密钥签名）
+- **HarmonyOS**：Releases 里的 HAP 是**未签名**的，需要自己用发布证书签名；调试可直接用 DevEco 构建并安装
+
+### 3. 连接
+
+App 里填 `http://<主机IP>:8188`，主机 IP 用启动脚本打印的那个：
+
+- 同一 WiFi/热点：用 `WLAN` / `以太网` 的地址；
+- 跨网络：主机和手机都加入同一个 Tailscale/ZeroTier 网络，填虚拟网卡地址（`100.x`）；
+- USB 调试：`node tools/comfy-proxy.mjs 18188 <主机> 8188` + `adb reverse tcp:18188 tcp:18188`，App 里填 `http://127.0.0.1:18188`。
 
 ## 构建
+
+### 环境
+
+- JDK 21
+- Android SDK（compileSdk 37）
+- DevEco Studio 5.0（HarmonyOS SDK 12）与 hvigor
 
 ### Android
 
@@ -39,38 +110,49 @@ tools/      本地开发工具（TCP 转发、mock ComfyUI）
 # 产物：app/build/outputs/apk/debug/app-debug.apk
 ```
 
+正式签名构建需要仓库根目录的 `keystore.properties`（参考 `keystore.properties.example`），文件不存在时 release 构建保持未签名。
+
 ### HarmonyOS
 
-需要 DevEco Studio 的 SDK 与 hvigor：
-
-```bash
-# 1) 编译共享层 .so 并复制到 harmony/entry/libs/arm64-v8a/
-./harmony/build.ps1
-
-# 2) 打包 HAP
-cd harmony
-hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-daemon
+```powershell
+# 编译共享层 .so、复制到头文件目录，再打包 HAP
+.\harmony\build.ps1
 ```
 
-首次在 DevEco Studio 打开 `harmony/` 时需配置签名（自动签名即可），构建脚本会把 `.so` 与头文件复制到对应目录。
+产物：`harmony/entry/build/default/outputs/default/entry-default-unsigned.hap`（配置签名后为 `-signed.hap`）。
 
-### 本地联调
+首次在 DevEco Studio 打开 `harmony/` 时需要配置签名（自动签名即可）；`harmony/build-profile.json5` 已被 gitignore，模板见 `harmony/build-profile.example.json5`。
+
+### 测试
 
 ```bash
-# 把本机端口转发到 ComfyUI，供设备通过 127.0.0.1 访问
-node tools/comfy-proxy.mjs 18188 <comfyui-host> 8188
-adb reverse tcp:18188 tcp:18188      # Android
-hdc rport tcp:18188 tcp:18188        # HarmonyOS
+./gradlew :shared:jvmTest
 ```
 
-`tools/mock-comfyui` 提供了一个可离线运行的假服务端，用于 UI 调试。
+## 数据与隐私
 
-## 关于性能监控
+- 不收集数据、不经过开发者服务器，直连你自己填写的 ComfyUI；
+- 本机只保存：服务器地址、clientId、参数草稿、任务记录、诊断日志；
+- 卸载即删除；参数草稿可在「设置 → 工作流参数」里恢复默认；
+- 隐私政策模板见 [docs/release/privacy-policy.zh-CN.md](docs/release/privacy-policy.zh-CN.md)。
 
-内存与显存来自 ComfyUI 官方 `/system_stats`。CPU / GPU / 温度需要安装
-[ComfyUI-Crystools](https://github.com/crystian/ComfyUI-Crystools)，它通过 WebSocket 推送
-`crystools.monitor` 帧；未安装时客户端不会显示这几项，也不会伪造数值。
+## 已知限制
 
-## 许可证
+- 只支持 HTTP 直连，跨公网请自备 VPN/内网穿透；
+- 采样动画依赖服务端安装 VideoHelperSuite，未安装时退化为单帧；
+- 服务端加载大模型/换出显存时会长时间没有进度事件（ComfyUI 事件循环被占住），App 超过 60 秒会提示「主机可能正在加载模型」；
+- HarmonyOS 发布包需要 AGC 签名，仓库里的 HAP 仅供调试/自签名；
+- 鸿蒙端保存到相册的图片会转成 8-bit RGB PNG（绕过系统相册对 RGBA PNG 的预览色块问题），动图会保存为静态图。
 
-GPL-3.0，见 [LICENSE](LICENSE)。
+## 文档
+
+- [华为 AppGallery 上架准备](docs/release/huawei-appgallery.md)
+- [隐私政策模板](docs/release/privacy-policy.zh-CN.md)
+- [ComfyUI 启动脚本说明](tools/comfyui/README.md)
+- [本地 mock 服务端](tools/mock-comfyui/README.md)
+
+## 许可证与声明
+
+- 代码以 **GPL-3.0** 发布，见 [LICENSE](LICENSE)；
+- 本项目是第三方客户端，与 ComfyUI 官方无关；ComfyUI 及其相关名称归其作者所有；
+- 使用本工具提交的工作流、模型与生成内容，由使用者自行负责合规性。
