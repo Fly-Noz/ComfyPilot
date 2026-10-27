@@ -1,6 +1,7 @@
 package com.comfypilot.app.ai
 
 import android.content.Context
+import android.util.Log
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -257,6 +258,7 @@ object AiRuntime {
             error = "先打开一个工作流，AI 需要工作流上下文"
             return
         }
+        aiLog("send: $text")
         messages = messages + AiChatMessage("user", text)
         pending = null
         error = null
@@ -315,6 +317,7 @@ object AiRuntime {
 
     /** 停止进行中的请求与工具循环。 */
     fun stop() {
+        aiLog("stop requested")
         job?.cancel()
         job = null
         busy = false
@@ -366,8 +369,16 @@ object AiRuntime {
         }
     }
 
+    private fun aiLog(message: String) {
+        Log.i("ComfyPilotAI", message.take(2000))
+    }
+
     private fun executeTool(name: String, argsJson: String, currentHost: AiWorkflowHost): String {
-        if (host !== currentHost) return """{"ok":false,"error":"工作流已关闭，请重新打开后再试"}"""
+        if (host !== currentHost) {
+            aiLog("tool $name rejected: host detached")
+            return """{"ok":false,"error":"工作流已关闭，请重新打开后再试"}"""
+        }
+        aiLog("tool $name args=${argsJson.take(300)}")
         return when (name) {
             "propose_edits" -> {
                 val proposal = AiEdits.parse(argsJson)

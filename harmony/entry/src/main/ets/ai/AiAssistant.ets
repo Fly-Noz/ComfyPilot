@@ -1,5 +1,6 @@
 import { preferences } from '@kit.ArkData';
 import { http } from '@kit.NetworkKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { common } from '@kit.AbilityKit';
 import { AiSecretStore } from './AiSecretStore';
 
@@ -160,6 +161,7 @@ export class AiAssistant {
       this.bump();
       return;
     }
+    this.log(`send: ${prompt}`);
     this.busy = true;
     this.cancelled = false;
     this.error = '';
@@ -198,6 +200,7 @@ export class AiAssistant {
   }
 
   stop(): void {
+    this.log('stop requested');
     this.cancelled = true;
     const client = this.client;
     if (client !== null) {
@@ -273,7 +276,12 @@ export class AiAssistant {
     this.error = '工具调用轮数过多，已停止';
   }
 
+  private log(message: string): void {
+    hilog.info(0x0000, 'ComfyPilotAI', message.substring(0, 2000));
+  }
+
   private executeTool(name: string, args: string, host: AiHost): string {
+    this.log(`tool ${name} args=${args.substring(0, 300)}`);
     if (this.host !== host) {
       return '{"ok":false,"error":"工作流已关闭，请重新打开后再试"}';
     }
