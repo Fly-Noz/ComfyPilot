@@ -185,6 +185,24 @@ object AiRuntime {
         private set
     var host: AiWorkflowHost? = null
 
+    /** 空 = 只能用当前工作流；非空 = 这些路径可被 AI 查看/切换。 */
+    var scopePaths: Set<String> = emptySet()
+        private set
+    var scopeAll: Boolean = true
+        private set
+
+    fun setScope(all: Boolean, paths: Set<String>) {
+        scopeAll = all
+        scopePaths = paths
+    }
+
+    private fun allowedPaths(currentHost: AiWorkflowHost): List<String> {
+        val current = currentHost.digest()?.path.orEmpty()
+        if (scopeAll) return currentHost.availableWorkflows()
+        if (scopePaths.isEmpty()) return listOf(current)
+        return scopePaths.toList()
+    }
+
     private var secretStore: AiSecretStore? = null
 
     fun attach(context: Context) {
@@ -282,7 +300,8 @@ object AiRuntime {
             val digest = com.comfypilot.core.ai.AiDigest.build(view, state)
             tokenEstimate = com.comfypilot.core.ai.AiDigest.estimateTokens(digest) +
                 messages.sumOf { com.comfypilot.core.ai.AiDigest.estimateTokens(it.content) }
-            currentHostPaths = currentHost.availableWorkflows()
+            currentHostPaths = allowedPaths(currentHost)
+            currentHostPath = view.path
             val message: JsonObject = callModel(digest, conversation)
             val toolCalls = message["tool_calls"]?.jsonArray
             if (toolCalls == null || toolCalls.isEmpty()) {
@@ -363,6 +382,8 @@ object AiRuntime {
                 }.getOrNull()
                 if (path.isNullOrBlank()) {
                     """{"ok":false,"error":"path 为空"}"""
+                } else if (path !in allowedPaths(currentHost)) {
+                    """{"ok":false,"error":"该工作流不在当前 AI 工作区内"}"""
                 } else {
                     val ok = currentHost.openWorkflow(path)
                     """{"ok":$ok}"""
@@ -373,6 +394,7 @@ object AiRuntime {
         }
 
     private var currentHostPaths: List<String> = emptyList()
+    private var currentHostPath: String = ""
 
     private fun callModel(digest: JsonObject, conversation: List<JsonObject>): JsonObject {
         val body = buildJsonObject {
@@ -383,6 +405,12 @@ object AiRuntime {
                     buildJsonObject {
                         put("role", "system")
                         put("content", SYSTEM_PROMPT)
+                    },
+                )
+                add(
+                    buildJsonObject {
+                        put("role", "system")
+                        put("content", "用户当前停留的工作流：${currentHostPath}")
                     },
                 )
                 add(

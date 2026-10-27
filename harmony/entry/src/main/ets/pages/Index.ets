@@ -185,6 +185,7 @@ class PageAiHost implements AiHost {
   submit: () => boolean = () => false;
   openWorkflow: (path: string) => boolean = () => false;
   availableWorkflows: () => string[] = () => [];
+  currentWorkflow: () => string = () => '';
 }
 
 interface AiBridgeEdit {
@@ -385,6 +386,9 @@ struct Index {
   @State aiRev: number = 0;
   @State aiEnabled: boolean = false;
   @State aiPageOpen: boolean = false;
+  @State aiScopeOpen: boolean = false;
+  @State aiScopeAll: boolean = true;
+  @State aiScope: string[] = [];
   @State advancedOpen: boolean = false;
   @State aiOpen: boolean = false;
   @State aiSettingsOpen: boolean = false;
@@ -6491,6 +6495,22 @@ struct Index {
     return true;
   }
 
+  private hostAvailable(path: string): boolean {
+    if (this.aiScopeAll) {
+      return true;
+    }
+    const picked = this.aiScope.length > 0 ? this.aiScope : [this.selectedPath];
+    return picked.includes(path);
+  }
+
+  private aiScopeLabel(): string {
+    if (this.aiScopeAll) {
+      return '全部工作流';
+    }
+    const count = this.aiScope.length > 0 ? this.aiScope.length : 1;
+    return `已选 ${count} 个`;
+  }
+
   private registerAiHost(): void {
     const host = new PageAiHost();
     host.buildViewJson = () => this.aiViewJson();
@@ -6502,11 +6522,16 @@ struct Index {
       return true;
     };
     host.availableWorkflows = () => {
-      const paths: string[] = [];
+      const all: string[] = [];
       const entries = this.catalog.entries ?? [];
-      entries.forEach((entry: CatalogEntry) => paths.push(entry.path));
-      return paths;
+      entries.forEach((entry: CatalogEntry) => all.push(entry.path));
+      if (this.aiScopeAll) {
+        return all;
+      }
+      const picked = this.aiScope.filter((path: string) => all.includes(path));
+      return picked.length > 0 ? picked : [this.selectedPath];
     };
+    host.currentWorkflow = () => this.selectedPath;
     this.ai.host = host;
   }
 
@@ -6701,6 +6726,20 @@ struct Index {
         .width('100%')
         .scrollBar(BarState.Off)
 
+        // 工具栏：工作区
+        Row({ space: 8 }) {
+          Text(`工作区 · ${this.aiScopeLabel()}`)
+            .fontSize(10.5)
+            .fontColor(this.c().textMuted)
+            .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+            .backgroundColor(this.c().card)
+            .borderRadius(10)
+            .border({ width: 1, color: this.c().border })
+            .onClick(() => { this.aiScopeOpen = true; })
+        }
+        .width('100%')
+        .padding({ left: 12, right: 12 })
+
         // 输入区
         Row({ space: 8 }) {
           TextInput({ text: this.aiInput, placeholder: '让 AI 改参数、开关节点…' })
@@ -6742,6 +6781,104 @@ struct Index {
       .borderRadius(22)
       .border({ width: 1, color: this.c().borderStrong })
       .shadow({ radius: 28, color: 'rgba(0,0,0,0.45)', offsetY: 10 })
+    }
+    .width('100%')
+    .height('100%')
+    .alignContent(Alignment.Center)
+  }
+
+  @Builder
+  AiScopePanel() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#66000000')
+        .onClick(() => { this.aiScopeOpen = false; })
+
+      Column({ space: 10 }) {
+        Row({ space: 8 }) {
+          Text('AI 工作区').fontSize(15).fontWeight(FontWeight.Bold).fontColor(this.c().text).layoutWeight(1)
+          Text('✕').fontSize(13).fontColor(this.c().textDim)
+            .onClick(() => { this.aiScopeOpen = false; })
+        }
+        .width('100%')
+
+        Text('选择 AI 可以查看和切换的工作流；用户说「当前工作流」时指正在看的这个。')
+          .fontSize(10.5).fontColor(this.c().textDim).width('100%')
+
+        Row({ space: 8 }) {
+          Text('全部')
+            .fontSize(11)
+            .fontColor(this.aiScopeAll ? '#FFFFFF' : this.c().textMuted)
+            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+            .backgroundColor(this.aiScopeAll ? this.c().accent : this.c().card)
+            .borderRadius(9)
+            .onClick(() => { this.aiScopeAll = true; })
+          Text('仅当前')
+            .fontSize(11)
+            .fontColor(!this.aiScopeAll ? '#FFFFFF' : this.c().textMuted)
+            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+            .backgroundColor(!this.aiScopeAll ? this.c().accent : this.c().card)
+            .borderRadius(9)
+            .onClick(() => {
+              this.aiScopeAll = false;
+              this.aiScope = [this.selectedPath];
+            })
+        }
+        .width('100%')
+
+        Scroll() {
+          Column({ space: 2 }) {
+            ForEach(this.catalog.entries ?? [], (entry: CatalogEntry) => {
+              Row({ space: 8 }) {
+                Text(entry.path)
+                  .fontSize(11)
+                  .fontColor(this.c().text)
+                  .layoutWeight(1)
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                Checkbox({ name: entry.path, group: 'aiScope' })
+                  .select(this.aiScopeAll || this.aiScope.includes(entry.path))
+                  .selectedColor(this.c().accent)
+                  .onChange((checked: boolean) => {
+                    this.aiScopeAll = false;
+                    if (checked) {
+                      if (!this.aiScope.includes(entry.path)) {
+                        this.aiScope = [...this.aiScope, entry.path];
+                      }
+                    } else {
+                      this.aiScope = this.aiScope.filter((path: string) => path !== entry.path);
+                    }
+                  })
+              }
+              .width('100%')
+              .padding({ top: 7, bottom: 7 })
+            }, (entry: CatalogEntry) => entry.path)
+          }
+          .width('100%')
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .scrollBar(BarState.Off)
+
+        Text('完成')
+          .fontSize(12)
+          .fontColor('#FFFFFF')
+          .width('100%')
+          .textAlign(TextAlign.Center)
+          .padding({ top: 9, bottom: 9 })
+          .borderRadius(12)
+          .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+          .onClick(() => { this.aiScopeOpen = false; })
+      }
+      .width('90%')
+      .height('70%')
+      .padding(14)
+      .backgroundColor(this.glassPanelColor())
+      .backdropBlur(24)
+      .borderRadius(20)
+      .border({ width: 1, color: this.c().borderStrong })
     }
     .width('100%')
     .height('100%')
@@ -8098,6 +8235,9 @@ struct Index {
       }
       if (this.aiOpen) {
         this.AiPanel()
+      }
+      if (this.aiScopeOpen) {
+        this.AiScopePanel()
       }
     }
     .width('100%')

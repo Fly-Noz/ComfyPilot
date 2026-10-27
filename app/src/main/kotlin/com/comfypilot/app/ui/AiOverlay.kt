@@ -141,6 +141,7 @@ fun AiChatDialog(onDismiss: () -> Unit) {
     val c = Spectrum.colors
     var snapshot by remember { mutableStateOf(AiRuntime.snapshot()) }
     var input by remember { mutableStateOf("") }
+    var scopeOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     LaunchedEffect(Unit) {
@@ -342,6 +343,25 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                 }
             }
 
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "工作区 · " + if (AiRuntime.scopeAll) "全部工作流" else "${AiRuntime.scopePaths.size.coerceAtLeast(1)} 个",
+                    color = c.textMuted,
+                    fontSize = 10.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(c.card)
+                        .border(1.dp, c.border, RoundedCornerShape(10.dp))
+                        .clickableNoRipple { scopeOpen = true }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            }
+
             // 输入区
             Row(
                 modifier = Modifier
@@ -397,6 +417,100 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                     Text("↑", color = Color.White, fontSize = 17.sp)
                 }
             }
+        }
+    }
+
+    if (scopeOpen) {
+        AiScopeDialog(onDismiss = { scopeOpen = false })
+    }
+}
+
+@Composable
+private fun AiScopeDialog(onDismiss: () -> Unit) {
+    val c = Spectrum.colors
+    val host = AiRuntime.host
+    val paths = host?.availableWorkflows().orEmpty()
+    val current = host?.digest()?.path.orEmpty()
+    var all by remember { mutableStateOf(AiRuntime.scopeAll) }
+    var picked by remember { mutableStateOf(AiRuntime.scopePaths.toSet()) }
+
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .heightIn(max = 520.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(c.dialog)
+                .border(1.dp, c.borderStrong, RoundedCornerShape(20.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("AI 工作区", color = c.text, fontSize = 15.sp)
+            Text(
+                "选择 AI 可以查看和切换的工作流；用户说「当前」时指正在看的这个。",
+                color = c.textDim,
+                fontSize = 10.5.sp,
+                lineHeight = 15.sp,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "全部",
+                    color = if (all) Color.White else c.textMuted,
+                    fontSize = 11.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(if (all) c.accent else c.card)
+                        .clickableNoRipple { all = true }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+                Text(
+                    "仅当前",
+                    color = if (!all) Color.White else c.textMuted,
+                    fontSize = 11.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(9.dp))
+                        .background(if (!all) c.accent else c.card)
+                        .clickableNoRipple {
+                            all = false
+                            picked = setOf(current)
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                )
+            }
+            LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                items(paths) { path ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickableNoRipple {
+                                all = false
+                                picked = if (path in picked) picked - path else picked + path
+                            }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        androidx.compose.material3.Checkbox(
+                            checked = all || path in picked,
+                            onCheckedChange = null,
+                        )
+                        Text(path, color = c.text, fontSize = 11.sp)
+                    }
+                }
+            }
+            Text(
+                "完成",
+                color = Color.White,
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(c.gradientBrush())
+                    .clickableNoRipple {
+                        AiRuntime.setScope(all, picked)
+                        onDismiss()
+                    }
+                    .padding(vertical = 9.dp),
+            )
         }
     }
 }

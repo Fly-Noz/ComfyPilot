@@ -43,6 +43,7 @@ export interface AiHost {
   submit(): boolean;
   openWorkflow(path: string): boolean;
   availableWorkflows(): string[];
+  currentWorkflow(): string;
 }
 
 const TOOLS_JSON: string = `[
@@ -189,6 +190,7 @@ export class AiAssistant {
       this.tokens = Math.floor(digest.length / 4);
       const paths = host.availableWorkflows();
       const systemMessages: AiChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }];
+      systemMessages.push({ role: 'system', content: `用户当前停留的工作流是：${host.currentWorkflow()}` });
       systemMessages.push({ role: 'system', content: `当前工作流摘要：${digest}` });
       if (paths.length > 0) {
         systemMessages.push({ role: 'system', content: `可切换的工作流（open_workflow 用）：${paths.slice(0, 60).join('、')}` });
