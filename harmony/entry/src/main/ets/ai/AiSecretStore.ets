@@ -46,7 +46,11 @@ export class AiSecretStore {
     attributes.set(asset.Tag.SECRET, toBytes(key));
     attributes.set(asset.Tag.ALIAS, toBytes(ALIAS));
     attributes.set(asset.Tag.ACCESSIBILITY, asset.Accessibility.DEVICE_FIRST_UNLOCKED);
-    asset.addSync(attributes);
+    try {
+      asset.addSync(attributes);
+    } catch (err) {
+      // 设备没有安全存储时保存失败，下次仍会提示填写 Key，不崩溃。
+    }
   }
 
   clear(): void {

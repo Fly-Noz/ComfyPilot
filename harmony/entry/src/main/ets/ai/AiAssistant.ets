@@ -182,8 +182,7 @@ export class AiAssistant {
 
   private async loop(host: AiHost): Promise<void> {
     for (let round = 0; round < 5; round++) {
-      const digestResponse = JSON.parse(host.buildViewJson()) as Record<string, Object>;
-      const digest = JSON.stringify(digestResponse);
+      const digest = host.buildViewJson();
       this.tokens = Math.floor(digest.length / 4);
       const paths = host.availableWorkflows();
       const systemMessages: AiChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }];
