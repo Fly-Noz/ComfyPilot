@@ -21,33 +21,47 @@
 
 ---
 
-## 界面
+## 功能
 
-<p align="center">
-  <img src="docs/assets/overview.jpg" width="620" alt="工作流列表、节点图、任务与产物预览">
-</p>
+### 工作流与参数
 
-<p align="center">
-  <img src="https://cdn.jsdelivr.net/gh/Fly-Noz/ComfyPilot@main/docs/assets/demo.gif" width="220" alt="采样动画预览">
-  <img src="docs/assets/themes.jpg" width="380" alt="深色与浅色主题">
-</p>
+- 读取服务器上的工作流列表，节点按图分组，参数、开关、节点图选择都能在手机上改
+- 改过的参数按「主机 + 工作流」存在本机，退出重进自动恢复，不写回主机
+- 关闭关键节点前会做构建试算并弹确认，避免把工作流改坏
 
-<p align="center">
-  <img src="docs/assets/detail.jpg" width="240" alt="工作流详情：节点参数与开关">
-</p>
+<p align="center"><img src="docs/assets/detail.jpg" width="300" alt="工作流详情：节点参数与开关"></p>
 
-<p align="center"><sub>工作流 / 节点图 / 任务 / 产物 · 采样动画 · 深色与浅色 · 节点参数</sub></p>
+### 采样预览
 
-## 能做什么
+- 服务端装了 [VideoHelperSuite](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) 时，采样过程能看到循环动画，随采样推进逐轮变清晰；未安装时退化为单帧预览
+- 断线重连后保留最后一帧，并标注它有多旧，不假装实时
 
-- **工作流**：读取服务器上的工作流列表，节点按图分组，参数、开关、节点图选择都能在手机上改
-- **参数草稿**：改过的参数按「主机 + 工作流」存在本机，退出重进自动恢复，不写回主机
-- **采样预览**：服务端装了 [VideoHelperSuite](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) 时，采样过程能看到循环动画，随采样推进逐轮变清晰
-- **任务**：实时进度、取消、排队计数；切后台/锁屏可收进度与完成通知
-- **产物**：图片/视频/GIF 预览，保存到相册或下载目录
-- **连接**：地址历史、自动重连、后台保活；断线重连后保留最后一帧
-- **监控**：内存/显存来自官方 `/system_stats`；CPU/GPU/温度需要 [ComfyUI-Crystools](https://github.com/crystian/ComfyUI-Crystools)
-- **外观**：深色/浅色/跟随系统，双端同一套视觉规范
+<p align="center"><img src="https://cdn.jsdelivr.net/gh/Fly-Noz/ComfyPilot@main/docs/assets/demo.gif" width="220" alt="采样动画预览"></p>
+
+### 任务与通知
+
+- 实时进度、取消任务、排队计数
+- 切后台/锁屏可以收到进度与完成通知，回前台自动撤掉
+- 自动重连、后台保活；任务超过 60 秒没进度会提示「主机可能正在加载模型」
+
+<p align="center"><img src="docs/assets/tasks.jpg" width="320" alt="任务列表与状态"></p>
+
+### 产物
+
+- 图片 / 视频 / GIF 预览，保存到相册或下载目录
+
+<p align="center"><img src="docs/assets/output.jpg" width="320" alt="产物预览"></p>
+
+### 主题
+
+- 深色 / 浅色 / 跟随系统，双端同一套视觉规范
+
+<p align="center"><img src="docs/assets/themes.jpg" width="520" alt="深色与浅色主题"></p>
+
+### 监控
+
+- 内存与显存来自官方 `/system_stats`
+- CPU / GPU / 温度需要 [ComfyUI-Crystools](https://github.com/crystian/ComfyUI-Crystools)，未安装时不会显示，也不会伪造数值
 
 ## 支持范围
 
