@@ -20,6 +20,7 @@ import {
 } from '../bridge/ComfyBridge';
 import { PinnedNodeStore } from '../bridge/PinnedNodeStore';
 import { WorkflowDraftStore } from '../bridge/WorkflowDraftStore';
+import { AiAssistant, AiApplyOutcome, AiChatMessage, AiConfig, AiHost } from '../ai/AiAssistant';
 import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
 import { NodeNoteStore } from '../bridge/NodeNoteStore';
 import { AddressEntry, AddressStore } from '../bridge/AddressStore';
@@ -173,6 +174,35 @@ interface PreviewPayload {
 /** bindPopup 的 onStateChange 参数；ArkTS 不允许用对象字面量直接当类型。 */
 interface PopupStateEvent {
   isVisible: boolean;
+}
+
+class PageAiHost implements AiHost {
+  buildViewJson: () => string = () => '';
+  stateJson: () => string = () => '{}';
+  applyProposal: (proposal: string) => AiApplyOutcome = () => {
+    return { ok: false, errors: [], changes: [], openWorkflow: '' };
+  };
+  submit: () => boolean = () => false;
+  openWorkflow: (path: string) => boolean = () => false;
+  availableWorkflows: () => string[] = () => [];
+}
+
+interface AiBridgeEdit {
+  node: number;
+  input: string;
+  value: string | number | boolean | null;
+}
+
+interface AiBridgeResult {
+  ok: boolean;
+  message?: string;
+  errors?: string[];
+  changes?: string[];
+  edits?: AiBridgeEdit[];
+  bypassed?: number[];
+  enabled?: number[];
+  graphs?: string[] | null;
+  openWorkflow?: string;
 }
 
 @Entry
@@ -351,6 +381,22 @@ struct Index {
   private notificationSeeded: boolean = false;
   private dismissedStore: DismissedErrorStore = new DismissedErrorStore();
   private draftStore: WorkflowDraftStore = new WorkflowDraftStore();
+  private ai: AiAssistant = new AiAssistant();
+  @State aiRev: number = 0;
+  @State aiOpen: boolean = false;
+  @State aiSettingsOpen: boolean = false;
+  @State aiInput: string = '';
+  @State aiSide: number = 1;
+  @State aiY: number = 0.72;
+  @State aiWidth: number = 0;
+  @State aiHeight: number = 0;
+  @State aiBallPX: number = -1;
+  private aiStartX: number = 0;
+  private aiStartY: number = 0;
+  @State aiBaseUrl: string = '';
+  @State aiModel: string = '';
+  @State aiKey: string = '';
+  @State aiAutoSubmit: boolean = false;
   private draftSaveTimer: number = -1;
   /** 性能条复用一个 HttpRequest 句柄，页面离场时 destroy()。 */
   private statsRequest: http.HttpRequest | null = null;
@@ -692,6 +738,7 @@ struct Index {
     const addressReady: boolean = await this.addressStore.load(context);
     const dismissedReady: boolean = await this.dismissedStore.open(context);
     const draftReady: boolean = await this.draftStore.open(context);
+    await this.ai.open(context);
     // 外观偏好用 preferences 落盘：PersistentStorage 在真机冷启动会丢。
     const savedAppearance: string | null = await this.appearanceStore.load(context);
     if (savedAppearance !== null) {
@@ -1517,6 +1564,7 @@ struct Index {
     this.expandedIds = [];
     this.expandedSeed = false;
     this.log(`打开工作流：${name || path}`);
+    this.registerAiHost();
     this.bridge.openWorkflow(path);
     setTimeout(() => {
       this.scroller.scrollEdge(Edge.Top);
@@ -1524,6 +1572,8 @@ struct Index {
   }
 
   private closeWorkflow(): void {
+    this.ai.host = null;
+    this.aiOpen = false;
     this.cancelEditRefresh();
     this.notes.clear();
     this.nodeNotesVersion++;
@@ -6350,6 +6400,301 @@ struct Index {
     .backgroundColor('#66000000')
   }
 
+  private aiStateJson(): string {
+    const grouped = new Map<string, string[]>();
+    this.edits.forEach((value: string | number | boolean | null, key: string) => {
+      const split = key.split('\u0000');
+      if (split.length !== 2) {
+        return;
+      }
+      const list = grouped.get(split[0]) ?? [];
+      list.push(`${JSON.stringify(split[1])}:${JSON.stringify(value)}`);
+      grouped.set(split[0], list);
+    });
+    const overrides: string[] = [];
+    grouped.forEach((fields: string[], nodeId: string) => {
+      overrides.push(`${JSON.stringify(nodeId)}:{${fields.join(',')}}`);
+    });
+    const graphs = this.graphIds.length > 0 ? JSON.stringify(this.graphIds) : 'null';
+    return `{"overrides":{${overrides.join(',')}},"bypassed":${JSON.stringify(this.bypassedIds)},` +
+      `"enabled":${JSON.stringify(this.enabledIds)},"graphs":${graphs}}`;
+  }
+
+  private aiViewJson(): string {
+    const nodes: string[] = [];
+    this.view.nodes.forEach((node: WorkflowNodeView) => {
+      const fields: string[] = [];
+      node.fields.forEach((field: WorkflowFieldView) => {
+        fields.push(
+          `{"name":${JSON.stringify(field.inputName)},"type":${JSON.stringify(field.type)},` +
+          `"value":${JSON.stringify(field.value)},"editable":${field.widget && !field.linked}}`,
+        );
+      });
+      nodes.push(
+        `{"id":${node.id},"class":${JSON.stringify(node.type)},` +
+        `"title":${JSON.stringify(node.title ?? node.displayName)},` +
+        `"enabled":${node.enabled},"reachable":${node.reachable},"fields":[${fields.join(',')}]}`,
+      );
+    });
+    const graphs: string[] = [];
+    this.view.graphs.forEach((graph: WorkflowGraphView) => {
+      graphs.push(
+        `{"id":${JSON.stringify(graph.id)},"title":${JSON.stringify(graph.title)},` +
+        `"selected":${this.graphIds.includes(graph.id)}}`,
+      );
+    });
+    return `{"path":${JSON.stringify(this.selectedPath)},"nodes":[${nodes.join(',')}],` +
+      `"graphs":[${graphs.join(',')}],"state":${this.aiStateJson()}}`;
+  }
+
+  private aiApplyProposal(proposalJson: string): AiApplyOutcome {
+    const view = this.aiViewJson();
+    const body = view.substring(0, view.length - 1) + `,"proposal":${proposalJson}}`;
+    const raw = this.bridge.aiApply(body);
+    const result = JSON.parse(raw) as AiBridgeResult;
+    if (!result.ok) {
+      const errors: string[] = result.errors ?? [];
+      if (errors.length === 0 && result.message !== undefined) {
+        errors.push(result.message);
+      }
+      return { ok: false, errors: errors, changes: [], openWorkflow: '' };
+    }
+    this.edits.clear();
+    const edits = result.edits ?? [];
+    edits.forEach((edit: AiBridgeEdit) => {
+      this.edits.set(`${edit.node}\u0000${edit.input}`, edit.value);
+    });
+    this.bypassedIds = result.bypassed ?? [];
+    this.enabledIds = result.enabled ?? [];
+    const graphs = result.graphs;
+    if (graphs !== null && graphs !== undefined) {
+      this.graphIds = graphs;
+    }
+    this.editTick++;
+    const open = result.openWorkflow ?? '';
+    if (open.length > 0) {
+      this.openWorkflow(open, open);
+    }
+    this.refreshView(false);
+    return { ok: true, errors: [], changes: result.changes ?? [], openWorkflow: open };
+  }
+
+  private aiSubmit(): boolean {
+    if (!this.running || !this.view.canSubmit) {
+      return false;
+    }
+    this.submitWorkflow();
+    return true;
+  }
+
+  private registerAiHost(): void {
+    const host = new PageAiHost();
+    host.buildViewJson = () => this.aiViewJson();
+    host.stateJson = () => this.aiStateJson();
+    host.applyProposal = (proposal: string) => this.aiApplyProposal(proposal);
+    host.submit = () => this.aiSubmit();
+    host.openWorkflow = (path: string) => {
+      this.openWorkflow(path, path);
+      return true;
+    };
+    host.availableWorkflows = () => {
+      const paths: string[] = [];
+      const entries = this.catalog.entries ?? [];
+      entries.forEach((entry: CatalogEntry) => paths.push(entry.path));
+      return paths;
+    };
+    this.ai.host = host;
+  }
+
+  private openAiSettings(): void {
+    this.aiBaseUrl = this.ai.config.baseUrl;
+    this.aiModel = this.ai.config.model;
+    this.aiKey = this.ai.config.apiKey;
+    this.aiAutoSubmit = this.ai.config.autoSubmit;
+    this.aiSettingsOpen = true;
+  }
+
+  @Builder
+  AiBall() {
+    Text('AI')
+      .fontSize(14)
+      .fontWeight(FontWeight.Bold)
+      .fontColor('#FFFFFF')
+      .textAlign(TextAlign.Center)
+      .width(56)
+      .height(56)
+      .borderRadius(28)
+      .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+      .shadow({ radius: 14, color: 'rgba(0,0,0,0.35)', offsetY: 4 })
+      .position({
+        x: this.aiBallPX >= 0 ? this.aiBallPX : (this.aiSide === 1 ? this.aiWidth - 68 : 12),
+        y: this.aiY * Math.max(0, this.aiHeight - 68),
+      })
+      .onClick(() => {
+        this.aiOpen = true;
+      })
+      .gesture(
+        PanGesture()
+          .onActionStart(() => {
+            this.aiStartX = this.aiBallPX >= 0
+              ? this.aiBallPX
+              : (this.aiSide === 1 ? this.aiWidth - 68 : 12);
+            this.aiStartY = this.aiY * Math.max(0, this.aiHeight - 68);
+          })
+          .onActionUpdate((event: GestureEvent) => {
+            const maxX = Math.max(0, this.aiWidth - 56);
+            this.aiBallPX = Math.min(Math.max(0, this.aiStartX + event.offsetX), maxX);
+            this.aiY = Math.min(
+              0.94,
+              Math.max(0.06, (this.aiStartY + event.offsetY) / Math.max(1, this.aiHeight - 56)),
+            );
+          })
+          .onActionEnd(() => {
+            this.aiSide = this.aiBallPX > this.aiWidth / 2 ? 1 : 0;
+            this.aiBallPX = this.aiSide === 1 ? Math.max(0, this.aiWidth - 68) : 12;
+          }),
+      )
+  }
+
+  @Builder
+  AiPanel() {
+    Column() {
+      Column({ space: 8 }) {
+        Row({ space: 8 }) {
+          Text('AI 助手').fontSize(15).fontWeight(FontWeight.Bold).fontColor(this.c().text)
+          Text(`≈${this.ai.tokens} tokens`).fontSize(9).fontFamily('monospace').fontColor(this.c().textDim)
+          Blank()
+          Text('设置').fontSize(11).fontColor(this.c().textMuted)
+            .onClick(() => this.openAiSettings())
+          Text('✕').fontSize(14).fontColor(this.c().textDim)
+            .onClick(() => { this.aiOpen = false; })
+        }
+        .width('100%')
+
+        if (this.aiSettingsOpen) {
+          this.AiSettingsFields()
+        }
+
+        Scroll() {
+          Column({ space: 6 }) {
+            ForEach(this.ai.messages, (message: AiChatMessage) => {
+              Text(message.content.length > 0 ? message.content : '…')
+                .fontSize(11.5)
+                .lineHeight(17)
+                .fontColor(message.role === 'user' ? this.c().text : this.c().textMuted)
+                .width('100%')
+                .padding(8)
+                .borderRadius(10)
+                .backgroundColor(message.role === 'user' ? this.c().cardStrong : this.c().card)
+            }, (message: AiChatMessage, index: number) => `${index}:${message.content.substring(0, 24)}`)
+            if (this.ai.pending !== null) {
+              Column({ space: 4 }) {
+                Text(this.ai.pending.summary).fontSize(11.5).fontColor(this.c().text)
+                ForEach(this.ai.pending.changes.slice(0, 6), (change: string) => {
+                  Text(`· ${change}`).fontSize(10).fontColor(this.c().textMuted)
+                }, (change: string, index: number) => `${index}:${change}`)
+                Row({ space: 10 }) {
+                  Text('应用').fontSize(11.5).fontColor(this.c().accent)
+                    .onClick(() => { this.ai.confirmPending(false); this.aiRev = this.ai.bump(); })
+                  Text('应用并提交').fontSize(11.5).fontColor(this.c().accent)
+                    .onClick(() => { this.ai.confirmPending(true); this.aiRev = this.ai.bump(); })
+                  Text('取消').fontSize(11.5).fontColor(this.c().textDim)
+                    .onClick(() => { this.ai.cancelPending(); this.aiRev = this.ai.bump(); })
+                }
+              }
+              .width('100%')
+              .alignItems(HorizontalAlign.Start)
+              .padding(8)
+              .borderRadius(10)
+              .backgroundColor(this.c().accentSoft)
+            }
+            if (this.ai.error.length > 0) {
+              Text(this.ai.error).fontSize(10.5).fontColor(this.c().err).width('100%')
+            }
+            if (this.ai.busy) {
+              Text('正在请求模型…').fontSize(10).fontColor(this.c().textDim)
+            }
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
+        }
+        .layoutWeight(1)
+        .width('100%')
+
+        Row({ space: 8 }) {
+          TextInput({ text: this.aiInput, placeholder: '让 AI 改参数、开关节点…' })
+            .layoutWeight(1)
+            .height(38)
+            .fontSize(11.5)
+            .onChange((value: string) => { this.aiInput = value; })
+          Text('发送')
+            .fontSize(12.5)
+            .fontColor(this.ai.busy ? this.c().textDim : this.c().accent)
+            .onClick(() => {
+              if (this.ai.busy || this.aiInput.trim().length === 0) {
+                return;
+              }
+              const text = this.aiInput;
+              this.aiInput = '';
+              this.ai.send(text).then(() => { this.aiRev = this.ai.bump(); });
+            })
+        }
+        .width('100%')
+      }
+      .width('92%')
+      .height('70%')
+      .padding(14)
+      .borderRadius(20)
+      .backgroundColor(this.c().dialog)
+      .border({ width: 1, color: this.c().borderStrong })
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor('#66000000')
+  }
+
+  @Builder
+  AiSettingsFields() {
+    Column({ space: 6 }) {
+      TextInput({ text: this.aiBaseUrl, placeholder: '接口地址（OpenAI 兼容）' })
+        .fontSize(11)
+        .height(36)
+        .onChange((value: string) => { this.aiBaseUrl = value; })
+      TextInput({ text: this.aiModel, placeholder: '模型名' })
+        .fontSize(11)
+        .height(36)
+        .onChange((value: string) => { this.aiModel = value; })
+      TextInput({ text: this.aiKey, placeholder: 'API Key（只存本机）' })
+        .type(InputType.Password)
+        .fontSize(11)
+        .height(36)
+        .onChange((value: string) => { this.aiKey = value; })
+      Row({ space: 8 }) {
+        Text('AI 修改后自动提交').fontSize(10.5).fontColor(this.c().textMuted)
+        Toggle({ type: ToggleType.Switch, isOn: this.aiAutoSubmit })
+          .onChange((value: boolean) => { this.aiAutoSubmit = value; })
+      }
+      .width('100%')
+      Text('保存').fontSize(11.5).fontColor(this.c().accent)
+        .onClick(() => {
+          const next: AiConfig = {
+            baseUrl: this.aiBaseUrl.trim(),
+            model: this.aiModel.trim(),
+            apiKey: this.aiKey.trim(),
+            autoSubmit: this.aiAutoSubmit,
+          };
+          this.ai.saveConfig(next);
+          this.aiSettingsOpen = false;
+          this.aiRev = this.ai.bump();
+        })
+    }
+    .width('100%')
+    .padding(8)
+    .borderRadius(10)
+    .backgroundColor(this.c().card)
+  }
+
   c(): Palette {
     return Spectrum.palette(this.isDark);
   }
@@ -7468,10 +7813,20 @@ struct Index {
           },
         })
       }
+      if (this.running) {
+        this.AiBall()
+      }
+      if (this.aiOpen) {
+        this.AiPanel()
+      }
     }
     .width('100%')
     .height('100%')
     .backgroundColor(this.c().background)
+    .onAreaChange((_old: Area, area: Area) => {
+      this.aiWidth = Number(area.width);
+      this.aiHeight = Number(area.height);
+    })
     // 背景与光晕画到状态栏/导航条下面；文字内容由 MainPanel 的内边距避开系统栏。 
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }

@@ -62,6 +62,33 @@ object AiBridge {
                 result.errors.forEach { add(JsonPrimitive(it)) }
             }
             put("state", stateJson(result.state))
+            putJsonArray("edits") {
+                result.state.overrides.forEach { (nodeId, fields) ->
+                    fields.forEach { (name, value) ->
+                        add(
+                            buildJsonObject {
+                                put("node", nodeId)
+                                put("input", name)
+                                put("value", value)
+                            },
+                        )
+                    }
+                }
+            }
+            put(
+                "bypassed",
+                buildJsonArray { result.state.bypassed.sorted().forEach { add(JsonPrimitive(it)) } },
+            )
+            put(
+                "enabled",
+                buildJsonArray { result.state.enabled.sorted().forEach { add(JsonPrimitive(it)) } },
+            )
+            val graphs = result.state.graphs
+            if (graphs == null) {
+                put("graphs", JsonNull)
+            } else {
+                put("graphs", buildJsonArray { graphs.sorted().forEach { add(JsonPrimitive(it)) } })
+            }
             put("openWorkflow", result.openWorkflow ?: "")
         }.toString()
     }.getOrElse { error ->
