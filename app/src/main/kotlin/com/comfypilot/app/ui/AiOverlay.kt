@@ -283,6 +283,28 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                 }
             }
 
+            snapshot.question?.let { question ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(c.card)
+                        .border(1.dp, c.accentBorder, RoundedCornerShape(14.dp))
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(question.question, color = c.text, fontSize = 12.sp, lineHeight = 17.sp)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        question.options.forEach { option ->
+                            PendingAction(option, c.accent, c.accentSoft) {
+                                AiRuntime.answerQuestion(option)
+                            }
+                        }
+                    }
+                }
+            }
+
             snapshot.pending?.let { pending ->
                 Column(
                     modifier = Modifier

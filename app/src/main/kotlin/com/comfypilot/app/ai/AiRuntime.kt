@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -73,9 +74,12 @@ data class AiChatMessage(
     val content: String,
 )
 
+data class AiQuestion(val question: String, val options: List<String>)
+
 data class AiSnapshot(
     val messages: List<AiChatMessage>,
     val pending: AiPendingEdit?,
+    val question: AiQuestion?,
     val busy: Boolean,
     val error: String?,
     val tokens: Int,
@@ -177,6 +181,8 @@ object AiRuntime {
         private set
     var pending: AiPendingEdit? = null
         private set
+    var question: AiQuestion? = null
+        private set
     var busy: Boolean = false
         private set
     var error: String? = null
@@ -228,7 +234,8 @@ object AiRuntime {
         error = null
     }
 
-    fun snapshot(): AiSnapshot = AiSnapshot(messages, pending, busy, error, tokenEstimate, config)
+    fun snapshot(): AiSnapshot =
+        AiSnapshot(messages, pending, question, busy, error, tokenEstimate, config)
 
     fun send(prompt: String) {
         val text = prompt.trim()
@@ -284,12 +291,25 @@ object AiRuntime {
         pending = null
     }
 
+    fun answerQuestion(answer: String) {
+        val current = question ?: return
+        question = null
+        messages = messages + AiChatMessage("user", answer)
+        val currentHost = host ?: return
+        busy = true
+        scope.launch {
+            try {
+                runLoop(currentHost)
+            } catch (err: Throwable) {
+                error = err.message ?: "AI 请求失败"
+            } finally {
+                busy = false
+            }
+        }
+    }
+
     private suspend fun runLoop(currentHost: AiWorkflowHost) {
         val view = currentHost.digest()
-        if (view == null) {
-            error = "当前没有可编辑的工作流"
-            return
-        }
         val conversation = mutableListOf<JsonObject>()
         conversation += buildJsonObject {
             put("role", "user")
@@ -297,11 +317,11 @@ object AiRuntime {
         }
         repeat(6) { round ->
             val state = currentHost.editState()
-            val digest = com.comfypilot.core.ai.AiDigest.build(view, state)
-            tokenEstimate = com.comfypilot.core.ai.AiDigest.estimateTokens(digest) +
+            val digest = view?.let { com.comfypilot.core.ai.AiDigest.build(it, state) }
+            tokenEstimate = (digest?.let { com.comfypilot.core.ai.AiDigest.estimateTokens(it) } ?: 0) +
                 messages.sumOf { com.comfypilot.core.ai.AiDigest.estimateTokens(it.content) }
             currentHostPaths = allowedPaths(currentHost)
-            currentHostPath = view.path
+            currentHostPath = view?.path.orEmpty()
             val message: JsonObject = callModel(digest, conversation)
             val toolCalls = message["tool_calls"]?.jsonArray
             if (toolCalls == null || toolCalls.isEmpty()) {
@@ -325,7 +345,7 @@ object AiRuntime {
                 }
             }
             // 确认模式下一旦产生待确认编辑，就停下来等用户操作。
-            if (pending != null) return
+            if (pending != null || question != null) return
             if (round == 5) {
                 error = "工具调用轮数过多，已停止"
                 return
@@ -371,6 +391,21 @@ object AiRuntime {
                 }
             }
 
+            "ask_user" -> {
+                val parsed = runCatching { json.parseToJsonElement(argsJson).jsonObject }.getOrNull()
+                val question = parsed?.get("question")?.jsonPrimitive?.contentOrNull.orEmpty()
+                val options = (parsed?.get("options") as? JsonArray)
+                    ?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                    .orEmpty()
+                if (question.isBlank() || options.isEmpty()) {
+                    """{"ok":false,"error":"question 或 options 为空"}"""
+                } else {
+                    this.question = AiQuestion(question, options.take(4))
+                    messages = messages + AiChatMessage("assistant", question)
+                    """{"ok":true,"waiting":true}"""
+                }
+            }
+
             "submit" -> {
                 val ok = currentHost.submitCurrent()
                 """{"ok":$ok}"""
@@ -396,7 +431,7 @@ object AiRuntime {
     private var currentHostPaths: List<String> = emptyList()
     private var currentHostPath: String = ""
 
-    private fun callModel(digest: JsonObject, conversation: List<JsonObject>): JsonObject {
+    private fun callModel(digest: JsonObject?, conversation: List<JsonObject>): JsonObject {
         val body = buildJsonObject {
             put("model", config.model)
             put("temperature", 0.2)
@@ -407,18 +442,22 @@ object AiRuntime {
                         put("content", SYSTEM_PROMPT)
                     },
                 )
-                add(
-                    buildJsonObject {
-                        put("role", "system")
-                        put("content", "用户当前停留的工作流：${currentHostPath}")
-                    },
-                )
-                add(
-                    buildJsonObject {
-                        put("role", "system")
-                        put("content", "当前工作流摘要：${digest}")
-                    },
-                )
+                if (currentHostPath.isNotEmpty()) {
+                    add(
+                        buildJsonObject {
+                            put("role", "system")
+                            put("content", "用户当前停留的工作流：${currentHostPath}")
+                        },
+                    )
+                }
+                if (digest != null) {
+                    add(
+                        buildJsonObject {
+                            put("role", "system")
+                            put("content", "当前工作流摘要：${digest}")
+                        },
+                    )
+                }
                 val paths = currentHostPaths
                 if (paths.isNotEmpty()) {
                     add(

@@ -6673,6 +6673,33 @@ struct Index {
               .justifyContent(message.role === 'user' ? FlexAlign.End : FlexAlign.Start)
             }, (message: AiChatMessage, index: number) => `${index}:${message.content.substring(0, 24)}`)
 
+            if (this.ai.question !== null) {
+              Column({ space: 6 }) {
+                Text(this.ai.question.question).fontSize(12).fontColor(this.c().text)
+                Flex({ wrap: FlexWrap.Wrap }) {
+                  ForEach(this.ai.question.options, (option: string, index: number) => {
+                    Text(option)
+                      .fontSize(11)
+                      .fontColor(this.c().accent)
+                      .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                      .margin({ right: 8, top: 4 })
+                      .backgroundColor(this.c().card)
+                      .borderRadius(9)
+                      .border({ width: 1, color: this.c().accentBorder })
+                      .onClick(() => {
+                        this.ai.answerQuestion(option).then(() => { this.aiRev = this.ai.bump(); });
+                      })
+                  }, (option: string, index: number) => `${index}:${option}`)
+                }
+              }
+              .width('100%')
+              .alignItems(HorizontalAlign.Start)
+              .padding(11)
+              .backgroundColor(this.c().card)
+              .borderRadius(12)
+              .border({ width: 1, color: this.c().accentBorder })
+            }
+
             if (this.ai.pending !== null) {
               Column({ space: 5 }) {
                 Text(this.ai.pending.summary).fontSize(12).fontColor(this.c().text)

@@ -29,6 +29,11 @@ export interface AiApplyOutcome {
   openWorkflow: string;
 }
 
+export interface AiQuestion {
+  question: string;
+  options: string[];
+}
+
 export interface AiPending {
   proposalJson: string;
   summary: string;
@@ -48,6 +53,7 @@ export interface AiHost {
 
 const TOOLS_JSON: string = `[
   {"type":"function","function":{"name":"propose_edits","description":"对当前工作流提交一组声明式修改","parameters":{"type":"object","properties":{"summary":{"type":"string"},"ops":{"type":"array","items":{"type":"object","properties":{"op":{"type":"string"},"node":{"type":"integer"},"input":{"type":"string"},"enabled":{"type":"boolean"},"graphs":{"type":"array","items":{"type":"string"}},"path":{"type":"string"},"value":{}},"required":["op"]}}},"required":["summary","ops"]}}},
+  {"type":"function","function":{"name":"ask_user","description":"需要用户确认或选择时提问","parameters":{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"}}},"required":["question","options"]}}},
   {"type":"function","function":{"name":"submit","description":"提交当前工作流","parameters":{"type":"object","properties":{}}}},
   {"type":"function","function":{"name":"open_workflow","description":"切换到另一个工作流","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}
 ]`;
@@ -68,6 +74,7 @@ export class AiAssistant {
   config: AiConfig = { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', apiKey: '', enabled: false, autoSubmit: false };
   messages: AiChatMessage[] = [];
   pending: AiPending | null = null;
+  question: AiQuestion | null = null;
   busy: boolean = false;
   error: string = '';
   tokens: number = 0;
@@ -184,13 +191,35 @@ export class AiAssistant {
     this.bump();
   }
 
+  async answerQuestion(answer: string): Promise<void> {
+    const host = this.host;
+    this.question = null;
+    if (host === null) {
+      return;
+    }
+    this.messages = [...this.messages, { role: 'user', content: answer }];
+    this.busy = true;
+    this.bump();
+    try {
+      await this.loop(host);
+    } catch (err) {
+      this.error = (err as Error).message;
+    } finally {
+      this.busy = false;
+      this.bump();
+    }
+  }
+
   private async loop(host: AiHost): Promise<void> {
     for (let round = 0; round < 5; round++) {
       const digest = host.buildViewJson();
       this.tokens = Math.floor(digest.length / 4);
       const paths = host.availableWorkflows();
       const systemMessages: AiChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }];
-      systemMessages.push({ role: 'system', content: `用户当前停留的工作流是：${host.currentWorkflow()}` });
+      const currentPath = host.currentWorkflow();
+      if (currentPath.length > 0) {
+        systemMessages.push({ role: 'system', content: `用户当前停留的工作流是：${currentPath}` });
+      }
       systemMessages.push({ role: 'system', content: `当前工作流摘要：${digest}` });
       if (paths.length > 0) {
         systemMessages.push({ role: 'system', content: `可切换的工作流（open_workflow 用）：${paths.slice(0, 60).join('、')}` });
@@ -211,7 +240,7 @@ export class AiAssistant {
         results.push(`${call.function.name} -> ${result}`);
       }
       this.messages = [...this.messages, { role: 'user', content: `（工具结果）${results.join('\n')}` }];
-      if (this.pending !== null) {
+      if (this.pending !== null || this.question !== null) {
         return;
       }
     }
@@ -237,6 +266,16 @@ export class AiAssistant {
       }
       this.pending = { proposalJson: args, summary: summary, changes: outcome.changes };
       return `{"ok":true,"pending":true}`;
+    }
+    if (name === 'ask_user') {
+      const probe = JSON.parse(args) as AskProbe;
+      const options = probe.options ?? [];
+      if (probe.question === undefined || probe.question.length === 0 || options.length === 0) {
+        return '{"ok":false,"error":"question 或 options 为空"}';
+      }
+      this.question = { question: probe.question, options: options.slice(0, 4) };
+      this.messages = [...this.messages, { role: 'assistant', content: probe.question }];
+      return '{"ok":true,"waiting":true}';
     }
     if (name === 'submit') {
       return `{"ok":${host.submit()}}`;
@@ -282,6 +321,11 @@ export class AiAssistant {
       client.destroy();
     }
   }
+}
+
+interface AskProbe {
+  question?: string;
+  options?: string[];
 }
 
 interface AiToolFunction {
