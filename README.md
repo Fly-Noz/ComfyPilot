@@ -23,9 +23,20 @@
 
 ## 界面
 
-| 采样预览 | 工作流列表 |
-| :---: | :---: |
-| ![采样动画预览](docs/assets/demo.gif) | ![工作流列表](docs/assets/workflows.jpg) |
+<p align="center">
+  <img src="docs/assets/overview.jpg" width="620" alt="工作流列表、节点图、任务与产物预览">
+</p>
+
+<p align="center">
+  <img src="https://cdn.jsdelivr.net/gh/Fly-Noz/ComfyPilot@main/docs/assets/demo.gif" width="220" alt="采样动画预览">
+  <img src="docs/assets/themes.jpg" width="380" alt="深色与浅色主题">
+</p>
+
+<p align="center">
+  <img src="docs/assets/detail.jpg" width="240" alt="工作流详情：节点参数与开关">
+</p>
+
+<p align="center"><sub>工作流 / 节点图 / 任务 / 产物 · 采样动画 · 深色与浅色 · 节点参数</sub></p>
 
 ## 能做什么
 
@@ -110,7 +121,6 @@ Windows 便携版可以直接用仓库里的脚本（放到 ComfyUI 便携版根
 
 App 里填 `http://<主机IP>:8188`，主机 IP 用启动脚本打印的那个：
 
-![连接界面](docs/assets/connect.jpg)
 
 - 同一 WiFi/热点：用 `WLAN` / `以太网` 的地址；
 - 跨网络：主机和手机都加入同一个 Tailscale/ZeroTier 网络，填虚拟网卡地址（`100.x`）；
