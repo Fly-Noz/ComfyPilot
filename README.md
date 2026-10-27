@@ -63,6 +63,15 @@
 
 <p align="center"><img src="docs/assets/themes.jpg" width="520" alt="深色与浅色主题"></p>
 
+### AI 助手（可选）
+
+- 连接后右下角出现悬浮球，点开对话；用自己的 OpenAI 兼容接口与 Key
+- 支持自然语言改参数、开关节点、选图、切换工作流、校验并提交
+- 默认先展示 diff 再确认，可在设置里改为自动提交
+- Key 只存本机（Android Keystore / 鸿蒙 Asset Store），不经过任何中转
+
+<p align="center"><sub>详见 <a href="docs/ai-assistant.md">docs/ai-assistant.md</a></sub></p>
+
 ### 监控
 
 - 内存与显存来自官方 `/system_stats`
@@ -191,6 +200,7 @@ App 里填 `http://<主机IP>:8188`，主机 IP 用启动脚本打印的那个�
 - 只支持 HTTP 直连，跨公网请自备 VPN/内网穿透；
 - 采样动画依赖服务端安装 VideoHelperSuite，未安装时退化为单帧；
 - 服务端加载大模型/换出显存时会长时间没有进度事件（ComfyUI 事件循环被占住），App 超过 60 秒会提示「主机可能正在加载模型」；
+- AI 助手需要用户自备 OpenAI 兼容接口与 Key；启用后工作流结构、参数与提示词会发送给你配置的服务商；
 - HarmonyOS 发布包需要 AGC 签名，仓库里的 HAP 仅供调试/自签名；
 - 鸿蒙端保存到相册的图片会转成 8-bit RGB PNG（绕过系统相册对 RGBA PNG 的预览色块问题），动图会保存为静态图。
 

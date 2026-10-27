@@ -1,6 +1,7 @@
 import { preferences } from '@kit.ArkData';
 import { http } from '@kit.NetworkKit';
 import { common } from '@kit.AbilityKit';
+import { AiSecretStore } from './AiSecretStore';
 
 const STORE_NAME: string = 'ai_assistant';
 
@@ -71,6 +72,7 @@ export class AiAssistant {
   host: AiHost | null = null;
 
   private store: preferences.Preferences | null = null;
+  private secrets: AiSecretStore = new AiSecretStore();
   private version: number = 0;
 
   async open(context: common.Context): Promise<void> {
@@ -79,7 +81,7 @@ export class AiAssistant {
       this.config = {
         baseUrl: this.store.getSync('base_url', this.config.baseUrl) as string,
         model: this.store.getSync('model', this.config.model) as string,
-        apiKey: this.store.getSync('api_key', '') as string,
+        apiKey: this.secrets.load(),
         autoSubmit: this.store.getSync('auto_submit', false) as boolean,
       };
     } catch (err) {
@@ -95,8 +97,8 @@ export class AiAssistant {
     }
     store.putSync('base_url', next.baseUrl);
     store.putSync('model', next.model);
-    store.putSync('api_key', next.apiKey);
     store.putSync('auto_submit', next.autoSubmit);
+    this.secrets.save(next.apiKey);
     store.flush();
   }
 

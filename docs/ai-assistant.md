@@ -1,6 +1,6 @@
 # AI 助手技术方案（设计稿）
 
-状态：**实现中**（决策已定，见第 14 节）。目标是把"用户自己填 API Key"的大模型接进 ComfyPilot，
+状态：**已实现 Android / 鸿蒙第一版**（决策见第 14 节；已知缺口见第 15 节）。目标是把"用户自己填 API Key"的大模型接进 ComfyPilot，
 用自然语言修改当前工作流并提交。
 
 ## 1. 目标与非目标
@@ -251,3 +251,18 @@ idle
 | 模型配置 | **全局一份**（baseUrl / Key / 模型名），所有工作流共用；暂不做按工作流配置 |
 | 指令模板 | 不做 |
 | 费用提示 | 显示本轮与累计 token **估算**（字符数 / 4），并提示以服务商账单为准 |
+## 15. 实现现状（第一版）
+
+已完成：
+
+- 共享层：`AiWorkflowView` / `AiEditState` / `AiDigest` / `AiEdits`，以及 JSON 桥 `AiBridge`（含测试）
+- Android：悬浮球 + 对话、OpenAI 兼容客户端、Key 走 AndroidKeyStore 加密、diff 确认、自动提交开关、切换工作流
+- 鸿蒙：悬浮球 + 对话、OpenAI 兼容客户端、Key 走系统 Asset Store、经 `cp_ai_digest` / `cp_ai_apply` 复用共享层
+- 工具往返：Android 已按标准 `tool_calls` / `tool_call_id` 协议；鸿蒙仍用文本回填（后续对齐）
+
+已知缺口：
+
+- 鸿蒙端工具结果尚未改成标准 `tool_call_id` 往返
+- 未做真机联调（按计划由用户测试）
+- 未做多工作流上下文缓存，每次只带当前工作流
+- 悬浮球位置记忆只在本次会话内，重启后回到默认位置

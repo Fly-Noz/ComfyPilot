@@ -261,28 +261,39 @@ object AiRuntime {
             error = "当前没有可编辑的工作流"
             return
         }
+        val conversation = mutableListOf<JsonObject>()
+        conversation += buildJsonObject {
+            put("role", "user")
+            put("content", messages.lastOrNull()?.content.orEmpty())
+        }
         repeat(6) { round ->
             val state = currentHost.editState()
             val digest = com.comfypilot.core.ai.AiDigest.build(view, state)
             tokenEstimate = com.comfypilot.core.ai.AiDigest.estimateTokens(digest) +
                 messages.sumOf { com.comfypilot.core.ai.AiDigest.estimateTokens(it.content) }
             currentHostPaths = currentHost.availableWorkflows()
-            val message: JsonObject = callModel(digest)
+            val message: JsonObject = callModel(digest, conversation)
             val toolCalls = message["tool_calls"]?.jsonArray
             if (toolCalls == null || toolCalls.isEmpty()) {
                 val text = message["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
                 messages = messages + AiChatMessage("assistant", text.ifBlank { "（空响应）" })
                 return
             }
-            messages = messages + AiChatMessage("assistant", message["content"]?.jsonPrimitive?.contentOrNull.orEmpty())
-            val results = mutableListOf<String>()
+            // 标准工具往返：assistant 的 tool_calls 原样带回，结果按 tool_call_id 回填。
+            conversation += message
             for (call in toolCalls) {
-                val function = call.jsonObject["function"]?.jsonObject ?: continue
+                val callObject = call.jsonObject
+                val id = callObject["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val function = callObject["function"]?.jsonObject ?: continue
                 val name = function["name"]?.jsonPrimitive?.contentOrNull ?: continue
                 val args = function["arguments"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                results += "$name -> ${executeTool(name, args, currentHost)}"
+                val result = executeTool(name, args, currentHost)
+                conversation += buildJsonObject {
+                    put("role", "tool")
+                    put("tool_call_id", id)
+                    put("content", result)
+                }
             }
-            messages = messages + AiChatMessage("user", "（工具结果）" + results.joinToString("\n"))
             // 确认模式下一旦产生待确认编辑，就停下来等用户操作。
             if (pending != null) return
             if (round == 5) {
@@ -352,7 +363,7 @@ object AiRuntime {
 
     private var currentHostPaths: List<String> = emptyList()
 
-    private fun callModel(digest: JsonObject): JsonObject {
+    private fun callModel(digest: JsonObject, conversation: List<JsonObject>): JsonObject {
         val body = buildJsonObject {
             put("model", config.model)
             put("temperature", 0.2)
@@ -382,14 +393,7 @@ object AiRuntime {
                         },
                     )
                 }
-                messages.forEach { message ->
-                    add(
-                        buildJsonObject {
-                            put("role", message.role)
-                            put("content", message.content)
-                        },
-                    )
-                }
+                conversation.forEach { add(it) }
             }
             put("tools", TOOLS)
             put("tool_choice", "auto")
