@@ -144,13 +144,6 @@ App 里填 `http://<主机IP>:8188`，主机 IP 用启动脚本打印的那个�
 - HarmonyOS 发布包需要 AGC 签名，仓库里的 HAP 仅供调试/自签名；
 - 鸿蒙端保存到相册的图片会转成 8-bit RGB PNG（绕过系统相册对 RGBA PNG 的预览色块问题），动图会保存为静态图。
 
-## 文档
-
-- [华为 AppGallery 上架准备](docs/release/huawei-appgallery.md)
-- [隐私政策模板](docs/release/privacy-policy.zh-CN.md)
-- [ComfyUI 启动脚本说明](tools/comfyui/README.md)
-- [本地 mock 服务端](tools/mock-comfyui/README.md)
-
 ## 许可证与声明
 
 - 代码以 **GPL-3.0** 发布，见 [LICENSE](LICENSE)；
