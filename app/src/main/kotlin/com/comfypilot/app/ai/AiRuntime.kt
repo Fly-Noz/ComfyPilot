@@ -58,6 +58,9 @@ interface AiWorkflowHost {
     fun submitCurrent(): Boolean
 
     fun openWorkflow(path: String): Boolean
+
+    /** 可供 AI 切换的工作流路径（目录里已有的）。 */
+    fun availableWorkflows(): List<String> = emptyList()
 }
 
 data class AiChatMessage(
@@ -263,6 +266,7 @@ object AiRuntime {
             val digest = com.comfypilot.core.ai.AiDigest.build(view, state)
             tokenEstimate = com.comfypilot.core.ai.AiDigest.estimateTokens(digest) +
                 messages.sumOf { com.comfypilot.core.ai.AiDigest.estimateTokens(it.content) }
+            currentHostPaths = currentHost.availableWorkflows()
             val message: JsonObject = callModel(digest)
             val toolCalls = message["tool_calls"]?.jsonArray
             if (toolCalls == null || toolCalls.isEmpty()) {
@@ -346,6 +350,8 @@ object AiRuntime {
             else -> """{"ok":false,"error":"未知工具 $name"}"""
         }
 
+    private var currentHostPaths: List<String> = emptyList()
+
     private fun callModel(digest: JsonObject): JsonObject {
         val body = buildJsonObject {
             put("model", config.model)
@@ -363,6 +369,19 @@ object AiRuntime {
                         put("content", "当前工作流摘要：${digest}")
                     },
                 )
+                val paths = currentHostPaths
+                if (paths.isNotEmpty()) {
+                    add(
+                        buildJsonObject {
+                            put("role", "system")
+                            put(
+                                "content",
+                                "可切换的工作流（open_workflow 用）：" +
+                                    paths.take(60).joinToString("、"),
+                            )
+                        },
+                    )
+                }
                 messages.forEach { message ->
                     add(
                         buildJsonObject {

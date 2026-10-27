@@ -169,6 +169,7 @@ fun ComfyPilotApp(
                     onSubmit = { workflowJson, name, path -> onSubmit(workflowJson, name, path) },
                     onCancel = onCancel,
                     onSetNodeBypassed = onSetNodeBypassed,
+                    onOpenWorkflow = onOpenWorkflow,
                 )
 
                 Screen.Tasks -> TaskScreen(

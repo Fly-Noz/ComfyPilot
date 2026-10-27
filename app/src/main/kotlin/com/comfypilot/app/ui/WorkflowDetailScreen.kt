@@ -179,6 +179,7 @@ fun WorkflowDetailScreen(
     onSubmit: (String, String?, String?) -> Unit,
     onCancel: (String) -> Unit,
     onSetNodeBypassed: (Int, Boolean) -> Unit,
+    onOpenWorkflow: (String) -> Unit,
 ) {
     val document = state.workflow.document
 
@@ -216,6 +217,7 @@ fun WorkflowDetailScreen(
                     onCancel = onCancel,
                     onTasks = onTasks,
                     onSetNodeBypassed = onSetNodeBypassed,
+                    onOpenWorkflow = onOpenWorkflow,
                 )
             }
         }
@@ -261,6 +263,7 @@ private fun DetailBody(
     onCancel: (String) -> Unit,
     onTasks: () -> Unit,
     onSetNodeBypassed: (Int, Boolean) -> Unit,
+    onOpenWorkflow: (String) -> Unit,
 ) {
     val c = Spectrum.colors
     // 草稿/备注/置顶按"主机 + 工作流路径"隔离：同一工作流在两台主机上互不影响。
@@ -647,7 +650,16 @@ private fun DetailBody(
                 return true
             }
 
-            override fun openWorkflow(path: String): Boolean = false
+            override fun openWorkflow(path: String): Boolean {
+                if (path.isBlank()) return false
+                onOpenWorkflow(path)
+                return true
+            }
+
+            override fun availableWorkflows(): List<String> =
+                (state.catalog as? com.comfypilot.core.workflow.WorkflowCatalog.Ready)
+                    ?.entries?.map { it.path }?.take(80)
+                    ?: emptyList()
         }
     }
     DisposableEffect(document.path) {
