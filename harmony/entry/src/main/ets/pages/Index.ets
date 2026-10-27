@@ -6506,6 +6506,13 @@ struct Index {
     this.ai.host = host;
   }
 
+  private loadAiFields(): void {
+    this.aiBaseUrl = this.ai.config.baseUrl;
+    this.aiModel = this.ai.config.model;
+    this.aiKey = this.ai.config.apiKey;
+    this.aiAutoSubmit = this.ai.config.autoSubmit;
+  }
+
   private openAiSettings(): void {
     this.aiBaseUrl = this.ai.config.baseUrl;
     this.aiModel = this.ai.config.model;
@@ -6521,14 +6528,16 @@ struct Index {
       .fontWeight(FontWeight.Bold)
       .fontColor('#FFFFFF')
       .textAlign(TextAlign.Center)
-      .width(56)
-      .height(56)
-      .borderRadius(28)
-      .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+      .width(46)
+      .height(46)
+      .borderRadius(23)
+      .backgroundColor(this.c().isDark ? '#33FFFFFF' : '#59FFFFFF')
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
+      .border({ width: 1, color: '#4DFFFFFF' })
       .shadow({ radius: 14, color: 'rgba(0,0,0,0.35)', offsetY: 4 })
       .position({
-        x: this.aiBallPX >= 0 ? this.aiBallPX : (this.aiSide === 1 ? this.aiWidth - 68 : 12),
-        y: this.aiY * Math.max(0, this.aiHeight - 68),
+        x: this.aiBallPX >= 0 ? this.aiBallPX : (this.aiSide === 1 ? this.aiWidth - 58 : 12),
+        y: this.aiY * Math.max(0, this.aiHeight - 58),
       })
       .onClick(() => {
         this.aiOpen = true;
@@ -6538,20 +6547,20 @@ struct Index {
           .onActionStart(() => {
             this.aiStartX = this.aiBallPX >= 0
               ? this.aiBallPX
-              : (this.aiSide === 1 ? this.aiWidth - 68 : 12);
-            this.aiStartY = this.aiY * Math.max(0, this.aiHeight - 68);
+              : (this.aiSide === 1 ? this.aiWidth - 58 : 12);
+            this.aiStartY = this.aiY * Math.max(0, this.aiHeight - 58);
           })
           .onActionUpdate((event: GestureEvent) => {
-            const maxX = Math.max(0, this.aiWidth - 56);
+            const maxX = Math.max(0, this.aiWidth - 46);
             this.aiBallPX = Math.min(Math.max(0, this.aiStartX + event.offsetX), maxX);
             this.aiY = Math.min(
               0.94,
-              Math.max(0.06, (this.aiStartY + event.offsetY) / Math.max(1, this.aiHeight - 56)),
+              Math.max(0.06, (this.aiStartY + event.offsetY) / Math.max(1, this.aiHeight - 46)),
             );
           })
           .onActionEnd(() => {
             this.aiSide = this.aiBallPX > this.aiWidth / 2 ? 1 : 0;
-            this.aiBallPX = this.aiSide === 1 ? Math.max(0, this.aiWidth - 68) : 12;
+            this.aiBallPX = this.aiSide === 1 ? Math.max(0, this.aiWidth - 58) : 12;
           }),
       )
   }
@@ -6564,16 +6573,10 @@ struct Index {
           Text('AI 助手').fontSize(15).fontWeight(FontWeight.Bold).fontColor(this.c().text)
           Text(`≈${this.ai.tokens} tokens`).fontSize(9).fontFamily('monospace').fontColor(this.c().textDim)
           Blank()
-          Text('设置').fontSize(11).fontColor(this.c().textMuted)
-            .onClick(() => this.openAiSettings())
           Text('✕').fontSize(14).fontColor(this.c().textDim)
             .onClick(() => { this.aiOpen = false; })
         }
         .width('100%')
-
-        if (this.aiSettingsOpen) {
-          this.AiSettingsFields()
-        }
 
         Scroll() {
           Column({ space: 6 }) {
@@ -6626,6 +6629,8 @@ struct Index {
             .layoutWeight(1)
             .height(38)
             .fontSize(11.5)
+            .fontColor(this.c().text)
+            .placeholderColor(this.c().textDim)
             .onChange((value: string) => { this.aiInput = value; })
           Text('发送')
             .fontSize(12.5)
@@ -6682,6 +6687,7 @@ struct Index {
             baseUrl: this.aiBaseUrl.trim(),
             model: this.aiModel.trim(),
             apiKey: this.aiKey.trim(),
+            enabled: this.ai.config.enabled,
             autoSubmit: this.aiAutoSubmit,
           };
           this.ai.saveConfig(next);
@@ -6861,7 +6867,8 @@ struct Index {
           .borderRadius(8)
           .onClick(() => {
             this.goPage(true, () => {
-              this.settingsOpen = true;
+              this.loadAiFields();
+        this.settingsOpen = true;
             });
           })
         Text('诊断')
@@ -7458,6 +7465,83 @@ struct Index {
     .border({ width: 1, color: this.c().border })
     .width('100%')
 
+    Text('AI 助手').fontSize(11).fontColor(this.c().textDim).width('100%').textAlign(TextAlign.Start)
+
+    Row({ space: 8 }) {
+      Column({ space: 3 }) {
+        Text('启用 AI 助手').fontSize(14).fontColor(this.c().text)
+        Text('关闭后悬浮球隐藏，不发起请求').fontSize(10.5).fontColor(this.c().textDim)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      Toggle({ type: ToggleType.Switch, isOn: this.ai.config.enabled })
+        .onChange((value: boolean) => {
+          const next: AiConfig = {
+            baseUrl: this.ai.config.baseUrl,
+            model: this.ai.config.model,
+            apiKey: this.ai.config.apiKey,
+            enabled: value,
+            autoSubmit: this.ai.config.autoSubmit,
+          };
+          this.ai.saveConfig(next);
+          this.aiRev = this.ai.bump();
+        })
+    }
+    .width('100%')
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .alignItems(VerticalAlign.Center)
+    .backgroundColor(this.c().card)
+    .borderRadius(16)
+    .border({ width: 1, color: this.c().border })
+
+    if (this.ai.config.enabled) {
+      Column({ space: 8 }) {
+        TextInput({ text: this.aiBaseUrl, placeholder: '接口地址（OpenAI 兼容）' })
+          .fontSize(11)
+          .height(36)
+          .fontColor(this.c().text)
+          .placeholderColor(this.c().textDim)
+          .onChange((value: string) => { this.aiBaseUrl = value; })
+        TextInput({ text: this.aiModel, placeholder: '模型名' })
+          .fontSize(11)
+          .height(36)
+          .fontColor(this.c().text)
+          .placeholderColor(this.c().textDim)
+          .onChange((value: string) => { this.aiModel = value; })
+        TextInput({ text: this.aiKey, placeholder: 'API Key（只存本机）' })
+          .type(InputType.Password)
+          .fontSize(11)
+          .height(36)
+          .fontColor(this.c().text)
+          .placeholderColor(this.c().textDim)
+          .onChange((value: string) => { this.aiKey = value; })
+        Row({ space: 8 }) {
+          Text('AI 修改后自动提交').fontSize(10.5).fontColor(this.c().textMuted).layoutWeight(1)
+          Toggle({ type: ToggleType.Switch, isOn: this.aiAutoSubmit })
+            .onChange((value: boolean) => { this.aiAutoSubmit = value; })
+        }
+        .width('100%')
+        Text('保存 AI 设置').fontSize(12).fontColor(this.c().accent)
+          .onClick(() => {
+            const next: AiConfig = {
+              baseUrl: this.aiBaseUrl.trim(),
+              model: this.aiModel.trim(),
+              apiKey: this.aiKey.trim(),
+              enabled: true,
+              autoSubmit: this.aiAutoSubmit,
+            };
+            this.ai.saveConfig(next);
+            this.aiRev = this.ai.bump();
+            promptAction.showToast({ message: '已保存', duration: 1600 });
+          })
+      }
+      .width('100%')
+      .padding(12)
+      .backgroundColor(this.c().card)
+      .borderRadius(16)
+      .border({ width: 1, color: this.c().border })
+    }
+
     Text('工作流参数').fontSize(11).fontColor(this.c().textDim).width('100%').textAlign(TextAlign.Start)
     Row({ space: 8 }) {
       Column({ space: 3 }) {
@@ -7813,7 +7897,7 @@ struct Index {
           },
         })
       }
-      if (this.running) {
+      if (this.running && this.ai.config.enabled) {
         this.AiBall()
       }
       if (this.aiOpen) {

@@ -9,6 +9,7 @@ export interface AiConfig {
   baseUrl: string;
   model: string;
   apiKey: string;
+  enabled: boolean;
   autoSubmit: boolean;
 }
 
@@ -63,7 +64,7 @@ const SYSTEM_PROMPT: string = [
  * Key 目前存在 preferences（TODO：换成 Asset Store/HUKS），只在请求头里使用，不写日志。
  */
 export class AiAssistant {
-  config: AiConfig = { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', apiKey: '', autoSubmit: false };
+  config: AiConfig = { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', apiKey: '', enabled: false, autoSubmit: false };
   messages: AiChatMessage[] = [];
   pending: AiPending | null = null;
   busy: boolean = false;
@@ -82,6 +83,7 @@ export class AiAssistant {
         baseUrl: this.store.getSync('base_url', this.config.baseUrl) as string,
         model: this.store.getSync('model', this.config.model) as string,
         apiKey: this.secrets.load(),
+        enabled: this.store.getSync('enabled', false) as boolean,
         autoSubmit: this.store.getSync('auto_submit', false) as boolean,
       };
     } catch (err) {
@@ -97,6 +99,7 @@ export class AiAssistant {
     }
     store.putSync('base_url', next.baseUrl);
     store.putSync('model', next.model);
+    store.putSync('enabled', next.enabled);
     store.putSync('auto_submit', next.autoSubmit);
     this.secrets.save(next.apiKey);
     store.flush();

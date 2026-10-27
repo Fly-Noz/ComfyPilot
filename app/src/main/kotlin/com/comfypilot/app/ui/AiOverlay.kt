@@ -70,7 +70,7 @@ fun AiFloatingOverlay(visible: Boolean) {
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val density = LocalDensity.current
-        val ballPx = with(density) { 54.dp.toPx() }
+        val ballPx = with(density) { 46.dp.toPx() }
         val widthPx = with(density) { maxWidth.toPx() } - ballPx
         val heightPx = with(density) { maxHeight.toPx() } - ballPx
 
@@ -80,10 +80,14 @@ fun AiFloatingOverlay(visible: Boolean) {
 
         Box(
             modifier = Modifier
-                .size(54.dp)
+                .size(46.dp)
                 .offsetPx(dragX, (yFraction * heightPx))
                 .clip(CircleShape)
-                .background(c.gradientBrush())
+                .background(
+                    Brush.linearGradient(
+                        c.gradient.map { it.copy(alpha = 0.55f) },
+                    ),
+                )
                 .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
                 .pointerInput(Unit) {
                     detectDragGestures(
@@ -108,7 +112,7 @@ fun AiFloatingOverlay(visible: Boolean) {
             Text(
                 text = "AI",
                 color = Color.White,
-                fontSize = 15.sp,
+                fontSize = 12.sp,
                 fontFamily = SpectrumMono,
             )
         }
@@ -135,7 +139,6 @@ fun AiChatDialog(onDismiss: () -> Unit) {
     val c = Spectrum.colors
     var snapshot by remember { mutableStateOf(AiRuntime.snapshot()) }
     var input by remember { mutableStateOf("") }
-    var settingsOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     LaunchedEffect(Unit) {
@@ -157,7 +160,7 @@ fun AiChatDialog(onDismiss: () -> Unit) {
         Column(
             modifier = Modifier
                 .fillMaxWidth(0.94f)
-                .heightIn(max = 620.dp)
+                .heightIn(min = 480.dp, max = 640.dp)
                 .clip(RoundedCornerShape(22.dp))
                 .background(c.dialog)
                 .border(1.dp, c.borderStrong, RoundedCornerShape(22.dp))
@@ -173,14 +176,6 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                     fontFamily = SpectrumMono,
                 )
                 Text(
-                    text = "设置",
-                    color = c.textMuted,
-                    fontSize = 11.sp,
-                    modifier = Modifier
-                        .clickableNoRipple { settingsOpen = !settingsOpen }
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                )
-                Text(
                     text = "✕",
                     color = c.textDim,
                     fontSize = 14.sp,
@@ -190,19 +185,9 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                 )
             }
 
-            if (settingsOpen) {
-                AiConfigEditor(
-                    initial = snapshot.config,
-                    onSave = {
-                        AiRuntime.saveConfig(it)
-                        settingsOpen = false
-                    },
-                )
-            }
-
             LazyColumn(
                 state = listState,
-                modifier = Modifier.weight(1f, fill = false),
+                modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 items(snapshot.messages) { message ->

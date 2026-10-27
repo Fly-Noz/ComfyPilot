@@ -237,7 +237,7 @@ fun ComfyPilotApp(
             }
 
             // AI 悬浮球：只在已连接时出现。
-            AiFloatingOverlay(visible = state.lease != null)
+            AiFloatingOverlay(visible = state.lease != null && AiRuntime.config.enabled)
         }
     }
 }

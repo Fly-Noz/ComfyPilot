@@ -1,6 +1,9 @@
 package com.comfypilot.app.ai
 
 import android.content.Context
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
@@ -40,6 +43,8 @@ data class AiConfig(
     val baseUrl: String = "https://api.deepseek.com/v1",
     val model: String = "deepseek-chat",
     val apiKey: String = "",
+    /** 总开关：关闭后悬浮球不出现，也不会发起请求。 */
+    val enabled: Boolean = false,
     /** true：AI 改完直接应用并提交；false：先展示 diff 等用户确认。 */
     val autoSubmit: Boolean = false,
 ) {
@@ -91,6 +96,7 @@ class AiSecretStore(context: Context) {
         baseUrl = prefs.getString("base_url", null) ?: AiConfig().baseUrl,
         model = prefs.getString("model", null) ?: AiConfig().model,
         apiKey = decrypt(prefs.getString("api_key", null).orEmpty()),
+        enabled = prefs.getBoolean("enabled", false),
         autoSubmit = prefs.getBoolean("auto_submit", false),
     )
 
@@ -99,6 +105,7 @@ class AiSecretStore(context: Context) {
             .putString("base_url", config.baseUrl.trim())
             .putString("model", config.model.trim())
             .putString("api_key", encrypt(config.apiKey.trim()))
+            .putBoolean("enabled", config.enabled)
             .putBoolean("auto_submit", config.autoSubmit)
             .apply()
     }
@@ -164,7 +171,7 @@ object AiRuntime {
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    var config: AiConfig = AiConfig()
+    var config: AiConfig by mutableStateOf(AiConfig())
         private set
     var messages: List<AiChatMessage> = emptyList()
         private set
@@ -208,6 +215,10 @@ object AiRuntime {
     fun send(prompt: String) {
         val text = prompt.trim()
         if (text.isEmpty() || busy) return
+        if (!config.enabled) {
+            error = "先在设置中启用 AI 助手"
+            return
+        }
         if (!config.ready) {
             error = "先在设置里填好接口地址、模型和 API Key"
             return
