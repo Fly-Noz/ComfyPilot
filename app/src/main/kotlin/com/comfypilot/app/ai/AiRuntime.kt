@@ -317,7 +317,7 @@ object AiRuntime {
         }
         repeat(6) { round ->
             val state = currentHost.editState()
-            val digest = view?.let { com.comfypilot.core.ai.AiDigest.build(it, state) }
+            val digest = view?.let { com.comfypilot.core.ai.AiDigest.summary(it, state) }
             tokenEstimate = (digest?.let { com.comfypilot.core.ai.AiDigest.estimateTokens(it) } ?: 0) +
                 messages.sumOf { com.comfypilot.core.ai.AiDigest.estimateTokens(it.content) }
             currentHostPaths = allowedPaths(currentHost)
@@ -388,6 +388,40 @@ object AiRuntime {
                             """{"ok":true,"pending":true,"summary":${quote(proposal.summary)}}"""
                         }
                     }
+                }
+            }
+
+            "list_graphs" -> {
+                val view = currentHost.digest()
+                val state = currentHost.editState()
+                if (view == null) """{"ok":false,"error":"没有打开工作流"}"""
+                else com.comfypilot.core.ai.AiQuery.graphs(view, state).toString()
+            }
+
+            "list_nodes" -> {
+                val view = currentHost.digest()
+                val state = currentHost.editState()
+                if (view == null) {
+                    """{"ok":false,"error":"没有打开工作流"}"""
+                } else {
+                    val parsed = runCatching { json.parseToJsonElement(argsJson).jsonObject }.getOrNull()
+                    val query = parsed?.get("query")?.jsonPrimitive?.contentOrNull
+                    val limit = parsed?.get("limit")?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 40
+                    com.comfypilot.core.ai.AiQuery.nodes(view, state, query, limit).toString()
+                }
+            }
+
+            "get_node" -> {
+                val view = currentHost.digest()
+                val state = currentHost.editState()
+                val id = runCatching {
+                    json.parseToJsonElement(argsJson).jsonObject["id"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                }.getOrNull()
+                if (view == null || id == null) {
+                    """{"ok":false,"error":"缺少工作流或节点 id"}"""
+                } else {
+                    com.comfypilot.core.ai.AiQuery.node(view, state, id)?.toString()
+                        ?: """{"ok":false,"error":"节点不存在"}"""
                 }
             }
 
@@ -506,11 +540,12 @@ object AiRuntime {
         - submit {}：提交当前工作流
         - open_workflow {path}：切换工作流（必须在可用工作区列表里）
         - ask_user {question, options[]}：需要用户确认或做选择时提问
+        - list_graphs {} / list_nodes {query?, limit?} / get_node {id}：按需查询图、节点与字段细节
 
         规则：
         1. 只改用户明确要求的内容，不要自作主张；
         2. 值必须匹配字段类型（INT 用数字，STRING 用字符串，BOOLEAN 用 true/false）；
-        3. 节点 id 与字段名必须来自工作流摘要，不确定就先问，不要猜；
+        3. 摘要只给节点索引；要改某个节点前，先用 list_nodes / get_node 查清 id、字段名与候选值；
         4. 用户说「当前 / 这个工作流」时，指上下文里的当前工作流；没有打开工作流时，说明无法修改并建议先打开；
         5. 有歧义、有多个可行方案、或改动影响较大时，先调用 ask_user（2–4 个选项），不要自己拍板；
         6. 需要提交时调用 submit；回复用中文，简短说明改了什么。
@@ -647,6 +682,67 @@ object AiRuntime {
                                     },
                                 )
                                 put("required", buildJsonArray { add(okJson("path")) })
+                            },
+                        )
+                    },
+                )
+            },
+        )
+        add(
+            buildJsonObject {
+                put("type", "function")
+                put(
+                    "function",
+                    buildJsonObject {
+                        put("name", "list_graphs")
+                        put("description", "列出工作流里的节点图及选中状态")
+                        put("parameters", buildJsonObject { put("type", "object"); put("properties", buildJsonObject { }) })
+                    },
+                )
+            },
+        )
+        add(
+            buildJsonObject {
+                put("type", "function")
+                put(
+                    "function",
+                    buildJsonObject {
+                        put("name", "list_nodes")
+                        put("description", "按标题/类型/id 搜索节点，返回轻量列表")
+                        put(
+                            "parameters",
+                            buildJsonObject {
+                                put("type", "object")
+                                put(
+                                    "properties",
+                                    buildJsonObject {
+                                        put("query", buildJsonObject { put("type", "string") })
+                                        put("limit", buildJsonObject { put("type", "integer") })
+                                    },
+                                )
+                            },
+                        )
+                    },
+                )
+            },
+        )
+        add(
+            buildJsonObject {
+                put("type", "function")
+                put(
+                    "function",
+                    buildJsonObject {
+                        put("name", "get_node")
+                        put("description", "读取单个节点的字段、当前值、COMBO 候选")
+                        put(
+                            "parameters",
+                            buildJsonObject {
+                                put("type", "object")
+                                put(
+                                    "properties",
+                                    buildJsonObject { put("id", buildJsonObject { put("type", "integer") }) },
+                                )
+                                put("required", buildJsonArray { add(okJson("id")) })
                             },
                         )
                     },

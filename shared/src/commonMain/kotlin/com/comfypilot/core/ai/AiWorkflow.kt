@@ -2,6 +2,7 @@ package com.comfypilot.core.ai
 
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -14,6 +15,11 @@ data class AiField(
     val type: String,
     val value: JsonElement?,
     val editable: Boolean,
+    /** COMBO 的可选值（截断后），其它类型为空。 */
+    val options: List<String> = emptyList(),
+    /** 该输入由哪个节点驱动；null 表示可编辑控件。 */
+    val fromNode: Int? = null,
+    val fromSlot: Int? = null,
 )
 
 data class AiNode(
@@ -105,8 +111,129 @@ object AiDigest {
             }
         }
 
+    /** 摘要：只发图、计数和节点索引；字段细节用 AiQuery 按需取。 */
+    fun summary(view: AiWorkflowView, state: AiEditState): JsonObject = buildJsonObject {
+        put("path", view.path)
+        putJsonArray("graphs") {
+            view.graphs.forEach { graph ->
+                add(
+                    buildJsonObject {
+                        put("id", graph.id)
+                        put("title", graph.title)
+                        put("selected", state.graphs?.contains(graph.id) ?: graph.selected)
+                    },
+                )
+            }
+        }
+        put(
+            "counts",
+            buildJsonObject {
+                put("nodes", view.nodes.size)
+                put("reachable", view.nodes.count { it.reachable })
+            },
+        )
+        putJsonArray("nodeIndex") {
+            view.nodes.forEach { node ->
+                add(
+                    buildJsonObject {
+                        put("id", node.id)
+                        put("class", node.className)
+                        put("title", node.title)
+                        put("enabled", state.isEnabled(node))
+                        put("reachable", node.reachable)
+                    },
+                )
+            }
+        }
+    }
+
     /** 粗略 token 估算：4 个字符约 1 token，够用来提示成本。 */
     fun estimateTokens(text: String): Int = (text.length / 4).coerceAtLeast(1)
 
     fun estimateTokens(element: JsonElement): Int = estimateTokens(element.toString())
+}
+
+
+/** 轻量查询工具：模型需要细节时按需取，不一次性灌全量。 */
+object AiQuery {
+
+    fun graphs(view: AiWorkflowView, state: AiEditState): JsonObject = buildJsonObject {
+        putJsonArray("graphs") {
+            view.graphs.forEach { graph ->
+                add(
+                    buildJsonObject {
+                        put("id", graph.id)
+                        put("title", graph.title)
+                        put("selected", state.graphs?.contains(graph.id) ?: graph.selected)
+                    },
+                )
+            }
+        }
+    }
+
+    fun nodes(
+        view: AiWorkflowView,
+        state: AiEditState,
+        query: String? = null,
+        limit: Int = 40,
+    ): JsonObject {
+        val needle = query?.trim()?.lowercase().orEmpty()
+        val matched = view.nodes.filter { node ->
+            needle.isEmpty() ||
+                node.title.lowercase().contains(needle) ||
+                node.className.lowercase().contains(needle) ||
+                node.id.toString() == needle
+        }
+        return buildJsonObject {
+            put("total", matched.size)
+            putJsonArray("nodes") {
+                matched.take(limit.coerceIn(1, 100)).forEach { node ->
+                    add(
+                        buildJsonObject {
+                            put("id", node.id)
+                            put("class", node.className)
+                            put("title", node.title)
+                            put("enabled", state.isEnabled(node))
+                            put("reachable", node.reachable)
+                            put("editableFields", node.fields.count { it.editable })
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    fun node(
+        view: AiWorkflowView,
+        state: AiEditState,
+        id: Int,
+    ): JsonObject? {
+        val node = view.node(id) ?: return null
+        return buildJsonObject {
+            put("id", node.id)
+            put("class", node.className)
+            put("title", node.title)
+            put("enabled", state.isEnabled(node))
+            put("reachable", node.reachable)
+            putJsonArray("fields") {
+                node.fields.forEach { field ->
+                    add(
+                        buildJsonObject {
+                            put("name", field.input)
+                            put("type", field.type)
+                            put("value", state.valueOf(field) ?: JsonNull)
+                            put("editable", field.editable)
+                            if (field.options.isNotEmpty()) {
+                                putJsonArray("options") {
+                                    field.options.take(20).forEach { add(JsonPrimitive(it)) }
+                                }
+                            }
+                            field.fromNode?.let { put("fromNode", it) }
+                            field.fromSlot?.let { put("fromSlot", it) }
+                        },
+                    )
+                }
+            }
+        }
+    }
 }
