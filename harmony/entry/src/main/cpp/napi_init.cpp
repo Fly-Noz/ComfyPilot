@@ -6,6 +6,9 @@
 #include "napi/native_api.h"
 #include "libcomfypilot_core_api.h"
 
+extern "C" int32_t cp_ai_digest(const char* request, void* buffer, int32_t capacity);
+extern "C" int32_t cp_ai_apply(const char* request, void* buffer, int32_t capacity);
+
 // VHS 动画帧 ABI（Kotlin @CName 导出）
 extern "C" int32_t cp_session_preview_animation(void* buffer, int32_t capacity);
 
@@ -158,6 +161,38 @@ napi_value NativeSessionPreviewAnimation(napi_env env, napi_callback_info /*info
     return MakeString(env, std::string(buffer.data(), static_cast<size_t>(needed)));
 }
 
+napi_value NativeAiBridge(napi_env env, napi_callback_info info, bool apply) {
+    size_t argc = 1;
+    napi_value args[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
+    std::string request = argc > 0 ? ReadString(env, args[0]) : "{}";
+    std::vector<char> buffer(kJsonBufferSize, 0);
+    int32_t needed = apply
+        ? cp_ai_apply(request.data(), buffer.data(), static_cast<int32_t>(buffer.size()))
+        : cp_ai_digest(request.data(), buffer.data(), static_cast<int32_t>(buffer.size()));
+    if (needed <= 0) {
+        return MakeString(env, R"({"ok":false,"message":"AI 桥没有返回内容"})");
+    }
+    if (static_cast<size_t>(needed) >= buffer.size()) {
+        buffer.assign(static_cast<size_t>(needed) + 1, 0);
+        needed = apply
+            ? cp_ai_apply(request.data(), buffer.data(), static_cast<int32_t>(buffer.size()))
+            : cp_ai_digest(request.data(), buffer.data(), static_cast<int32_t>(buffer.size()));
+        if (needed <= 0 || static_cast<size_t>(needed) >= buffer.size()) {
+            return MakeString(env, R"({"ok":false,"message":"AI 响应超出缓冲区"})");
+        }
+    }
+    return MakeString(env, std::string(buffer.data(), static_cast<size_t>(needed)));
+}
+
+napi_value NativeAiDigest(napi_env env, napi_callback_info info) {
+    return NativeAiBridge(env, info, false);
+}
+
+napi_value NativeAiApply(napi_env env, napi_callback_info info) {
+    return NativeAiBridge(env, info, true);
+}
+
 napi_value NativeSessionDestroy(napi_env env, napi_callback_info /*info*/) {
     cp_session_destroy();
     napi_value result = nullptr;
@@ -176,6 +211,8 @@ static napi_value Init(napi_env env, napi_value exports) {
         {"nativeSessionPump", nullptr, NativeSessionPump, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeSessionSend", nullptr, NativeSessionSend, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeSessionWorkflow", nullptr, NativeSessionWorkflow, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"nativeAiDigest", nullptr, NativeAiDigest, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"nativeAiApply", nullptr, NativeAiApply, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeSessionPreview", nullptr, NativeSessionPreview, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeSessionPreviewAnimation", nullptr, NativeSessionPreviewAnimation, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeSessionDestroy", nullptr, NativeSessionDestroy, nullptr, nullptr, nullptr, napi_default, nullptr},

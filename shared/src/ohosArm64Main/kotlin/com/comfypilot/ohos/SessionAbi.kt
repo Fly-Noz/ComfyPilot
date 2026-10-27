@@ -171,6 +171,24 @@ fun cpSessionPreviewAnimation(buffer: CPointer<ByteVar>?, capacity: Int): Int {
     return writeUtf8(result, buffer, capacity)
 }
 
+/**
+ * AI 工具桥：输入工作流视图 + 编辑状态，输出 digest 或应用结果。
+ * 请求/响应都是 JSON，约定与 cp_session_pump 相同。
+ */
+@OptIn(ExperimentalForeignApi::class)
+@CName("cp_ai_digest")
+fun cpAiDigest(requestJson: CPointer<ByteVar>?, buffer: CPointer<ByteVar>?, capacity: Int): Int {
+    val raw = requestJson?.toKString() ?: "{}"
+    return writeUtf8(com.comfypilot.core.ai.AiBridge.digest(raw), buffer, capacity)
+}
+
+@OptIn(ExperimentalForeignApi::class)
+@CName("cp_ai_apply")
+fun cpAiApply(requestJson: CPointer<ByteVar>?, buffer: CPointer<ByteVar>?, capacity: Int): Int {
+    val raw = requestJson?.toKString() ?: "{}"
+    return writeUtf8(com.comfypilot.core.ai.AiBridge.apply(raw), buffer, capacity)
+}
+
 private fun escapeJson(value: String): String = value
     .replace("\\", "\\\\")
     .replace("\"", "\\\"")

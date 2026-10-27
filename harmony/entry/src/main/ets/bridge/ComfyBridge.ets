@@ -3,6 +3,8 @@ import {
   nativeSessionDestroy,
   nativeSessionPreview,
   nativeSessionPreviewAnimation,
+  nativeAiDigest,
+  nativeAiApply,
   nativeSessionPump,
   nativeSessionSend,
   nativeSessionWorkflow,
@@ -415,6 +417,16 @@ export class ComfyBridge {
   /** VHS 动画预览的一整组帧（base64），按批拉取，不进 500ms 状态帧。 */
   previewAnimation(): string {
     return nativeSessionPreviewAnimation();
+  }
+
+  /** AI：把工作流视图 + 编辑状态压缩成 digest。 */
+  aiDigest(requestJson: string): string {
+    return nativeAiDigest(requestJson);
+  }
+
+  /** AI：校验并应用模型给出的 proposal。 */
+  aiApply(requestJson: string): string {
+    return nativeAiApply(requestJson);
   }
 
   reconnect(): void {

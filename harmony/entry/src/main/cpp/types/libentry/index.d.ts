@@ -6,4 +6,6 @@ export const nativeSessionSend: (messageJson: string) => number;
 export const nativeSessionWorkflow: (requestJson: string) => string;
 export const nativeSessionPreview: () => string;
 export const nativeSessionPreviewAnimation: () => string;
+export const nativeAiDigest: (request: string) => string;
+export const nativeAiApply: (request: string) => string;
 export const nativeSessionDestroy: () => void;
