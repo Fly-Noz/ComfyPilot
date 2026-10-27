@@ -6736,11 +6736,12 @@ struct Index {
         .padding({ left: 12, right: 12, top: 8, bottom: 12 })
       }
       .width('92%')
-      .height('72%')
-      .backgroundColor(this.c().dialog)
+      .height('66%')
+      .backgroundColor(this.glassPanelColor())
+      .backdropBlur(24)
       .borderRadius(22)
       .border({ width: 1, color: this.c().borderStrong })
-      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+      .shadow({ radius: 28, color: 'rgba(0,0,0,0.45)', offsetY: 10 })
     }
     .width('100%')
     .height('100%')
