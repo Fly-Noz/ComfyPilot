@@ -7,7 +7,8 @@ package com.comfypilot.core.ai
  * list_graphs / list_nodes / get_node，模型在鸿蒙上根本不会去查节点——这是
  * 真实发生过的协议漂移。现在两端都读这一份，改工具只改这里。
  *
- * 注意：这里只管「声明」。工具循环与执行仍在两端运行时里，下一步再收。
+ * 注意：这里只管「声明」。循环在 [AiLoopState]（Android 已接入），
+ * 鸿蒙那份等 `cp_ai_step` / `cp_ai_send` 落地后删除。
  */
 object AiToolSpec {
     val json: String = """

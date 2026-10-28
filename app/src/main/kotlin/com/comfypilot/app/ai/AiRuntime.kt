@@ -10,9 +10,17 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import com.comfypilot.core.ai.AiApplyResult
 import com.comfypilot.core.ai.AiChange
+import com.comfypilot.core.ai.AiDigest
+import com.comfypilot.core.ai.AiDoneReason
 import com.comfypilot.core.ai.AiEditState
 import com.comfypilot.core.ai.AiEdits
+import com.comfypilot.core.ai.AiLoopContext
+import com.comfypilot.core.ai.AiLoopState
+import com.comfypilot.core.ai.AiLoopStep
 import com.comfypilot.core.ai.AiOp
+import com.comfypilot.core.ai.AiQuery
+import com.comfypilot.core.ai.AiToolEnv
+import com.comfypilot.core.ai.AiToolOutcome
 import com.comfypilot.core.ai.AiToolRouter
 import com.comfypilot.core.ai.AiWorkflowView
 import kotlinx.coroutines.CoroutineScope
@@ -646,64 +654,94 @@ object AiRuntime {
         error = "已停止"
     }
 
+    /**
+     * 一轮用户输入对应的工具循环。状态机在共享层（[AiLoopState]），这里只做三件事：
+     * 发请求、执行工具、把结果交回去。
+     */
     private suspend fun runLoop(currentHost: AiWorkflowHost) {
-        val view = currentHost.digest()
-        val conversation = mutableListOf<JsonObject>()
-        conversation += userTurn(pendingUserText, pendingImages)
-        repeat(6) { round ->
-            val state = currentHost.editState()
-            val digest = view?.let { com.comfypilot.core.ai.AiDigest.summary(it, state) }
-            tokenEstimate = (digest?.let { com.comfypilot.core.ai.AiDigest.estimateTokens(it) } ?: 0) +
-                messages.sumOf { com.comfypilot.core.ai.AiDigest.estimateTokens(it.content) }
-            currentHostPaths = allowedPaths(currentHost)
-            currentHostPath = view?.path.orEmpty()
-            val message: JsonObject = try {
-                callModel(digest, conversation)
-            } catch (err: Throwable) {
-                // 模型不认图片时退回纯文本，并记住这个模型，下次不再带图。
-                if (round == 0 && pendingImages.isNotEmpty()) {
-                    aiLog("vision rejected: ${err.message}")
-                    visionOffModel = config.model
-                    prefs?.edit()?.putString("vision_off_model", visionOffModel)?.apply()
-                    pendingImages = emptyList()
-                    conversation[0] = userTurn(pendingUserText, emptyList())
-                    messages = messages + AiChatMessage(
-                        "assistant",
-                        "（当前模型不接受图片输入，已改用文件名描述继续；要让它看图，请在设置里换支持视觉的模型）",
-                    )
-                    callModel(digest, conversation)
-                } else {
-                    throw err
+        val loop = AiLoopState()
+        loop.start(userTurn(pendingUserText, pendingImages))
+        var step: AiLoopStep = loop.nextRequest(contextFor(currentHost))
+        while (true) {
+            when (step) {
+                is AiLoopStep.Http -> {
+                    val message = try {
+                        postModel(step.body)
+                    } catch (err: Throwable) {
+                        // 模型不认图片时退回纯文本，并记住这个模型，下次不再带图。
+                        if (loop.round == 1 && pendingImages.isNotEmpty()) {
+                            aiLog("vision rejected: ${err.message}")
+                            visionOffModel = config.model
+                            prefs?.edit()?.putString("vision_off_model", visionOffModel)?.apply()
+                            pendingImages = emptyList()
+                            loop.replaceUserTurn(userTurn(pendingUserText, emptyList()))
+                            messages = messages + AiChatMessage(
+                                "assistant",
+                                "（当前模型不接受图片输入，已改用文件名描述继续；要让它看图，请在设置里换支持视觉的模型）",
+                            )
+                            step = loop.nextRequest(contextFor(currentHost))
+                            continue
+                        }
+                        throw err
+                    }
+                    step = loop.acceptReply(message)
                 }
-            }
-            val toolCalls = message["tool_calls"]?.jsonArray
-            if (toolCalls == null || toolCalls.isEmpty()) {
-                val text = message["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                messages = messages + AiChatMessage("assistant", text.ifBlank { "（空响应）" })
-                return
-            }
-            // 标准工具往返：assistant 的 tool_calls 原样带回，结果按 tool_call_id 回填。
-            conversation += message
-            for (call in toolCalls) {
-                val callObject = call.jsonObject
-                val id = callObject["id"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                val function = callObject["function"]?.jsonObject ?: continue
-                val name = function["name"]?.jsonPrimitive?.contentOrNull ?: continue
-                val args = function["arguments"]?.jsonPrimitive?.contentOrNull.orEmpty()
-                val result = executeTool(name, args, currentHost)
-                conversation += buildJsonObject {
-                    put("role", "tool")
-                    put("tool_call_id", id)
-                    put("content", result)
+
+                is AiLoopStep.CallTool -> {
+                    val result = executeTool(step.name, step.args, currentHost)
+                    // 工具执行会改 pending / question；循环靠这两个标志决定停不停。
+                    if (pending != null) loop.markPending()
+                    question?.let { loop.markQuestion(it.question) }
+                    step = loop.acceptToolResult(step.callId, result, contextFor(currentHost))
                 }
-            }
-            // 确认模式下一旦产生待确认编辑，就停下来等用户操作。
-            if (pending != null || question != null) return
-            if (round == 5) {
-                error = "工具调用轮数过多，已停止"
-                return
+
+                is AiLoopStep.Done -> {
+                    finishLoop(step)
+                    return
+                }
             }
         }
+    }
+
+    private fun finishLoop(step: AiLoopStep.Done) {
+        when (step.reason) {
+            AiDoneReason.ANSWER ->
+                messages = messages + AiChatMessage("assistant", step.text.orEmpty().ifBlank { "（空响应）" })
+
+            AiDoneReason.ROUND_LIMIT, AiDoneReason.ERROR ->
+                error = step.text ?: "AI 请求失败"
+
+            // PENDING / QUESTION：界面已经有待确认提案或问题，这里不用再说话；
+            // STOPPED：stop() 已经写了「已停止」。
+            AiDoneReason.PENDING, AiDoneReason.QUESTION, AiDoneReason.STOPPED -> Unit
+        }
+    }
+
+    /**
+     * 每一轮请求的上下文。摘要必须每轮重算：模型可能刚切过工作流或改过字段，
+     * 沿用上一轮的摘要会让它对着旧值改。
+     */
+    private fun contextFor(currentHost: AiWorkflowHost): AiLoopContext {
+        val view = currentHost.digest()
+        val state = currentHost.editState()
+        val digest = view?.let { AiDigest.summary(it, state) }
+        tokenEstimate = (digest?.let { AiDigest.estimateTokens(it) } ?: 0) +
+            messages.sumOf { AiDigest.estimateTokens(it.content) }
+        val path = view?.path.orEmpty()
+        val paths = allowedPaths(currentHost)
+        val guide = currentHost.promptGuide()
+        val system = buildList {
+            add(AiPrompt.systemPrompt(config.model))
+            if (path.isNotEmpty()) add("用户当前停留的工作流：$path")
+            if (digest != null) add("当前工作流摘要：$digest")
+            if (paths.isNotEmpty()) {
+                add("可切换的工作流（open_workflow 用）：" + paths.take(60).joinToString("、"))
+            }
+            if (guide.isNotEmpty()) {
+                add("生成提示词规范（写 text/prompt 字段时必须遵守）：$guide")
+            }
+        }
+        return AiLoopContext(model = config.model, system = system)
     }
 
     private fun aiLog(message: String) {
@@ -713,43 +751,65 @@ object AiRuntime {
         com.comfypilot.app.DiagnosticsLog.append("ai $line")
     }
 
-    /** 把现有宿主能力包成共享路由器要的接口。 */
-    private fun toolEnv(currentHost: AiWorkflowHost): com.comfypilot.core.ai.AiToolEnv =
-        object : com.comfypilot.core.ai.AiToolEnv {
-            override fun submitCurrent(): Boolean = currentHost.submitCurrent()
-
-            override fun openWorkflow(path: String): Boolean = currentHost.openWorkflow(path)
-
+    /**
+     * 把现有宿主能力包成共享路由器要的接口。
+     *
+     * Android 的宿主能力就在本进程里，所以每个方法都能立刻给出 [AiToolOutcome.Value]；
+     * 鸿蒙那边同样的接口会返回 `CallHost` / `Fetch`，由 ArkTS 执行后再回填。
+     */
+    private fun toolEnv(currentHost: AiWorkflowHost): AiToolEnv =
+        object : AiToolEnv {
             override fun allowedPaths(): List<String> = this@AiRuntime.allowedPaths(currentHost)
 
-            override fun queryGraphs(): String {
-                val view = currentHost.digest() ?: return """{"ok":false,"error":"没有打开工作流"}"""
-                return com.comfypilot.core.ai.AiQuery.graphs(view, currentHost.editState()).toString()
+            override fun submit(): AiToolOutcome {
+                val ok = currentHost.submitCurrent()
+                // 操作记录跟着提交走：路由器的 submit 分支只拿结果，记一笔得在这里。
+                if (ok) actions = actions + "提交任务"
+                return AiToolOutcome.Value("""{"ok":$ok}""")
             }
 
-            override fun queryNodes(argsJson: String): String {
-                val view = currentHost.digest() ?: return """{"ok":false,"error":"没有打开工作流"}"""
+            override fun openWorkflow(path: String): AiToolOutcome {
+                val ok = currentHost.openWorkflow(path)
+                if (ok) actions = actions + "切换工作流：$path"
+                return AiToolOutcome.Value("""{"ok":$ok}""")
+            }
+
+            override fun queryGraphs(): AiToolOutcome {
+                val view = currentHost.digest()
+                    ?: return AiToolOutcome.Value("""{"ok":false,"error":"没有打开工作流"}""")
+                return AiToolOutcome.Value(AiQuery.graphs(view, currentHost.editState()).toString())
+            }
+
+            override fun queryNodes(argsJson: String): AiToolOutcome {
+                val view = currentHost.digest()
+                    ?: return AiToolOutcome.Value("""{"ok":false,"error":"没有打开工作流"}""")
                 val state = currentHost.editState()
                 val parsed = runCatching { json.parseToJsonElement(argsJson).jsonObject }.getOrNull()
                 val query = parsed?.get("query")?.jsonPrimitive?.contentOrNull
                 val limit = parsed?.get("limit")?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 40
-                return com.comfypilot.core.ai.AiQuery.nodes(view, state, query, limit).toString()
+                return AiToolOutcome.Value(AiQuery.nodes(view, state, query, limit).toString())
             }
 
-            override fun queryNode(argsJson: String): String {
-                val view = currentHost.digest() ?: return """{"ok":false,"error":"没有打开工作流"}"""
+            override fun queryNode(argsJson: String): AiToolOutcome {
+                val view = currentHost.digest()
+                    ?: return AiToolOutcome.Value("""{"ok":false,"error":"没有打开工作流"}""")
                 val id = runCatching {
                     json.parseToJsonElement(argsJson).jsonObject["id"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
-                }.getOrNull() ?: return """{"ok":false,"error":"缺少节点 id"}"""
-                return com.comfypilot.core.ai.AiQuery.node(view, currentHost.editState(), id)?.toString()
-                    ?: """{"ok":false,"error":"节点不存在"}"""
+                }.getOrNull() ?: return AiToolOutcome.Value("""{"ok":false,"error":"缺少节点 id"}""")
+                return AiToolOutcome.Value(
+                    AiQuery.node(view, currentHost.editState(), id)?.toString()
+                        ?: """{"ok":false,"error":"节点不存在"}""",
+                )
             }
 
-            override fun taskSummary(waitSeconds: Int): String = currentHost.taskSummary(waitSeconds)
+            override fun taskSummary(waitSeconds: Int): AiToolOutcome =
+                AiToolOutcome.Value(currentHost.taskSummary(waitSeconds))
 
-            override fun lookupPromptGuide(model: String): String = AiLookup.lookupPromptGuide(model)
+            override fun lookupPromptGuide(model: String): AiToolOutcome =
+                AiToolOutcome.Value(AiLookup.lookupPromptGuide(model))
 
-            override fun fetchDoc(url: String): String = AiLookup.fetchDoc(url)
+            override fun fetchDoc(url: String): AiToolOutcome =
+                AiToolOutcome.Value(AiLookup.fetchDoc(url))
         }
 
     private fun executeTool(name: String, argsJson: String, currentHost: AiWorkflowHost): String {
@@ -759,7 +819,15 @@ object AiRuntime {
         }
         aiLog("tool $name args=${argsJson.take(300)}")
         // 无状态工具交给共享路由器；propose_edits / ask_user 仍由本端处理。
-        AiToolRouter.execute(name, argsJson, toolEnv(currentHost))?.let { return it }
+        AiToolRouter.execute(name, argsJson, toolEnv(currentHost))?.let { outcome ->
+            return when (outcome) {
+                // 措辞统一由路由器收尾（submit 的核实提示就在里面）。
+                is AiToolOutcome.Value -> AiToolRouter.formatResult(name, outcome.json)
+                // Android 的宿主能力都在本进程里，不该收到指令；真收到就是接线错了。
+                is AiToolOutcome.CallHost, is AiToolOutcome.Fetch ->
+                    """{"ok":false,"error":"宿主指令未在本端实现"}"""
+            }
+        }
         return when (name) {
             "propose_edits" -> {
                 val proposal = AiEdits.parse(argsJson)
@@ -813,56 +881,6 @@ object AiRuntime {
                 }
             }
 
-            "list_graphs" -> {
-                val view = currentHost.digest()
-                val state = currentHost.editState()
-                if (view == null) """{"ok":false,"error":"没有打开工作流"}"""
-                else com.comfypilot.core.ai.AiQuery.graphs(view, state).toString()
-            }
-
-            "list_nodes" -> {
-                val view = currentHost.digest()
-                val state = currentHost.editState()
-                if (view == null) {
-                    """{"ok":false,"error":"没有打开工作流"}"""
-                } else {
-                    val parsed = runCatching { json.parseToJsonElement(argsJson).jsonObject }.getOrNull()
-                    val query = parsed?.get("query")?.jsonPrimitive?.contentOrNull
-                    val limit = parsed?.get("limit")?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 40
-                    com.comfypilot.core.ai.AiQuery.nodes(view, state, query, limit).toString()
-                }
-            }
-
-            "get_node" -> {
-                val view = currentHost.digest()
-                val state = currentHost.editState()
-                val id = runCatching {
-                    json.parseToJsonElement(argsJson).jsonObject["id"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
-                }.getOrNull()
-                if (view == null || id == null) {
-                    """{"ok":false,"error":"缺少工作流或节点 id"}"""
-                } else {
-                    com.comfypilot.core.ai.AiQuery.node(view, state, id)?.toString()
-                        ?: """{"ok":false,"error":"节点不存在"}"""
-                }
-            }
-
-            "lookup_prompt_guide" -> {
-                val model = runCatching {
-                    json.parseToJsonElement(argsJson).jsonObject["model"]?.jsonPrimitive?.contentOrNull
-                }.getOrNull()
-                if (model.isNullOrBlank()) """{"ok":false,"error":"model 为空"}"""
-                else AiLookup.lookupPromptGuide(model)
-            }
-
-            "fetch_doc" -> {
-                val url = runCatching {
-                    json.parseToJsonElement(argsJson).jsonObject["url"]?.jsonPrimitive?.contentOrNull
-                }.getOrNull()
-                if (url.isNullOrBlank()) """{"ok":false,"error":"url 为空"}"""
-                else AiLookup.fetchDoc(url)
-            }
-
             "ask_user" -> {
                 val parsed = runCatching { json.parseToJsonElement(argsJson).jsonObject }.getOrNull()
                 val question = parsed?.get("question")?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -878,46 +896,11 @@ object AiRuntime {
                 }
             }
 
-            "submit" -> {
-                actions = actions + "提交任务"
-                val ok = currentHost.submitCurrent()
-                if (ok) {
-                    """{"ok":true,"queued":true,"hint":"用 task_status（wait_seconds 例如 30）确认真实结果，别直接说已完成"}"""
-                } else {
-                    """{"ok":false,"error":"工作流还有未填字段或未就绪"}"""
-                }
-            }
-
-            "task_status" -> {
-                val wait = runCatching {
-                    json.parseToJsonElement(argsJson).jsonObject["wait_seconds"]
-                        ?.jsonPrimitive?.contentOrNull?.toIntOrNull()
-                }.getOrNull() ?: 0
-                currentHost.taskSummary(wait.coerceIn(0, 120))
-            }
-
-            "open_workflow" -> {
-                val path = runCatching {
-                    json.parseToJsonElement(argsJson).jsonObject["path"]?.jsonPrimitive?.contentOrNull
-                }.getOrNull()
-                if (path.isNullOrBlank()) {
-                    """{"ok":false,"error":"path 为空"}"""
-                } else if (path !in allowedPaths(currentHost)) {
-                    """{"ok":false,"error":"该工作流不在当前 AI 工作区内"}"""
-                } else {
-                    actions = actions + "切换工作流：$path"
-                    val ok = currentHost.openWorkflow(path)
-                    """{"ok":$ok}"""
-                }
-            }
-
             else -> """{"ok":false,"error":"未知工具 $name"}"""
         }
     }
 
     private var job: Job? = null
-    private var currentHostPaths: List<String> = emptyList()
-    private var currentHostPath: String = ""
 
     /** 用户这一轮的消息：有图时按 OpenAI 多模态格式给 content 数组。 */
     private fun userTurn(text: String, images: List<AiImage>): JsonObject = buildJsonObject {
@@ -947,67 +930,14 @@ object AiRuntime {
         }
     }
 
-    private fun callModel(digest: JsonObject?, conversation: List<JsonObject>): JsonObject {
-        val body = buildJsonObject {
-            put("model", config.model)
-            put("temperature", 0.2)
-            putJsonArray("messages") {
-                add(
-                    buildJsonObject {
-                        put("role", "system")
-                        put("content", AiPrompt.systemPrompt(config.model))
-                    },
-                )
-                if (currentHostPath.isNotEmpty()) {
-                    add(
-                        buildJsonObject {
-                            put("role", "system")
-                            put("content", "用户当前停留的工作流：${currentHostPath}")
-                        },
-                    )
-                }
-                if (digest != null) {
-                    add(
-                        buildJsonObject {
-                            put("role", "system")
-                            put("content", "当前工作流摘要：${digest}")
-                        },
-                    )
-                }
-                val paths = currentHostPaths
-                if (paths.isNotEmpty()) {
-                    add(
-                        buildJsonObject {
-                            put("role", "system")
-                            put(
-                                "content",
-                                "可切换的工作流（open_workflow 用）：" +
-                                    paths.take(60).joinToString("、"),
-                            )
-                        },
-                    )
-                }
-                val guide = host?.promptGuide().orEmpty()
-                if (guide.isNotEmpty()) {
-                    add(
-                        buildJsonObject {
-                            put("role", "system")
-                            put("content", "生成提示词规范（写 text/prompt 字段时必须遵守）：$guide")
-                        },
-                    )
-                }
-                conversation.forEach { add(it) }
-            }
-            // 工具声明由共享层提供，两端不再各写一份。
-            put("tools", json.parseToJsonElement(com.comfypilot.core.ai.AiToolSpec.json))
-            put("tool_choice", "auto")
-        }
+    /** 只负责发：请求体由共享层的状态机拼好，这里不做消息拼装。 */
+    private fun postModel(payload: String): JsonObject {
         val endpoint = config.baseUrl.trimEnd('/') + "/chat/completions"
         val request = Request.Builder()
             .url(endpoint)
             .header("Authorization", "Bearer ${config.apiKey}")
             .header("Content-Type", "application/json")
-            .post(body.toString().toRequestBody("application/json".toMediaType()))
+            .post(payload.toRequestBody("application/json".toMediaType()))
             .build()
         http.newCall(request).execute().use { response ->
             val text = response.body?.string().orEmpty()
@@ -1023,293 +953,4 @@ object AiRuntime {
 
     private fun quote(text: String): String =
         kotlinx.serialization.json.JsonPrimitive(text).toString()
-
-    private val TOOLS: JsonArray = buildJsonArray {
-        add(
-            buildJsonObject {
-                put("type", "function")
-                put(
-                    "function",
-                    buildJsonObject {
-                        put("name", "propose_edits")
-                        put("description", "对当前工作流提交一组声明式修改")
-                        put(
-                            "parameters",
-                            buildJsonObject {
-                                put("type", "object")
-                                put(
-                                    "properties",
-                                    buildJsonObject {
-                                        put(
-                                            "summary",
-                                            buildJsonObject {
-                                                put("type", "string")
-                                                put("description", "一句话说明这次改了什么")
-                                            },
-                                        )
-                                        put(
-                                            "ops",
-                                            buildJsonObject {
-                                                put("type", "array")
-                                                put(
-                                                    "items",
-                                                    buildJsonObject {
-                                                        put("type", "object")
-                                                        put(
-                                                            "properties",
-                                                            buildJsonObject {
-                                                                put(
-                                                                    "op",
-                                                                    buildJsonObject {
-                                                                        put("type", "string")
-                                                                    },
-                                                                )
-                                                                put(
-                                                                    "node",
-                                                                    buildJsonObject {
-                                                                        put("type", "integer")
-                                                                    },
-                                                                )
-                                                                put(
-                                                                    "input",
-                                                                    buildJsonObject {
-                                                                        put("type", "string")
-                                                                    },
-                                                                )
-                                                                put(
-                                                                    "enabled",
-                                                                    buildJsonObject {
-                                                                        put("type", "boolean")
-                                                                    },
-                                                                )
-                                                                put(
-                                                                    "graphs",
-                                                                    buildJsonObject {
-                                                                        put("type", "array")
-                                                                        put(
-                                                                            "items",
-                                                                            buildJsonObject {
-                                                                                put("type", "string")
-                                                                            },
-                                                                        )
-                                                                    },
-                                                                )
-                                                                put(
-                                                                    "path",
-                                                                    buildJsonObject {
-                                                                        put("type", "string")
-                                                                    },
-                                                                )
-                                                                put("value", buildJsonObject { })
-                                                            },
-                                                        )
-                                                        put("required", buildJsonArray { add(okJson("op")) })
-                                                    },
-                                                )
-                                            },
-                                        )
-                                    },
-                                )
-                                put("required", buildJsonArray { add(okJson("summary")); add(okJson("ops")) })
-                            },
-                        )
-                    },
-                )
-            },
-        )
-        add(
-            buildJsonObject {
-                put("type", "function")
-                put(
-                    "function",
-                    buildJsonObject {
-                        put("name", "submit")
-                        put("description", "提交当前工作流")
-                        put(
-                            "parameters",
-                            buildJsonObject {
-                                put("type", "object")
-                                put("properties", buildJsonObject { })
-                            },
-                        )
-                    },
-                )
-            },
-        )
-        add(
-            buildJsonObject {
-                put("type", "function")
-                put(
-                    "function",
-                    buildJsonObject {
-                        put("name", "open_workflow")
-                        put("description", "切换到另一个工作流")
-                        put(
-                            "parameters",
-                            buildJsonObject {
-                                put("type", "object")
-                                put(
-                                    "properties",
-                                    buildJsonObject {
-                                        put("path", buildJsonObject { put("type", "string") })
-                                    },
-                                )
-                                put("required", buildJsonArray { add(okJson("path")) })
-                            },
-                        )
-                    },
-                )
-            },
-        )
-        add(
-            buildJsonObject {
-                put("type", "function")
-                put(
-                    "function",
-                    buildJsonObject {
-                        put("name", "list_graphs")
-                        put("description", "列出工作流里的节点图及选中状态")
-                        put("parameters", buildJsonObject { put("type", "object"); put("properties", buildJsonObject { }) })
-                    },
-                )
-            },
-        )
-        add(
-            buildJsonObject {
-                put("type", "function")
-                put(
-                    "function",
-                    buildJsonObject {
-                        put("name", "list_nodes")
-                        put("description", "按标题/类型/id 搜索节点，返回轻量列表")
-                        put(
-                            "parameters",
-                            buildJsonObject {
-                                put("type", "object")
-                                put(
-                                    "properties",
-                                    buildJsonObject {
-                                        put("query", buildJsonObject { put("type", "string") })
-                                        put("limit", buildJsonObject { put("type", "integer") })
-                                    },
-                                )
-                            },
-                        )
-                    },
-                )
-            },
-        )
-        add(
-            buildJsonObject {
-                put("type", "function")
-                put(
-                    "function",
-                    buildJsonObject {
-                        put("name", "get_node")
-                        put("description", "读取单个节点的字段、当前值、COMBO 候选")
-                        put(
-                            "parameters",
-                            buildJsonObject {
-                                put("type", "object")
-                                put(
-                                    "properties",
-                                    buildJsonObject { put("id", buildJsonObject { put("type", "integer") }) },
-                                )
-                                put("required", buildJsonArray { add(okJson("id")) })
-                            },
-                        )
-                    },
-                )
-            },
-        )
-        add(
-            buildJsonObject {
-                put("type", "function")
-                put(
-                    "function",
-                    buildJsonObject {
-                        put("name", "task_status")
-                        put(
-                            "description",
-                            "查看最近任务的状态/进度/产物；wait_seconds 可等待任务跑完（最多 120 秒）",
-                        )
-                        put(
-                            "parameters",
-                            buildJsonObject {
-                                put("type", "object")
-                                put(
-                                    "properties",
-                                    buildJsonObject {
-                                        put("wait_seconds", buildJsonObject { put("type", "integer") })
-                                    },
-                                )
-                            },
-                        )
-                    },
-                )
-            },
-        )
-        add(
-            buildJsonObject {
-                put("type", "function")
-                put(
-                    "function",
-                    buildJsonObject {
-                        put("name", "lookup_prompt_guide")
-                        put(
-                            "description",
-                            "搜索某个生成模型的提示词规范，返回标题/链接/摘要；挑一个再用 fetch_doc 读正文",
-                        )
-                        put(
-                            "parameters",
-                            buildJsonObject {
-                                put("type", "object")
-                                put(
-                                    "properties",
-                                    buildJsonObject {
-                                        put(
-                                            "model",
-                                            buildJsonObject {
-                                                put("type", "string")
-                                                put("description", "模型名或文件名，例如 flux1-dev、Qwen-Image")
-                                            },
-                                        )
-                                    },
-                                )
-                                put("required", buildJsonArray { add(okJson("model")) })
-                            },
-                        )
-                    },
-                )
-            },
-        )
-        add(
-            buildJsonObject {
-                put("type", "function")
-                put(
-                    "function",
-                    buildJsonObject {
-                        put("name", "fetch_doc")
-                        put("description", "抓取一个 https 文档地址的正文；用于读官方 README/提示词指南")
-                        put(
-                            "parameters",
-                            buildJsonObject {
-                                put("type", "object")
-                                put(
-                                    "properties",
-                                    buildJsonObject {
-                                        put("url", buildJsonObject { put("type", "string") })
-                                    },
-                                )
-                                put("required", buildJsonArray { add(okJson("url")) })
-                            },
-                        )
-                    },
-                )
-            },
-        )
-    }
-
-    private fun okJson(text: String): kotlinx.serialization.json.JsonElement =
-        kotlinx.serialization.json.JsonPrimitive(text)
 }
