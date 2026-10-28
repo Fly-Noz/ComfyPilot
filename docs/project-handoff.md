@@ -159,3 +159,24 @@ $env:NODE_HOME='D:\Huawei\DevEco Studio\tools\node'
 2. 读 `docs/ai-assistant-handoff.md` 了解 AI 部分
 3. 按待办顺序做，每项单独构建 + 装机
 4. 改 AI 相关逻辑时，同时改 Android 与鸿蒙，避免继续漂移
+
+## 13. 2026-10-28 晚更新
+
+已修复（对应 `docs/bug-report-2026-10-28.md`）：
+
+- BUG-01 Reroute / PrimitiveNode 穿透；Reroute 的空名输入不再被 `parseInput` 丢弃（否则下游字段既不算连线驱动、提交也只用旧控件值）
+- BUG-02 三份图统一：`WorkflowGraphs.analyze` 接收会话开关后再判断图是否启用/哪些节点未启用；排序包含 `enabledNodeIds`；`disabledNodeIds` 剔除手动启用的节点
+- BUG-03 分组归属改为包围盒相交
+- BUG-05 前端专用白名单收到 `WorkflowCodec.UI_ONLY_NODE_TYPES`；`WorkflowNodeView.uiOnly` 让卡片文案不再误报
+- BUG-06 节点开关与图选择按 host+path 持久化（两端）
+- BUG-07 Android `hostScope` 断线窗口退回 `SessionHost.baseUrl`
+- BUG-08 `napi_init.cpp` 三处 GBK 乱码
+- 另修：自动增长/动态输入不再被当成必填（与 PromptBuilder 判定对齐）
+
+AI 侧新增：历史会话、撤销/冲突跳过/状态过期、`task_status` 提交后验证、多模态图片输入（大图压缩后仍发给模型）、按生成模型给提示词规范、模型规范搜索工具、权限开关、对话与操作记录落盘、鸿蒙红点、AI 日志进诊断、应用后回读保障层。
+
+剩余：
+
+1. **工具循环统一到 shared（第二步）**：工具声明已收进 `AiToolSpec` 并经 `cp_ai_tools_json` 下发；循环状态机仍在两端，需要定义 `AiToolHost` 回调接口后再迁移。
+2. **BUG-04 辅助图组语义**：待产品决策（整组开关 vs 只启用组内被旁路节点）。
+3. Android `AiRuntime` 里旧的 `TOOLS` 构造已是死代码，可删。

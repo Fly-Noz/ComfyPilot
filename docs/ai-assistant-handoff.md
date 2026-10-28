@@ -124,3 +124,22 @@ adb logcat -s ComfyPilotAI
 - `harmony/build-profile.json5`、`keystore.properties` 不入库。
 - 鸿蒙 Key 存 Asset Store；Android 走 Keystore 加密。
 - 发布前仍需：冲突提示、撤销、提交后验证循环。
+
+## 八、2026-10-28 晚状态
+
+第四节「未完成」的 1-5 已全部完成：
+
+1. AI 日志进诊断页：Android 写 `DiagnosticsLog`，鸿蒙挂 `logSink`；
+2. 宿主快照/恢复：Android 用 `AiEditState` 快照，鸿蒙用反向补丁；
+3. 同键冲突提示：提案记旧值，确认时跳过用户手改过的字段并在聊天里列出；
+4. 状态过期检测：工作流路径变化即作废提案；
+5. 撤销本次修改：聊天框「撤销这次修改」。
+
+另外补齐：`task_status` 提交后验证（含 `wait_seconds`）、多模态图片输入、按生成模型给提示词规范、`lookup_prompt_guide` / `fetch_doc`、权限开关、历史会话、对话落盘。
+
+工具声明已统一到共享层 `AiToolSpec` + `cp_ai_tools_json`（鸿蒙 native 绑定 `nativeAiTools`），两端不再各写一份。
+
+已知取舍：保障层只信桥返回的 `editCount`，不再用 `fieldValues` 回读（真机上会把成功误报成失败）。
+
+剩余：工具循环状态机仍在两端各一份；下一步迁到 shared（需 `AiToolHost` 回调接口 + ABI）。
+
