@@ -395,7 +395,82 @@ class PromptBuilderTest {
         assertEquals("KSampler", ready.node("3")["class_type"]!!.jsonPrimitive.content)
         assertTrue(ready.warnings.isEmpty())
     }
+
+    @Test
+    fun `reroute node is pierced to its upstream source`() {
+        // BUG-01 回归：Reroute 的输入名是空字符串，以前会被 parseInput 丢掉，
+        // 导致下游把 Reroute 当成真实来源（报缺定义）或退回旧控件值。
+        val ready = ready(PromptBuilder.build(document(rerouteGraph()), DEFINITIONS))
+
+        assertEquals(1 to 0, ready.link("6", "model"))
+        assertTrue("2" !in ready.prompt, "Reroute 不应出现在提交的图里")
+    }
 }
+
+/** 在 CheckpointLoader → KSampler 之间插一个 Reroute（空名输入）。 */
+private fun rerouteGraph(): String = graph(
+    nodes = listOf(
+        uiNode(
+            id = 1,
+            type = "CheckpointLoaderSimple",
+            outputs = listOf(uiOutput("MODEL", "MODEL"), uiOutput("CLIP", "CLIP"), uiOutput("VAE", "VAE")),
+            widgets = JsonArray(listOf(JsonPrimitive("sd.safetensors"))),
+        ),
+        uiNode(
+            id = 2,
+            type = "Reroute",
+            inputs = listOf(uiInput("", "*", link = 1)),
+            outputs = listOf(uiOutput("", "*")),
+        ),
+        uiNode(
+            id = 6,
+            type = "KSampler",
+            inputs = listOf(
+                uiInput("model", "MODEL", link = 2),
+                uiInput("positive", "CONDITIONING", link = 3),
+                uiInput("negative", "CONDITIONING", link = 4),
+                uiInput("latent_image", "LATENT", link = 5),
+            ),
+            outputs = listOf(uiOutput("LATENT", "LATENT")),
+        ),
+        uiNode(
+            id = 7,
+            type = "CLIPTextEncode",
+            inputs = listOf(uiInput("clip", "CLIP", link = 7)),
+            outputs = listOf(uiOutput("CONDITIONING", "CONDITIONING")),
+            widgets = JsonArray(listOf(JsonPrimitive("positive"))),
+        ),
+        uiNode(
+            id = 8,
+            type = "CLIPTextEncode",
+            inputs = listOf(uiInput("clip", "CLIP", link = 8)),
+            outputs = listOf(uiOutput("CONDITIONING", "CONDITIONING")),
+            widgets = JsonArray(listOf(JsonPrimitive("negative"))),
+        ),
+        uiNode(
+            id = 9,
+            type = "EmptyLatentImage",
+            outputs = listOf(uiOutput("LATENT", "LATENT")),
+            widgets = JsonArray(listOf(JsonPrimitive(512), JsonPrimitive(512), JsonPrimitive(1))),
+        ),
+        uiNode(
+            id = 11,
+            type = "SaveImage",
+            inputs = listOf(uiInput("images", "IMAGE", link = 6)),
+            widgets = JsonArray(listOf(JsonPrimitive("ComfyPilot"))),
+        ),
+    ),
+    links = listOf(
+        uiLink(1, 1, 0, 2, 0, "MODEL"),
+        uiLink(2, 2, 0, 6, 0, "MODEL"),
+        uiLink(3, 7, 0, 6, 1, "CONDITIONING"),
+        uiLink(4, 8, 0, 6, 2, "CONDITIONING"),
+        uiLink(5, 9, 0, 6, 3, "LATENT"),
+        uiLink(6, 6, 0, 11, 0, "IMAGE"),
+        uiLink(7, 1, 1, 7, 0, "CLIP"),
+        uiLink(8, 1, 1, 8, 0, "CLIP"),
+    ),
+)
 
 // ---------------------------------------------------------------- 断言辅助
 
