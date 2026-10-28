@@ -39,16 +39,16 @@
 ┌──────────────────────────────┐
 │ AI 会话（宿主侧）              │
 │  · Provider 客户端（OpenAI 兼容）│
-│  · 工具调用循环 / 重试 / 限额    │
 │  · Key 安全存储                │
 └──────────────┬───────────────┘
                │ 结构化操作（Proposal）
                ▼
 ┌──────────────────────────────┐
 │ 工具执行（共享层）             │
+│  · 工具循环 / 轮数限额（AiLoopState）│
+│  · 参数校验 / 工作区白名单      │
 │  · 工作流摘要 get_workflow     │
 │  · 操作应用 / diff / undo      │
-│  · validate                   │
 └──────────────┬───────────────┘
                ▼
         现有 SessionHost / SessionRuntime → ComfyUI
@@ -146,7 +146,7 @@ idle
 
 约束：
 
-- 单次对话最多 **8 轮**工具调用；
+- 单次对话最多 **6 轮**工具调用（`AiLoopState.maxRounds`，两端同一份）；
 - 用户可随时"停止"，不产生副作用；
 - **自动提交由用户设置**：默认「先确认」，可切换为「AI 修改后自动提交」；
 - 无论哪种模式，删除/关闭关键节点这类破坏性操作仍然要单独确认。
@@ -258,11 +258,11 @@ idle
 - 共享层：`AiWorkflowView` / `AiEditState` / `AiDigest` / `AiEdits`，以及 JSON 桥 `AiBridge`（含测试）
 - Android：悬浮球 + 对话、OpenAI 兼容客户端、Key 走 AndroidKeyStore 加密、diff 确认、自动提交开关、切换工作流
 - 鸿蒙：悬浮球 + 对话、OpenAI 兼容客户端、Key 走系统 Asset Store、经 `cp_ai_digest` / `cp_ai_apply` 复用共享层
-- 工具往返：Android 已按标准 `tool_calls` / `tool_call_id` 协议；鸿蒙仍用文本回填（后续对齐）
+- 工具往返：两端都按标准 `tool_calls` / `tool_call_id` 协议（循环在 `AiLoopState`，鸿蒙经 `cp_ai_step` / `cp_ai_send`）
 
 已知缺口：
 
-- 鸿蒙端工具结果尚未改成标准 `tool_call_id` 往返
+- 鸿蒙真机没验过 AI 发送（注入式输入进不了面板输入框，见 `docs/ai-loop-migration.md`）
 - 未做真机联调（按计划由用户测试）
 - 未做多工作流上下文缓存，每次只带当前工作流
 - 悬浮球位置记忆只在本次会话内，重启后回到默认位置

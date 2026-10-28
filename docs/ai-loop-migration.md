@@ -20,7 +20,7 @@
 | 鸿蒙接入 | `shared/.../ohos/AiLoopAbi.kt` + `napi_init.cpp` + `AiAssistant.ets` | `cp_ai_step` / `cp_ai_send`（ABI 5）；ArkTS 只剩 HTTP 与宿主动作 |
 
 测试：`AiToolSpecTest`、`AiToolRouterTest`（8 项）、`AiLoopStateTest`（14 项）、
-`AiLoopProtocolTest`（8 项）；`:shared:jvmTest` 296 项通过；`:app:testDebugUnitTest` 22 项通过。
+`AiLoopProtocolTest`（10 项）；`:shared:jvmTest` 298 项通过；`:app:testDebugUnitTest` 22 项通过。
 
 ## 三、关键结论：鸿蒙不能靠单次 ABI 调路由器
 
@@ -76,9 +76,15 @@ cp_ai_step(stateJson) -> {"action":"http" | "call_host" | "done" | "ask_user", .
    - 顺带删掉 ArkTS 里那份 `TOOLS_JSON` 与 `buildRequest`（消息拼装已归共享层），
      也不再往对话里塞「（工具结果）…」伪消息
    - **没验到的**：真机上的发送。手机输入法不接 `uitest uiInput text` 注入，
-     输入框始终没拿到焦点；见第六节的限制。协议本身有 8 项 JVM 单测，
+     输入框始终没拿到焦点；见第六节的限制。协议本身有 10 项 JVM 单测，
      Android 端已端到端跑通
-5. 收尾：鸿蒙 `executeTool` 里 submit/open_workflow 的对齐、两端旧注释与文档刷新
+5. ✅ 收尾（已完成）
+   - 鸿蒙的工具调用也过 `AiToolRouter`：参数校验与 `open_workflow` 的工作区白名单
+     在 Kotlin 里做，校验不过就把错误回填给模型，不再由 ArkTS 直接执行
+   - `AiLoopContext` 增加 `paths`（ArkTS 随上下文送 AI 工作区），补齐鸿蒙侧
+     原本缺失的白名单校验（`hostAvailable` 之前是死代码）
+   - 删掉 ArkTS 里未再使用的 `ComfyBridge.aiTools()` 与 `Index.hostAvailable`
+   - 刷新 `docs/ai-assistant.md`：循环位置、轮数（8 → 6）、两端 tool_call_id 现状
 
 ## 五、踩过的坑（别再犯）
 
@@ -131,5 +137,6 @@ $env:JAVA_HOME='D:\Tools\Java\jdk-21.0.6'
 - **鸿蒙真机没跑过 AI 发送**（原因见第六节的已知限制）。上真机时重点看：
   第一次 send 是否发出 `/chat/completions`、`call_host` 回来时 `executeTool` 是否命中、
   `pending` / `question` 暂停后 UI 是否正确。
-- 鸿蒙 `submit` / `open_workflow` 仍同步返回布尔给路由器校验；要让 Kotlin 也管
-  白名单与措辞，下一步改成 `CallHost`（Android 侧已用 `formatResult`）。
+- 鸿蒙 `executeTool` 仍是「按名字执行能力」的 if 链（submit / open_workflow / 查询 /
+  任务 / 文档）；这是执行器，不再是判断逻辑，暂时保留。真要再瘦，可以让
+  `call_host` 直接带方法名，ArkTS 按方法分派。
