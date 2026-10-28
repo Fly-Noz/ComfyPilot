@@ -171,6 +171,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import kotlinx.serialization.json.putJsonArray
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -681,7 +685,6 @@ private fun DetailBody(
                     ?: emptyList()
 
             override fun promptGuide(): String {
-                // 生成模型藏在加载器的文件名里，提示词字段则要看 text/prompt 这类 widget。
                 val tokens = mutableListOf(document.path, document.name)
                 val promptFields = mutableListOf<String>()
                 analysis.fields.nodes.forEach { node ->
@@ -697,6 +700,43 @@ private fun DetailBody(
                     }
                 }
                 return AiGenPrompt.build(tokens, promptFields)
+            }
+
+            override fun taskSummary(waitSeconds: Int): String {
+                // 提交后确认结果：等到没有活动任务（或超时）再回报，避免模型凭空说"已完成"。
+                val deadline = System.currentTimeMillis() +
+                    waitSeconds.coerceIn(0, 120) * 1000L
+                var tasks: List<com.comfypilot.core.task.PromptTask>
+                while (true) {
+                    tasks = SessionHost.state.value.tasks.values
+                        .sortedByDescending { it.updatedAtMs }
+                        .take(3)
+                    if (tasks.none { it.isActive }) break
+                    if (System.currentTimeMillis() >= deadline) break
+                    Thread.sleep(1500)
+                }
+                return buildJsonArray {
+                    tasks.forEach { task ->
+                        add(
+                            buildJsonObject {
+                                put("id", task.id)
+                                put("state", task.state::class.simpleName ?: "Unknown")
+                                put("percent", task.progress?.percent ?: 0)
+                                task.error?.let { put("error", it) }
+                                putJsonArray("outputs") {
+                                    task.outputs.take(4).forEach { output ->
+                                        add(
+                                            buildJsonObject {
+                                                put("filename", output.filename)
+                                                put("type", output.type)
+                                            },
+                                        )
+                                    }
+                                }
+                            },
+                        )
+                    }
+                }.toString()
             }
         }
     }

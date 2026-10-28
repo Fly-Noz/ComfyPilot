@@ -194,6 +194,7 @@ class PageAiHost implements AiHost {
   digestJson: () => string = () => '{}';
   promptGuide: () => string = () => '';
   fieldValues: (keysJson: string) => string = () => '{}';
+  taskSummary: (waitSeconds: number) => Promise<string> = (waitSeconds: number) => Promise.resolve('[]');
 }
 
 interface NodeQueryProbe {
@@ -6515,6 +6516,30 @@ struct Index {
     return JSON.stringify(out);
   }
 
+  /** 最近任务摘要：AI 提交后用它确认真实结果，而不是凭空说"已完成"。 */
+  private async aiTaskSummary(waitSeconds: number): Promise<string> {
+    const deadline = Date.now() + Math.min(Math.max(waitSeconds, 0), 120) * 1000;
+    let list: BridgeTask[] = [];
+    while (true) {
+      list = this.tasks.slice(0, 3);
+      const active = list.some((task: BridgeTask) =>
+        task.state === 'Running' || task.state === 'Queued' || task.state === 'Submitting');
+      if (!active || Date.now() >= deadline) {
+        break;
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(() => resolve(), 1500);
+      });
+    }
+    const items: string[] = list.map((task: BridgeTask) => {
+      const outputs: string[] = task.outputRefs.slice(0, 4).map((ref: BridgeOutput) =>
+        `{"filename":${JSON.stringify(ref.filename)},"type":${JSON.stringify(ref.type)}}`);
+      return `{"id":${JSON.stringify(task.id)},"state":${JSON.stringify(task.state)},"percent":${task.percent},` +
+        `"error":${JSON.stringify(task.error ?? '')},"outputs":[${outputs.join(',')}]}`;
+    });
+    return `[${items.join(',')}]`;
+  }
+
   private aiApplyProposal(proposalJson: string): AiApplyOutcome {
     const view = this.aiViewJson();
     const body = view.substring(0, view.length - 1) + `,"proposal":${proposalJson}}`;
@@ -6658,6 +6683,7 @@ struct Index {
     host.buildViewJson = () => this.aiViewJson();
     host.stateJson = () => this.aiStateJson();
     host.fieldValues = (keysJson: string) => this.aiFieldValues(keysJson);
+    host.taskSummary = (waitSeconds: number) => this.aiTaskSummary(waitSeconds);
     host.applyProposal = (proposal: string) => this.aiApplyProposal(proposal);
     host.submit = () => this.aiSubmit();
     host.openWorkflow = (path: string) => {

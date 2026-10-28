@@ -102,12 +102,15 @@ export interface AiHost {
   promptGuide(): string;
   /** 按 key（"节点id.输入名"）取当前显示值，返回 JSON 对象。 */
   fieldValues(keysJson: string): string;
+  /** 最近任务摘要；waitSeconds > 0 时等到没有活动任务或超时。 */
+  taskSummary(waitSeconds: number): Promise<string>;
 }
 
 const TOOLS_JSON: string = `[
   {"type":"function","function":{"name":"propose_edits","description":"对当前工作流提交一组声明式修改","parameters":{"type":"object","properties":{"summary":{"type":"string","description":"一句话说明这次改了什么"},"ops":{"type":"array","items":{"type":"object","properties":{"op":{"type":"string"},"node":{"type":"integer"},"input":{"type":"string"},"enabled":{"type":"boolean"},"graphs":{"type":"array","items":{"type":"string"}},"path":{"type":"string"},"value":{}},"required":["op"]}}},"required":["summary","ops"]}}},
   {"type":"function","function":{"name":"ask_user","description":"需要用户确认或选择时提问","parameters":{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"}}},"required":["question","options"]}}},
   {"type":"function","function":{"name":"submit","description":"提交当前工作流","parameters":{"type":"object","properties":{}}}},
+  {"type":"function","function":{"name":"task_status","description":"查看最近任务的状态/进度/产物；wait_seconds 可等待任务跑完（最多 120 秒）","parameters":{"type":"object","properties":{"wait_seconds":{"type":"integer"}}}}},
   {"type":"function","function":{"name":"open_workflow","description":"切换到另一个工作流","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}},
   {"type":"function","function":{"name":"list_graphs","description":"列出工作流里的节点图及选中状态","parameters":{"type":"object","properties":{}}}},
   {"type":"function","function":{"name":"list_nodes","description":"按标题/类型/id 搜索节点，返回轻量列表","parameters":{"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer"}}}}},
@@ -712,7 +715,15 @@ export class AiAssistant {
     }
     if (name === 'submit') {
       this.actions = [...this.actions, '提交任务'].slice(-50);
-      return `{"ok":${host.submit()}}`;
+      const ok: boolean = host.submit();
+      return ok
+        ? '{"ok":true,"queued":true,"hint":"用 task_status（wait_seconds 例如 30）确认真实结果，别直接说已完成"}'
+        : '{"ok":false,"error":"工作流还有未填字段或未就绪"}';
+    }
+    if (name === 'task_status') {
+      const probe = JSON.parse(args) as Record<string, Object>;
+      const wait = (probe.wait_seconds as number) ?? 0;
+      return await host.taskSummary(wait);
     }
     if (name === 'open_workflow') {
       const probe = JSON.parse(args) as Record<string, Object>;

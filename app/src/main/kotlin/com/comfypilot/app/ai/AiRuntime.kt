@@ -73,6 +73,12 @@ interface AiWorkflowHost {
 
     /** 当前工作流里生成模型的提示词写法（宿主按节点推断）。 */
     fun promptGuide(): String = ""
+
+    /**
+     * 最近任务的 JSON 摘要；[waitSeconds] > 0 时等到没有活动任务或超时。
+     * 用于提交后确认结果，而不是让模型凭空说"已完成"。
+     */
+    fun taskSummary(waitSeconds: Int = 0): String = ""
 }
 
 data class AiChatMessage(
@@ -815,7 +821,19 @@ object AiRuntime {
             "submit" -> {
                 actions = actions + "提交任务"
                 val ok = currentHost.submitCurrent()
-                """{"ok":$ok}"""
+                if (ok) {
+                    """{"ok":true,"queued":true,"hint":"用 task_status（wait_seconds 例如 30）确认真实结果，别直接说已完成"}"""
+                } else {
+                    """{"ok":false,"error":"工作流还有未填字段或未就绪"}"""
+                }
+            }
+
+            "task_status" -> {
+                val wait = runCatching {
+                    json.parseToJsonElement(argsJson).jsonObject["wait_seconds"]
+                        ?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                }.getOrNull() ?: 0
+                currentHost.taskSummary(wait.coerceIn(0, 120))
             }
 
             "open_workflow" -> {
@@ -1137,6 +1155,33 @@ object AiRuntime {
                                     buildJsonObject { put("id", buildJsonObject { put("type", "integer") }) },
                                 )
                                 put("required", buildJsonArray { add(okJson("id")) })
+                            },
+                        )
+                    },
+                )
+            },
+        )
+        add(
+            buildJsonObject {
+                put("type", "function")
+                put(
+                    "function",
+                    buildJsonObject {
+                        put("name", "task_status")
+                        put(
+                            "description",
+                            "查看最近任务的状态/进度/产物；wait_seconds 可等待任务跑完（最多 120 秒）",
+                        )
+                        put(
+                            "parameters",
+                            buildJsonObject {
+                                put("type", "object")
+                                put(
+                                    "properties",
+                                    buildJsonObject {
+                                        put("wait_seconds", buildJsonObject { put("type", "integer") })
+                                    },
+                                )
                             },
                         )
                     },
