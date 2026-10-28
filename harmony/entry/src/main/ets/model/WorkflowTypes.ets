@@ -51,6 +51,8 @@ export interface WorkflowNodeView {
   /** 用户在本次会话里显式关闭了该节点。 */
   bypassed: boolean;
   missing: boolean;
+  /** 前端专用节点（Reroute/Note/Label 等）：不参与执行，服务端也没有定义。 */
+  uiOnly?: boolean;
   reachable: boolean;
   needsInput: boolean;
   pinned: boolean;

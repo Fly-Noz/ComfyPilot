@@ -3107,7 +3107,14 @@ struct Index {
       .padding({ left: 13, right: 9, top: 10, bottom: 10 })
       .alignItems(VerticalAlign.Center)
 
-      if (node.missing) {
+      if (node.uiOnly === true) {
+        Text('前端标注节点（Reroute / Note / Label 等），不参与执行。')
+          .fontSize(11)
+          .lineHeight(16)
+          .fontColor(this.c().textDim)
+          .width('100%')
+          .padding({ left: 13, right: 13, top: 2, bottom: 2 })
+      } else if (node.missing) {
         if (this.classPending(node.type)) {
           // 定义还在路上：不要说成“服务端没有”，否则首帧会误报整个工作流缺节点。 
           Text('正在加载该节点的定义…')

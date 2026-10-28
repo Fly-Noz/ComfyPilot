@@ -1952,6 +1952,7 @@ private fun NodeInputCard(
         }
 
         val note = when {
+            node.uiOnly -> "前端标注节点（Reroute / Note / Label 等），不参与执行。"
             node.missing -> "服务端没有该节点的定义，不能调参；提交会被拒绝。"
             !enabled -> "已关闭，提交时会跳过该节点。"
             graphDisabled -> "节点图未启用，不会被提交。"

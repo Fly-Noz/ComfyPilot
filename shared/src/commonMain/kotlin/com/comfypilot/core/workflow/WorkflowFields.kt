@@ -41,6 +41,8 @@ data class WorkflowNodeView(
     /** 生效后的节点模式（文件里的 mode 叠加用户开关），0 为正常执行。 */
     val mode: Int,
     val missing: Boolean,
+    /** 前端专用节点（Reroute/Note/Label 等）：不参与执行，服务端也没有定义。 */
+    val uiOnly: Boolean = false,
     /** 该节点在输出节点的上游，提交时会真正执行。 */
     val reachable: Boolean,
     /** 用户在本次会话里显式关闭了该节点（与文件里保存的 mode 分开）。 */
@@ -214,13 +216,17 @@ object WorkflowFields {
     ): WorkflowNodeView {
         val definition = definitions[node.type]
         if (definition == null || definition.missing) {
+            // 前端专用节点（Reroute / Note / Label …）本来就服务端没有定义，
+            // 它们不参与执行，不该显示成"提交会被拒绝"。
+            val uiOnly = node.type in WorkflowCodec.UI_ONLY_NODE_TYPES
             return WorkflowNodeView(
                 id = node.id,
                 type = node.type,
                 displayName = definition?.displayName ?: node.type,
                 title = node.title,
                 mode = node.mode,
-                missing = true,
+                missing = !uiOnly,
+                uiOnly = uiOnly,
                 reachable = reachable,
                 bypassed = bypassed,
                 orderReachable = orderReachable,
