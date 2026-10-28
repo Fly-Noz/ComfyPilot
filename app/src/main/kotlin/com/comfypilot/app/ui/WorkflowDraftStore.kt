@@ -57,6 +57,16 @@ class WorkflowDraftStore(context: Context) {
         editor.putString(scopedKey, json).apply()
     }
 
+    /** 节点开关与节点图选择：和参数草稿同一套 host+path 作用域，重启后仍生效。 */
+    fun loadSessionState(host: String, path: String): String? =
+        prefs.getString(sessionKey(host, path), null)
+
+    fun saveSessionState(host: String, path: String, json: String) {
+        prefs.edit().putString(sessionKey(host, path), json).apply()
+    }
+
+    private fun sessionKey(host: String, path: String): String = "session|" + key(host, path)
+
     private fun key(host: String, path: String): String =
         if (host.isBlank()) path else "$host|$path"
 

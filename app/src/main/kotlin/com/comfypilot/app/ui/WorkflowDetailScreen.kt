@@ -169,10 +169,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 
@@ -297,6 +302,48 @@ private fun DetailBody(
         // 输入框连续输入时做个短延迟，避免每个字符都写一次 SharedPreferences。
         kotlinx.coroutines.delay(250)
         draftStore.saveOverrides(hostScope, document.path, overrides)
+    }
+
+    // 节点开关与节点图选择也按 host+path 存：重启/重开工作流后仍然生效。
+    var sessionRestored by remember(document.path) { mutableStateOf(false) }
+    LaunchedEffect(document.path, hostScope) {
+        val saved = draftStore.loadSessionState(hostScope, document.path)
+        if (saved != null) {
+            runCatching {
+                val root = Json.parseToJsonElement(saved).jsonObject
+                root["graphs"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }
+                    ?.toSet()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { enabledGraphOverride = it }
+                root["bypassed"]?.jsonArray?.forEach { element ->
+                    element.jsonPrimitive.contentOrNull?.toIntOrNull()
+                        ?.let { onSetNodeBypassed(it, false) }
+                }
+                root["enabled"]?.jsonArray?.forEach { element ->
+                    element.jsonPrimitive.contentOrNull?.toIntOrNull()
+                        ?.let { onSetNodeBypassed(it, true) }
+                }
+            }
+        }
+        sessionRestored = true
+    }
+    LaunchedEffect(sessionRestored, enabledGraphOverride, state.bypassedNodeIds, state.enabledNodeIds) {
+        if (!sessionRestored) return@LaunchedEffect
+        draftStore.saveSessionState(
+            hostScope,
+            document.path,
+            buildJsonObject {
+                putJsonArray("graphs") {
+                    enabledGraphOverride?.forEach { add(JsonPrimitive(it)) }
+                }
+                putJsonArray("bypassed") {
+                    state.bypassedNodeIds.forEach { add(JsonPrimitive(it)) }
+                }
+                putJsonArray("enabled") {
+                    state.enabledNodeIds.forEach { add(JsonPrimitive(it)) }
+                }
+            }.toString(),
+        )
     }
 
     // 单节点旁路开关存在会话状态里：Activity 重建（配置刷新）后仍然保留，
