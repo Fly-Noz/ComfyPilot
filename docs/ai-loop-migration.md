@@ -6,7 +6,7 @@
 ## 一、目标
 
 把 AI 助手的**工具分派与循环状态机**从 Android / 鸿蒙各一份，收进 `shared`。
-现状：协议已统一（工具声明、无状态分派），**循环本身仍两份**。
+现状：协议、循环、消息拼装都在共享层；两端只剩「执行 HTTP」和「执行宿主动作」。
 
 ## 二、已完成
 
@@ -15,11 +15,12 @@
 | 工具声明唯一来源 | `shared/.../core/ai/AiToolSpec.kt` | 10 个工具的 JSON；两端都读这一份 |
 | 无状态工具分派 | `shared/.../core/ai/AiToolRouter.kt` + `AiToolEnv` | 参数校验 + 白名单；宿主能力以 `AiToolOutcome` 返回 |
 | 循环状态机 | `shared/.../core/ai/AiLoopState.kt` | 会话拼装、工具往返、轮数上限、暂停与恢复 |
-| Android 接入 | `app/.../ai/AiRuntime.kt` | `runLoop` 只发请求/执行工具/回填；消息拼装在共享层 |
-| 鸿蒙接入 | — | **未接**。原因见下 |
+| 循环 JSON 协议 | `shared/.../core/ai/AiLoopProtocol.kt` | `step` / `send` 两个入口，JVM 上可测 |
+| Android 接入 | `app/.../ai/AiRuntime.kt` | `runLoop` 只发请求/执行工具/回填 |
+| 鸿蒙接入 | `shared/.../ohos/AiLoopAbi.kt` + `napi_init.cpp` + `AiAssistant.ets` | `cp_ai_step` / `cp_ai_send`（ABI 5）；ArkTS 只剩 HTTP 与宿主动作 |
 
-测试：`AiToolSpecTest`、`AiToolRouterTest`（8 项）、`AiLoopStateTest`（14 项）；
-`:shared:jvmTest` 288 项通过；`:app:testDebugUnitTest` 22 项通过。
+测试：`AiToolSpecTest`、`AiToolRouterTest`（8 项）、`AiLoopStateTest`（14 项）、
+`AiLoopProtocolTest`（8 项）；`:shared:jvmTest` 296 项通过；`:app:testDebugUnitTest` 22 项通过。
 
 ## 三、关键结论：鸿蒙不能靠单次 ABI 调路由器
 
@@ -39,6 +40,10 @@ cp_ai_step(stateJson) -> {"action":"http" | "call_host" | "done" | "ask_user", .
 落地方式：`AiToolEnv` 的每个方法都返回 `AiToolOutcome`——`Value`（现在就拿到）、
 `CallHost(method,args)`（宿主做）、`Fetch(url)`（宿主代发 GET）。措辞统一由
 `AiToolRouter.formatResult(name, raw)` 收尾，鸿蒙不需要在 ArkTS 里抄文案。
+
+鸿蒙的落地路径（已实现）：`cp_ai_step` 拿动作 → ArkTS 执行 → `cp_ai_send` 交回。
+动作只有三种：`http`（带拼好的 body）、`call_host`（带 callId/name/args）、
+`done`（reason = answer / pending / question / round_limit / stopped / error）。
 
 ## 四、下一步（按顺序）
 
@@ -63,8 +68,17 @@ cp_ai_step(stateJson) -> {"action":"http" | "call_host" | "done" | "ask_user", .
    - 顺带删掉 `TOOLS` 死代码（约 290 行）和 `executeTool` 的 8 个不可达分支
    - 修回一处回归：`submit` / `open_workflow` 走路由器后，操作记录不再进 `actions`，
      现在写在 `toolEnv` 的成功分支里
-4. 鸿蒙加 `cp_ai_step` / `cp_ai_send`（ABI + napi + ArkTS 绑定，参照 `cp_ai_tools_json` 的缓冲区约定）
-5. 两端接完后删除：鸿蒙 `executeTool` 的 8 个 if、鸿蒙的 loop
+4. ✅ 鸿蒙接 `cp_ai_step` / `cp_ai_send`（已完成，未做真机发送验证）
+   - `AiLoopProtocol` 放 commonMain（JVM 可测），`ohos/AiLoopAbi.kt` 只做字符串进出
+   - napi：`nativeAiStep` / `nativeAiSend`；`index.d.ts` + `ComfyBridge.aiStep/aiSend`
+   - ArkTS：`AiAssistant.loop` 只执行 `http` 与 `call_host`；`executeTool` 保留
+     propose_edits / ask_user 与各宿主能力；启动时由 `Index.ets` 注入 `stepFn` / `sendFn`
+   - 顺带删掉 ArkTS 里那份 `TOOLS_JSON` 与 `buildRequest`（消息拼装已归共享层），
+     也不再往对话里塞「（工具结果）…」伪消息
+   - **没验到的**：真机上的发送。手机输入法不接 `uitest uiInput text` 注入，
+     输入框始终没拿到焦点；见第六节的限制。协议本身有 8 项 JVM 单测，
+     Android 端已端到端跑通
+5. 收尾：鸿蒙 `executeTool` 里 submit/open_workflow 的对齐、两端旧注释与文档刷新
 
 ## 五、踩过的坑（别再犯）
 
@@ -91,12 +105,31 @@ $env:JAVA_HOME='D:\Tools\Java\jdk-21.0.6'
 - 安卓模拟器：`D:\AndroidSDK\emulator\emulator.exe`，AVD `manjing`（需 `ANDROID_AVD_HOME=D:\AndroidAVD`）
 - 真机服务端：`100.84.55.22:8188`（本机可达）；模拟器连不上 Tailscale 时用
   `node tools/comfy-proxy.mjs 8188 100.84.55.22 8188`（监听 127.0.0.1，模拟器用 `10.0.2.2:8188`）
+- 鸿蒙库与 HAP（`build.ps1` 被执行策略挡住时按这两步手动跑）：
+
+  ```bash
+  cd ohos && DEVECO_SDK_HOME='D:\Huawei\DevEco Studio\sdk' \
+    OHOS_SDK_HOME='D:\Huawei\DevEco Studio\sdk\default\openharmony' \
+    JAVA_HOME='D:\Tools\Java\jdk-21.0.6' ./gradlew.bat :shared-ohos:linkDebugSharedOhosArm64
+  # 再把 libcomfypilot_core.so / .h 拷到 harmony/entry/{libs/arm64-v8a,cpp/include}
+  cd harmony && PATH="/d/Huawei/DevEco Studio/jbr/bin:$PATH" \
+    "/d/Huawei/DevEco Studio/tools/hvigor/bin/hvigorw.bat" assembleHap \
+    --mode module -p product=default -p buildMode=debug --no-daemon
+  ```
+
+  hvigor 报 `spawn java ENOENT` 就是 PATH 里没 java——用 DevEco 自带的 `jbr`。
+- 鸿蒙真机：`hdc` 在 `D:\Huawei\DevEco Studio\sdk\default\openharmony\toolchains\hdc.exe`；
+  拉文件前先 `export MSYS_NO_PATHCONV=1`，否则 `/data/local/tmp/x` 会被 Git Bash 改写。
+- **已知限制**：`hdc shell uitest uiInput text` 打不进 AI 面板的 TextInput（点输入框
+  不出键盘），鸿蒙侧的真机发送要手点；要自动化验证请用 Android 模拟器 + mock 服务。
 - **测试时不要提交任务**（用户明确要求）；只读页面、开关节点、跑 AI 查询类工具。
 
 ## 七、未关闭项
 
 - **BUG-04 辅助图组语义**：待用户定 A（整组开关，需新增 forcedBypassNodeIds）或 B（只改文案）。
 - `docs/bug-report-2026-10-28.md`：只差 BUG-04，关闭后删除。
-- 鸿蒙 `AiAssistant.ets` 的 `executeTool` 与循环仍在，等第 4 步接 ABI 后再删。
-- 鸿蒙接 ABI 时，`submit` / `open_workflow` 要从同步布尔改成 `CallHost`，
-  结果由 `AiToolRouter.formatResult` 收尾（见第四节第 2 条）。
+- **鸿蒙真机没跑过 AI 发送**（原因见第六节的已知限制）。上真机时重点看：
+  第一次 send 是否发出 `/chat/completions`、`call_host` 回来时 `executeTool` 是否命中、
+  `pending` / `question` 暂停后 UI 是否正确。
+- 鸿蒙 `submit` / `open_workflow` 仍同步返回布尔给路由器校验；要让 Kotlin 也管
+  白名单与措辞，下一步改成 `CallHost`（Android 侧已用 `formatResult`）。
