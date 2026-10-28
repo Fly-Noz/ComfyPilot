@@ -434,16 +434,18 @@ export class AiAssistant {
     }
     this.pending = null;
     this.lastUndoJson = this.buildInverse(proposalJson, pending.oldValuesJson);
-    const beforeState = host.stateJson();
+    // 保障层只校验 set_input：节点开关/图选择走异步刷新，应用后立刻回读会是旧值，
+    // 之前因此把成功误报成「改动没有生效」。
+    const verifyKeys = this.setInputKeys(proposalJson);
+    const beforeValues = verifyKeys.length > 0 ? host.fieldValues(JSON.stringify(verifyKeys)) : '';
     const outcome = host.applyProposal(proposalJson);
     if (!outcome.ok) {
       this.error = outcome.errors.join('；');
       this.bump();
       return;
     }
-    // 保障层：应用后回读编辑状态，没变化说明改动没落地（宿主刷新/字段被裁剪等）。
-    if (outcome.changes.length > 0 && host.stateJson() === beforeState) {
-      this.error = '这些改动没有生效（工作流状态未变化），请重试';
+    if (verifyKeys.length > 0 && host.fieldValues(JSON.stringify(verifyKeys)) === beforeValues) {
+      this.error = '这些改动没有生效（字段值未变化），请重试';
     }
     this.canUndo = this.lastUndoJson.length > 0;
     this.actions = [...this.actions, ...outcome.changes].slice(-50);
@@ -474,6 +476,23 @@ export class AiAssistant {
     this.messages = [...this.messages, { role: 'assistant', content: '已撤销上一次 AI 修改' }];
     this.bump();
     return true;
+  }
+
+  /** 提案里所有 set_input 的 "node.input" 键，用于应用后的回读校验。 */
+  private setInputKeys(proposalJson: string): string[] {
+    try {
+      const proposal = JSON.parse(proposalJson) as Record<string, Object>;
+      const ops = (proposal.ops as Record<string, Object>[]) ?? [];
+      const keys: string[] = [];
+      for (const op of ops) {
+        if (op.op === 'set_input' && op.node !== undefined && op.input !== undefined) {
+          keys.push(`${op.node}.${op.input}`);
+        }
+      }
+      return keys;
+    } catch (err) {
+      return [];
+    }
   }
 
   /** 去掉与用户手改冲突的 op，其余照常应用。 */

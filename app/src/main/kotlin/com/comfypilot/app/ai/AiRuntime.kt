@@ -545,8 +545,9 @@ object AiRuntime {
             error = result.errors.joinToString("\n")
             return
         }
-        // 保障层：应用后回读一次，确认改动真的落到了编辑状态里。
-        // applyEdit 返回 ok 只代表没报错，不代表每个字段都被宿主接受。
+        // 保障层：回读校验只做「同步可读」的部分。
+        // 节点开关走 SessionState，回调是异步的，立刻回读会读到旧值——
+        // 之前因此把成功误报成「改动没有生效」。
         val applied = currentHost.editState()
         val dropped = mutableListOf<String>()
         stateToApply.overrides.forEach { (nodeId, fields) ->
@@ -555,9 +556,6 @@ object AiRuntime {
                     dropped += "#$nodeId.$input"
                 }
             }
-        }
-        if (applied.bypassed != stateToApply.bypassed || applied.enabled != stateToApply.enabled) {
-            dropped += "节点开关"
         }
         if (stateToApply.graphs != null && applied.graphs != stateToApply.graphs) {
             dropped += "节点图选择"
