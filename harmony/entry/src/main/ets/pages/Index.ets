@@ -6699,13 +6699,8 @@ struct Index {
           this.ai.error = result.message;
           break;
         }
-        // 只把不大的图塞进请求；太大的仍保留文件名，但让模型只读文字描述。
-        let dataUrl = '';
-        if (item.bytes.length <= 1_200_000) {
-          const encoder = new util.Base64Helper();
-          const mime = item.filename.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
-          dataUrl = `data:${mime};base64,${encoder.encodeToStringSync(item.bytes)}`;
-        }
+        // 大图先压到长边 1024 再编码，保证模型真的能看到画面。
+        const dataUrl = await this.imageUploader.visionDataUrl(item.bytes, item.filename);
         added.push({ name: result.reference, dataUrl: dataUrl });
       }
       if (added.length > 0) {
@@ -6720,6 +6715,21 @@ struct Index {
       this.aiAttachBusy = false;
       this.pickerActive = false;
     }
+  }
+
+  /** 权限开关：每次改动先看 diff，还是让 AI 直接改并提交。 */
+  private toggleAiAutoSubmit(): void {
+    const current = this.ai.config;
+    const next: AiConfig = {
+      baseUrl: current.baseUrl,
+      model: current.model,
+      apiKey: current.apiKey,
+      enabled: current.enabled,
+      autoSubmit: !current.autoSubmit,
+    };
+    this.ai.saveConfig(next);
+    this.aiAutoSubmit = next.autoSubmit;
+    this.syncAi();
   }
 
   /** 工具结果是给模型看的中转消息，不进聊天气泡。 */
@@ -7012,7 +7022,7 @@ struct Index {
         .width('100%')
         .scrollBar(BarState.Off)
 
-        // 工具栏：工作区
+        // 工具栏：工作区 + 权限
         Row({ space: 8 }) {
           Text(`工作区 · ${this.aiScopeLabel()}`)
             .fontSize(10.5)
@@ -7022,6 +7032,15 @@ struct Index {
             .borderRadius(10)
             .border({ width: 1, color: this.c().border })
             .onClick(() => { this.aiScopeOpen = true; })
+
+          Text(this.aiAutoSubmit ? '自动执行' : '每次确认')
+            .fontSize(10.5)
+            .fontColor(this.aiAutoSubmit ? this.c().accent : this.c().textMuted)
+            .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+            .backgroundColor(this.aiAutoSubmit ? this.c().accentSoft : this.c().card)
+            .borderRadius(10)
+            .border({ width: 1, color: this.aiAutoSubmit ? this.c().accentBorder : this.c().border })
+            .onClick(() => { this.toggleAiAutoSubmit(); })
         }
         .width('100%')
         .padding({ left: 12, right: 12 })

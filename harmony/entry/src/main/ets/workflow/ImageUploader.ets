@@ -154,6 +154,44 @@ export class ImageUploader {
     }
   }
 
+  /**
+   * 给多模态模型用的 data URL：太大的图先压到长边 1024 / JPEG q80。
+   *
+   * 不能像以前那样"太大就只给文件名"——用户传图就是要模型看懂画面，
+   * 丢掉图等于让它瞎写提示词。
+   */
+  async visionDataUrl(bytes: Uint8Array, filename: string): Promise<string> {
+    try {
+      if (bytes.length <= 1_200_000) {
+        const mime = filename.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+        return `data:${mime};base64,${new util.Base64Helper().encodeToStringSync(bytes)}`;
+      }
+      const source = image.createImageSource(bytes.buffer as ArrayBuffer);
+      const info = await source.getImageInfo();
+      const maxSide = Math.max(info.size.width, info.size.height);
+      const scale = maxSide > 1024 ? 1024 / maxSide : 1;
+      const options: image.DecodingOptions = {
+        desiredSize: {
+          width: Math.max(1, Math.round(info.size.width * scale)),
+          height: Math.max(1, Math.round(info.size.height * scale)),
+        },
+      };
+      const pixelMap = await source.createPixelMap(options);
+      const packer = image.createImagePacker();
+      try {
+        const data = await packer.packToData(pixelMap, { format: 'image/jpeg', quality: 80 });
+        return `data:image/jpeg;base64,${new util.Base64Helper().encodeToStringSync(new Uint8Array(data))}`;
+      } finally {
+        await packer.release();
+        await pixelMap.release();
+        await source.release();
+      }
+    } catch (err) {
+      console.error(`CP> vision encode failed ${(err as Error).message}`);
+      return '';
+    }
+  }
+
   async upload(baseUrl: string, image: PickedImage): Promise<ImageUploadResult> {
     const base = baseUrl.trim().replace(/\/+$/, '');
     if (base.length === 0) {

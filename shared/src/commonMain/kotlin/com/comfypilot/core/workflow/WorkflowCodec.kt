@@ -17,8 +17,22 @@ import kotlinx.serialization.json.contentOrNull
  */
 object WorkflowCodec {
 
-    /** 前端自己的虚拟节点，服务端没有这些类，不去请求 `/object_info`。 */
-    private val FRONTEND_ONLY = setOf("Reroute", "PrimitiveNode", "Note", "MarkdownNote")
+    /**
+     * 前端自己的虚拟节点，服务端没有这些类，不去请求 `/object_info`。
+     *
+     * 转换层与解析层共用这一份：以前两处各写一份，结果 rgthree 的两个节点
+     * 每次都被无意义地请求一遍、还背上「提交会被拒绝」的假错误。
+     */
+    internal val UI_ONLY_NODE_TYPES = setOf(
+        "Note",
+        "MarkdownNote",
+        "Reroute",
+        "PrimitiveNode",
+        "Label (rgthree)",
+        "Fast Groups Bypasser (rgthree)",
+    )
+
+    private val FRONTEND_ONLY = UI_ONLY_NODE_TYPES
 
     /** 控件类型：这些类型的输入在图里是字面量，其余类型必须来自连线。 */
     private val WIDGET_TYPES = setOf("INT", "FLOAT", "STRING", "BOOLEAN", "COMBO")

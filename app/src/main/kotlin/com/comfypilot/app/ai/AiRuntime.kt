@@ -290,6 +290,13 @@ object AiRuntime {
         secretStore?.save(next)
     }
 
+    /** 权限开关：每次改动先看 diff，还是让 AI 直接改并提交。 */
+    fun toggleAutoSubmit(): Boolean {
+        config = config.copy(autoSubmit = !config.autoSubmit)
+        secretStore?.save(config)
+        return config.autoSubmit
+    }
+
     fun resetConversation() {
         messages = emptyList()
         pending = null

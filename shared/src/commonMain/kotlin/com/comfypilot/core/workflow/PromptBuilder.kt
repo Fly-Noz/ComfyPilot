@@ -48,14 +48,7 @@ object PromptBuilder {
      * 前端专用、没有服务端实现的节点。它们不参与执行，画布上只是标签/开关/备注。
      * 其余"服务端没有定义"的活动节点一律当成缺自定义节点报错。
      */
-    private val UI_ONLY_NODE_TYPES = setOf(
-        "Note",
-        "MarkdownNote",
-        "Reroute",
-        "PrimitiveNode",
-        "Label (rgthree)",
-        "Fast Groups Bypasser (rgthree)",
-    )
+    private val UI_ONLY_NODE_TYPES = WorkflowCodec.UI_ONLY_NODE_TYPES
 
     fun build(
         document: WorkflowDocument,
@@ -250,6 +243,20 @@ object PromptBuilder {
             }
 
             val origin = graph.byId[resolved.nodeId]
+            // PrimitiveNode 同理：它携带的字面量直接写进下游输入，API 图里没有这个节点。
+            if (origin?.type == "PrimitiveNode") {
+                val literal = origin.widgetsNamed["value"] ?: origin.widgets?.getOrNull(0)
+                if (literal == null) {
+                    problems += BuildProblem(
+                        node.id,
+                        node.type,
+                        "输入 ${uiInput.name} 的上游 PrimitiveNode 没有值",
+                    )
+                } else {
+                    inputs[uiInput.name] = literal
+                }
+                return@forEachIndexed
+            }
             val originDefinition = origin?.let { definitions[it.type] }
             if (origin == null || originDefinition == null || originDefinition.missing) {
                 problems += BuildProblem(
@@ -400,6 +407,12 @@ internal class UiGraphResolver(private val graph: UiGraph) {
         val key = "$nodeId#$slot"
         if (!seen.add(key)) return null
         val node = graph.byId[nodeId] ?: return null
+        // Reroute 是纯视觉转接点：1 进 1 出、类型直通，API 图里不存在。
+        // 桌面端 graphToPrompt 也把它折到上游，这里必须同样穿透，否则下游会
+        // 把 Reroute 当成真实来源，报「服务端没有该节点的定义」。
+        if (node.type == "Reroute") {
+            return resolveInput(node, 0, seen)
+        }
         return when (node.mode) {
             UiWorkflowParser.MODE_MUTED -> null
             UiWorkflowParser.MODE_BYPASS -> {

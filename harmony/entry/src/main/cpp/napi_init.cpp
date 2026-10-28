@@ -30,7 +30,7 @@ std::string ReadString(napi_env env, napi_value value) {
     return std::string(buffer.data(), length);
 }
 
-/** 甯ф瘮鍒濆缂撳啿鍖哄ぇ鏃舵墿瀹归噸鍙栵紱Kotlin 渚у鍚屼竴涓?nowMs 鏈夌紦瀛橈紝涓嶄細閲嶅鎺ㄨ繘鐘舵€佹満銆?*/
+/** 帧比初始缓冲区大时扩容重取；Kotlin 侧对同一个 nowMs 有缓存，不会重复推进状态机。 */
 napi_value PumpFrame(napi_env env, int64_t nowMs) {
     std::vector<char> buffer(kJsonBufferSize, 0);
     int32_t needed = cp_session_pump(nowMs, buffer.data(), static_cast<int32_t>(buffer.size()));
@@ -57,10 +57,10 @@ napi_value NativeSelfTest(napi_env env, napi_callback_info /*info*/) {
     char buffer[kJsonBufferSize] = {0};
     const int32_t written = cp_self_test_json(buffer, static_cast<int32_t>(sizeof(buffer)));
     if (written <= 0) {
-        return MakeString(env, R"({"ok":false,"message":"鍏变韩灞傝嚜妫€娌℃湁杩斿洖鍐呭"})");
+        return MakeString(env, R"({"ok":false,"message":"自检没有返回内容"})");
     }
     if (static_cast<size_t>(written) >= sizeof(buffer)) {
-        return MakeString(env, R"({"ok":false,"message":"鑷 JSON 瓒呭嚭缂撳啿鍖?})");
+        return MakeString(env, R"({"ok":false,"message":"自检 JSON 超出缓冲区"})");
     }
     return MakeString(env, std::string(buffer, static_cast<size_t>(written)));
 }

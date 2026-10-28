@@ -115,6 +115,7 @@ import com.comfypilot.app.ui.theme.GradientButton
 import com.comfypilot.app.ui.theme.PillTone
 import com.comfypilot.app.ui.theme.pressFeedback
 import com.comfypilot.app.ai.AiGenPrompt
+import com.comfypilot.app.SessionHost
 import com.comfypilot.app.ai.AiRuntime
 import com.comfypilot.app.ai.AiWorkflowHost
 import com.comfypilot.core.ai.AiApplyResult
@@ -268,7 +269,9 @@ private fun DetailBody(
 ) {
     val c = Spectrum.colors
     // 草稿/备注/置顶按"主机 + 工作流路径"隔离：同一工作流在两台主机上互不影响。
-    val hostScope = hostScopeOf(state.lease?.baseUrl ?: "")
+    // 断线重连窗口里 lease 为空，退回最后一次连接的地址：否则 hostScope 变空串，
+    // 写入会落到 legacy key，重连后按 host|path 读就再也读不回来。
+    val hostScope = hostScopeOf(state.lease?.baseUrl ?: SessionHost.baseUrl)
     var enabledGraphOverride by remember(document.path) { mutableStateOf<Set<String>?>(null) }
     val context = LocalContext.current
     val pinnedNodeStore = remember(context) { PinnedNodeStore(context.applicationContext) }

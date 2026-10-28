@@ -1,5 +1,7 @@
 package com.comfypilot.app.ui
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.provider.OpenableColumns
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -219,13 +221,8 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                     )
                 ) {
                     is ImageUploadResult.Success -> {
-                        // 只把不大的图塞进请求；太大的仍保留文件名，但让模型只读文字描述。
-                        val dataUrl = if (bytes.size <= 1_200_000) {
-                            val mime = if (filename.endsWith(".png", true)) "image/png" else "image/jpeg"
-                            "data:$mime;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
-                        } else {
-                            ""
-                        }
+                        // 大图先压到长边 1024 再编码：模型必须看到画面，不能退回只给文件名。
+                        val dataUrl = withContext(Dispatchers.Default) { visionDataUrl(bytes, filename) }
                         added += AiAttachment(result.reference, dataUrl)
                     }
                     is ImageUploadResult.Failure -> {
@@ -496,6 +493,22 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                         .background(c.card)
                         .border(1.dp, c.border, RoundedCornerShape(10.dp))
                         .clickableNoRipple { scopeOpen = true }
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+                val auto = snapshot.config.autoSubmit
+                Text(
+                    text = if (auto) "自动执行" else "每次确认",
+                    color = if (auto) c.accent else c.textMuted,
+                    fontSize = 10.sp,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (auto) c.accentSoft else c.card)
+                        .border(1.dp, if (auto) c.accentBorder else c.border, RoundedCornerShape(10.dp))
+                        .clickableNoRipple {
+                            AiRuntime.toggleAutoSubmit()
+                            snapshot = AiRuntime.snapshot()
+                        }
                         .padding(horizontal = 10.dp, vertical = 6.dp),
                 )
             }
@@ -869,6 +882,34 @@ private fun AiField(
     }
 }
 
-/** ���츽����reference �� ComfyUI �ϴ�����ļ�����dataUrl Ϊ�ձ�ʾ̫�󡢲���ͼ��ģ�͡� */
+/**
+ * 聊天附件：reference 是 ComfyUI 上传后的文件名，dataUrl 为空表示编码失败。
+ */
 private data class AiAttachment(val reference: String, val dataUrl: String)
 
+/**
+ * 给多模态模型用的 data URL：太大先压到长边 1024 / JPEG 80。
+ *
+ * 不能像以前那样「太大就只给文件名」——用户传图就是要模型看懂画面，
+ * 把图丢掉等于让它盲写提示词。
+ */
+private fun visionDataUrl(bytes: ByteArray, filename: String): String {
+    if (bytes.size <= 1_200_000) {
+        val mime = if (filename.endsWith(".png", true)) "image/png" else "image/jpeg"
+        return "data:$mime;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+    }
+    return runCatching {
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@runCatching ""
+        val maxSide = maxOf(bitmap.width, bitmap.height)
+        val scale = if (maxSide > 1024) 1024f / maxSide else 1f
+        val scaled = Bitmap.createScaledBitmap(
+            bitmap,
+            (bitmap.width * scale).toInt().coerceAtLeast(1),
+            (bitmap.height * scale).toInt().coerceAtLeast(1),
+            true,
+        )
+        val out = java.io.ByteArrayOutputStream()
+        scaled.compress(Bitmap.CompressFormat.JPEG, 80, out)
+        "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+    }.getOrDefault("")
+}

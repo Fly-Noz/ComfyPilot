@@ -159,10 +159,16 @@ data class UiGroup(
     val width: Double,
     val height: Double,
 ) {
+    /**
+     * 节点是否属于这个分组：按包围盒相交判断，和桌面端 LiteGraph 一致。
+     *
+     * 不能用节点中心点：带图片预览的 LoadImage 很高，中心点常常落到组框外，
+     * 于是桌面上明明在组里的节点，在 App 里变成「未归属」，组开关对它完全无效。
+     */
     fun contains(node: UiNode): Boolean {
-        val centerX = node.x + node.width / 2.0
-        val centerY = node.y + node.height / 2.0
-        return centerX >= x && centerX <= x + width && centerY >= y && centerY <= y + height
+        val nodeRight = node.x + node.width
+        val nodeBottom = node.y + node.height
+        return node.x < x + width && nodeRight > x && node.y < y + height && nodeBottom > y
     }
 }
 
