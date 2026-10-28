@@ -635,6 +635,9 @@ export class AiAssistant {
   /** 宿主可挂一个 sink，把 AI 日志并进 App 内诊断页（没电脑时直接看手机）。 */
   logSink: ((line: string) => void) | null = null;
 
+  /** 工具声明：由宿主从共享层取（cp_ai_tools_json）；取不到时退回内置副本。 */
+  toolsJson: string = '';
+
   private log(message: string): void {
     const line: string = message.substring(0, 2000);
     hilog.info(0x0000, 'ComfyPilotAI', line);
@@ -759,8 +762,9 @@ export class AiAssistant {
         payload.push({ role: messages[i].role, content: messages[i].content });
       }
     }
+    const tools = this.toolsJson.length > 0 ? this.toolsJson : TOOLS_JSON;
     return `{"model":${JSON.stringify(this.config.model)},"temperature":0.2,` +
-      `"messages":${JSON.stringify(payload)},"tools":${TOOLS_JSON},"tool_choice":"auto"}`;
+      `"messages":${JSON.stringify(payload)},"tools":${tools},"tool_choice":"auto"}`;
   }
 
   private saveVisionOff(): void {

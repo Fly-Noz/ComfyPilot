@@ -183,6 +183,11 @@ fun cpAiDigest(requestJson: CPointer<ByteVar>?, buffer: CPointer<ByteVar>?, capa
 }
 
 @OptIn(ExperimentalForeignApi::class)
+@CName("cp_ai_tools_json")
+fun cpAiToolsJson(buffer: CPointer<ByteVar>?, capacity: Int): Int =
+    writeUtf8(com.comfypilot.core.ai.AiToolSpec.json, buffer, capacity)
+
+@OptIn(ExperimentalForeignApi::class)
 @CName("cp_ai_apply")
 fun cpAiApply(requestJson: CPointer<ByteVar>?, buffer: CPointer<ByteVar>?, capacity: Int): Int {
     val raw = requestJson?.toKString() ?: "{}"

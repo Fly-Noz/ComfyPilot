@@ -958,7 +958,8 @@ object AiRuntime {
                 }
                 conversation.forEach { add(it) }
             }
-            put("tools", TOOLS)
+            // 工具声明由共享层提供，两端不再各写一份。
+            put("tools", json.parseToJsonElement(com.comfypilot.core.ai.AiToolSpec.json))
             put("tool_choice", "auto")
         }
         val endpoint = config.baseUrl.trimEnd('/') + "/chat/completions"

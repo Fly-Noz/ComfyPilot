@@ -781,6 +781,8 @@ struct Index {
     const context = host as common.Context;
     this.uiContext = host as common.UIAbilityContext;
     const result: TaskRestoreResult = await this.bridge.init(context);
+    // 工具声明由共享层提供；取不到时 AiAssistant 会退回内置副本。
+    this.ai.toolsJson = this.bridge.aiTools();
     const pinnedReady: boolean = await this.pinnedStore.open(context);
     const notesReady: boolean = await this.noteStore.open(context);
     const workflowPinsReady: boolean = await this.pinnedWorkflowStore.open(context);
