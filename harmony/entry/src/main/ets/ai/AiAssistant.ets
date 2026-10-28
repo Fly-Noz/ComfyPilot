@@ -55,6 +55,8 @@ export interface AiHost {
   queryNodes(args: string): string;
   queryNode(args: string): string;
   digestJson(): string;
+  /** 当前工作流的生成模型写提示词的习惯（由宿主按节点推断）。 */
+  promptGuide(): string;
 }
 
 const TOOLS_JSON: string = `[
@@ -247,6 +249,11 @@ export class AiAssistant {
         systemMessages.push({ role: 'system', content: `用户当前停留的工作流是：${currentPath}` });
       }
       systemMessages.push({ role: 'system', content: `当前工作流摘要：${digest}` });
+      const guide = host.promptGuide();
+      if (guide.length > 0) {
+        this.log(`prompt guide ${guide.substring(0, 80)}`);
+        systemMessages.push({ role: 'system', content: `生成提示词规范（写 text/prompt 字段时必须遵守）：${guide}` });
+      }
       if (paths.length > 0) {
         systemMessages.push({ role: 'system', content: `可切换的工作流（open_workflow 用）：${paths.slice(0, 60).join('、')}` });
       }

@@ -69,6 +69,9 @@ interface AiWorkflowHost {
 
     /** 可供 AI 切换的工作流路径（目录里已有的）。 */
     fun availableWorkflows(): List<String> = emptyList()
+
+    /** 当前工作流里生成模型的提示词写法（宿主按节点推断）。 */
+    fun promptGuide(): String = ""
 }
 
 data class AiChatMessage(
@@ -532,6 +535,15 @@ object AiRuntime {
                                 "可切换的工作流（open_workflow 用）：" +
                                     paths.take(60).joinToString("、"),
                             )
+                        },
+                    )
+                }
+                val guide = host?.promptGuide().orEmpty()
+                if (guide.isNotEmpty()) {
+                    add(
+                        buildJsonObject {
+                            put("role", "system")
+                            put("content", "生成提示词规范（写 text/prompt 字段时必须遵守）：$guide")
                         },
                     )
                 }

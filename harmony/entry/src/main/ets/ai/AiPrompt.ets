@@ -78,3 +78,87 @@ export function aiSystemPrompt(model: string): string {
 export function aiModelProfileLabel(model: string): string {
   return profileFor(model).label;
 }
+
+/**
+ * 从工作流文本（路径 + 节点类型 + 字段值）猜生成模型家族。
+ *
+ * 为什么不用模型名精确匹配：ComfyUI 里同一模型的文件名千奇百怪
+ * （qwen_image_2512_fp8.safetensors、flux1-dev-kontext、ltxv-13b-0.9.8 等），
+ * 关键词命中比白名单更稳。
+ */
+export function aiDetectGenModel(text: string): string {
+  const id: string = text.toLowerCase();
+  if (id.indexOf('qwen') >= 0 && id.indexOf('image') >= 0) {
+    return 'qwen-image';
+  }
+  if (id.indexOf('flux') >= 0) {
+    return 'flux';
+  }
+  if (id.indexOf('ltx') >= 0) {
+    return 'ltx-video';
+  }
+  if (id.indexOf('wan2') >= 0 || id.indexOf('wan-') >= 0) {
+    return 'wan-video';
+  }
+  if (id.indexOf('hunyuan') >= 0) {
+    return 'hunyuan-video';
+  }
+  if (id.indexOf('minimax') >= 0) {
+    return 'minimax-video';
+  }
+  if (id.indexOf('ace') >= 0 && id.indexOf('step') >= 0) {
+    return 'ace-step';
+  }
+  if (id.indexOf('index') >= 0 && id.indexOf('tts') >= 0) {
+    return 'tts';
+  }
+  if (id.indexOf('ernie') >= 0) {
+    return 'ernie-image';
+  }
+  if (id.indexOf('krea') >= 0) {
+    return 'krea';
+  }
+  if (id.indexOf('sdxl') >= 0 || id.indexOf('sd_xl') >= 0) {
+    return 'sdxl';
+  }
+  if (id.indexOf('pony') >= 0 || id.indexOf('v1-5') >= 0 || id.indexOf('sd15') >= 0) {
+    return 'sd';
+  }
+  return 'generic';
+}
+
+/**
+ * 生成模型写提示词的习惯。依据各家官方文档：
+ * - Qwen-Image：整段自然语言 + 官方正向后缀「超清，4K，电影级构图」与负向基线；
+ * - FLUX：描述主体/场景/风格/光线/构图，不用 tag 堆叠；
+ * - LTX-Video：按时间顺序的单段（≤200 词），含动作、运镜、光线。
+ */
+export function aiGenerationGuide(key: string): string {
+  if (key === 'qwen-image') {
+    return [
+      '这是 Qwen-Image 系列：用一整段自然语言，按「主体与外貌 → 动作/表情 → 服装材质 → 环境背景 → 构图镜头 → 光线色调」写，不要逗号堆 tag。',
+      '画面里要出现的文字直接写原文（中文也可以，它擅长文字渲染）。',
+      '官方做法：正向结尾追加「，超清，4K，电影级构图」；负向可用「低分辨率，低画质，肢体畸形，手指畸形，画面过饱和，蜡像感，人脸无细节，过度光滑，画面具有AI感，构图混乱，文字模糊，扭曲」。',
+    ].join('');
+  }
+  if (key === 'flux') {
+    return '这是 FLUX 系列：用自然语言写清主体、场景、风格、光线与构图，不要用 SD 风格的 tag 堆叠；用参考图时说明是「图 1 / 图 2」以及各自的位置。';
+  }
+  if (key === 'ltx-video') {
+    return '这是 LTX-Video：写成一条按时间顺序推进的段落（≤200 词）——主要动作 → 具体动作/手势 → 主体外观 → 背景环境 → 镜头角度与运动 → 光线色彩 → 变化或意外。开头直接写动作，用词字面、具体，像在写分镜。';
+  }
+  if (key === 'wan-video' || key === 'hunyuan-video' || key === 'minimax-video') {
+    return '这是视频模型：一条段落写清主体动作、场景、镜头运动与光线；强调「怎么动、往哪动、镜头怎么走」，不要只写静态画面。';
+  }
+  if (key === 'ace-step') {
+    return '这是音乐生成：写风格、主要乐器、情绪、速度（BPM）与结构（前奏/主歌/副歌），避免「好听的歌」这类空泛描述。';
+  }
+  if (key === 'tts') {
+    return '这是语音合成：直接写要朗读的文本，用标点控制停顿；语速、情绪等要求单独说明。';
+  }
+  if (key === 'sd' || key === 'sdxl') {
+    return '这是 SD / SDXL 系：用英文逗号分隔的标签（主体、风格、画质词），负向提示词单独写，不要把正向词重复进负向。';
+  }
+  return '按当前工作流的模型习惯写提示词：具体描述主体、动作、环境、构图与光线，别用空泛形容词。';
+}
+

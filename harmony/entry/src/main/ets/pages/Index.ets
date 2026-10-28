@@ -22,6 +22,7 @@ import { PinnedNodeStore } from '../bridge/PinnedNodeStore';
 import { WorkflowDraftStore } from '../bridge/WorkflowDraftStore';
 import { AiAssistant, AiApplyOutcome, AiChatMessage, AiConfig, AiHost, AiPending, AiQuestion } from '../ai/AiAssistant';
 import { aiPlainText, isToolResult } from '../ai/AiText';
+import { aiDetectGenModel, aiGenerationGuide } from '../ai/AiPrompt';
 import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
 import { NodeNoteStore } from '../bridge/NodeNoteStore';
 import { AddressEntry, AddressStore } from '../bridge/AddressStore';
@@ -191,6 +192,7 @@ class PageAiHost implements AiHost {
   queryNodes: (args: string) => string = () => '{"nodes":[]}';
   queryNode: (args: string) => string = () => '{"error":"未实现"}';
   digestJson: () => string = () => '{}';
+  promptGuide: () => string = () => '';
 }
 
 interface NodeQueryProbe {
@@ -6647,6 +6649,7 @@ struct Index {
     host.queryNodes = (args: string) => this.aiNodesJson(args);
     host.queryNode = (args: string) => this.aiNodeJson(args);
     host.digestJson = () => this.aiSummaryJson();
+    host.promptGuide = () => this.aiPromptGuide();
     this.ai.host = host;
   }
 
@@ -6661,6 +6664,38 @@ struct Index {
   /** 工具结果是给模型看的中转消息，不进聊天气泡。 */
   private aiVisibleMessages(): AiChatMessage[] {
     return this.aiMessages.filter((message: AiChatMessage) => !isToolResult(message.content));
+  }
+
+  /**
+   * 当前工作流的生成模型 + 它的提示词写法。
+   *
+   * 模型家族从工作流路径、节点类型和加载器字段值里推（ComfyUI 的文件名五花八门，
+   * 关键词比白名单稳）；顺便把 text/prompt 字段的 id 告诉模型，省得它新建节点。
+   */
+  private aiPromptGuide(): string {
+    const tokens: string[] = [this.selectedPath, this.view.name];
+    const promptFields: string[] = [];
+    this.view.nodes.forEach((node: WorkflowNodeView) => {
+      tokens.push(node.type);
+      node.fields.forEach((field: WorkflowFieldView) => {
+        const name: string = field.inputName.toLowerCase();
+        const isLoader: boolean = name.indexOf('ckpt') >= 0 || name.indexOf('unet') >= 0 ||
+          name.indexOf('checkpoint') >= 0 || name.indexOf('model') >= 0 ||
+          name.indexOf('lora') >= 0 || name.indexOf('vae') >= 0;
+        if (isLoader && field.value !== null) {
+          tokens.push(field.value.toString());
+        }
+        if (field.widget && (name === 'text' || name === 'prompt' || name === 'positive')) {
+          promptFields.push(`#${node.id}.${field.inputName}`);
+        }
+      });
+    });
+    const key: string = aiDetectGenModel(tokens.join(' '));
+    const guide: string = aiGenerationGuide(key);
+    const where: string = promptFields.length > 0
+      ? `\n本工作流的提示词字段：${promptFields.slice(0, 6).join('、')}（直接改这些，不要新建节点）。`
+      : '';
+    return guide + where;
   }
 
   /** 把 AI 会话里会被界面读到的字段搬进 @State；见 aiMessages 处的说明。 */

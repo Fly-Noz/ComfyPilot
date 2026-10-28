@@ -114,6 +114,7 @@ import com.comfypilot.app.ui.theme.GlassCard
 import com.comfypilot.app.ui.theme.GradientButton
 import com.comfypilot.app.ui.theme.PillTone
 import com.comfypilot.app.ui.theme.pressFeedback
+import com.comfypilot.app.ai.AiGenPrompt
 import com.comfypilot.app.ai.AiRuntime
 import com.comfypilot.app.ai.AiWorkflowHost
 import com.comfypilot.core.ai.AiApplyResult
@@ -675,6 +676,25 @@ private fun DetailBody(
                 (state.catalog as? com.comfypilot.core.workflow.WorkflowCatalog.Ready)
                     ?.entries?.map { it.path }?.take(80)
                     ?: emptyList()
+
+            override fun promptGuide(): String {
+                // 生成模型藏在加载器的文件名里，提示词字段则要看 text/prompt 这类 widget。
+                val tokens = mutableListOf(document.path, document.name)
+                val promptFields = mutableListOf<String>()
+                analysis.fields.nodes.forEach { node ->
+                    tokens += node.type
+                    node.fields.forEach { field ->
+                        val input = field.inputName.lowercase()
+                        val isLoader = listOf("ckpt", "unet", "checkpoint", "model", "lora", "vae")
+                            .any { input.contains(it) }
+                        if (isLoader) tokens += field.value?.toString().orEmpty()
+                        if (field.widget && (input == "text" || input == "prompt" || input == "positive")) {
+                            promptFields += "#${node.id}.${field.inputName}"
+                        }
+                    }
+                }
+                return AiGenPrompt.build(tokens, promptFields)
+            }
         }
     }
     DisposableEffect(document.path) {
