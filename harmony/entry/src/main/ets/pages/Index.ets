@@ -422,6 +422,9 @@ struct Index {
   @State aiOpen: boolean = false;
   @State aiSettingsOpen: boolean = false;
   @State aiInput: string = '';
+  /** 已上传到 ComfyUI 的图片引用；下一条消息会带上它。 */
+  @State aiAttachment: string = '';
+  @State aiAttachBusy: boolean = false;
   @State aiSide: number = 1;
   @State aiY: number = 0.72;
   @State aiWidth: number = 0;
@@ -6661,6 +6664,51 @@ struct Index {
     this.syncAi();
   }
 
+  /**
+   * 选一张图上传到 ComfyUI，把服务器文件名挂到下一次对话上。
+   *
+   * AI 不能自己打开相册，所以由用户选图、宿主上传，再把文件名交给模型：
+   * 模型只要用 set_input 把它写进 LoadImage.image 就行。
+   */
+  private async aiAttachImage(): Promise<void> {
+    if (this.aiBusy || this.aiAttachBusy) {
+      return;
+    }
+    const base: string = this.normalizedBaseUrl();
+    if (!this.running || base.length === 0) {
+      this.ai.error = '未连接 ComfyUI，没法上传图片';
+      this.syncAi();
+      return;
+    }
+    this.aiAttachBusy = true;
+    this.pickerActive = true;
+    this.skipNextAppear = true;
+    try {
+      const picked: PickedImage | null = await this.imageUploader.pick();
+      if (picked === null) {
+        return;
+      }
+      const result = await this.imageUploader.upload(base, picked);
+      if (!result.ok) {
+        this.ai.error = result.message;
+        this.syncAi();
+        return;
+      }
+      this.aiAttachment = result.reference;
+      this.ai.error = '';
+      if (this.aiInput.trim().length === 0) {
+        this.aiInput = '把刚上传的图片设进需要图片的节点，不确定先问我';
+      }
+      this.syncAi();
+    } catch (err) {
+      this.ai.error = this.errorText(err);
+      this.syncAi();
+    } finally {
+      this.aiAttachBusy = false;
+      this.pickerActive = false;
+    }
+  }
+
   /** 工具结果是给模型看的中转消息，不进聊天气泡。 */
   private aiVisibleMessages(): AiChatMessage[] {
     return this.aiMessages.filter((message: AiChatMessage) => !isToolResult(message.content));
@@ -6954,7 +7002,35 @@ struct Index {
         .padding({ left: 12, right: 12 })
 
         // 输入区
+        if (this.aiAttachment.length > 0) {
+          Row({ space: 6 }) {
+            Text(`图片：${this.aiAttachment}`)
+              .fontSize(10)
+              .fontFamily('monospace')
+              .fontColor(this.c().textMuted)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .layoutWeight(1)
+            Text('移除')
+              .fontSize(10)
+              .fontColor(this.c().textDim)
+              .padding({ left: 6, right: 6 })
+              .onClick(() => { this.aiAttachment = ''; })
+          }
+          .width('100%')
+          .padding({ left: 12, right: 12, bottom: 6 })
+        }
         Row({ space: 8 }) {
+          Text('图')
+            .fontSize(11)
+            .fontColor(this.aiAttachBusy ? this.c().textDim : this.c().textMuted)
+            .width(34)
+            .height(34)
+            .textAlign(TextAlign.Center)
+            .backgroundColor(this.c().card)
+            .borderRadius(17)
+            .border({ width: 1, color: this.c().border })
+            .onClick(() => { this.aiAttachImage(); })
           TextInput({ text: this.aiInput, placeholder: '让 AI 改参数、开关节点…' })
             .layoutWeight(1)
             .height(40)
@@ -6976,12 +7052,17 @@ struct Index {
             .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
             .opacity(this.aiBusy ? 0.5 : 1)
             .onClick(() => {
-              if (this.aiBusy || this.aiInput.trim().length === 0) {
+              if (this.aiBusy || (this.aiInput.trim().length === 0 && this.aiAttachment.length === 0)) {
                 return;
               }
               const text = this.aiInput;
+              const attach = this.aiAttachment;
               this.aiInput = '';
-              this.ai.send(text).then(() => { this.syncAi(); });
+              this.aiAttachment = '';
+              const payload = attach.length > 0
+                ? `${text.length > 0 ? text : '用这张图'}\n（图片已上传到服务器，文件名：${attach}；要放进节点就用 set_input 写这个文件名）`
+                : text;
+              this.ai.send(payload).then(() => { this.syncAi(); });
               // send() 在第一个 await 之前就把 busy 置真，这里同步一次能立刻出「停止」。
               this.syncAi();
             })

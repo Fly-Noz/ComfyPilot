@@ -1,5 +1,8 @@
 package com.comfypilot.app.ui
 
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -32,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +44,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -48,12 +53,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.comfypilot.android.transport.OkHttpHttpTransport
+import com.comfypilot.app.SessionHost
 import com.comfypilot.app.ai.AiConfig
 import com.comfypilot.app.ai.AiRuntime
 import com.comfypilot.app.ai.AiSnapshot
 import com.comfypilot.app.ui.theme.Spectrum
 import com.comfypilot.app.ui.theme.SpectrumMono
+import com.comfypilot.core.api.ImageUpload
+import com.comfypilot.core.api.ImageUploadResult
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 /**
@@ -152,6 +164,65 @@ fun AiChatDialog(onDismiss: () -> Unit) {
     var input by remember { mutableStateOf("") }
     var scopeOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
+
+    // 附图：AI 自己打不开相册，由这里选图上传，再把服务器文件名交给模型。
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val uploader = remember { OkHttpHttpTransport() }
+    var attachment by remember { mutableStateOf("") }
+    var attaching by remember { mutableStateOf(false) }
+    var attachError by remember { mutableStateOf<String?>(null) }
+
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val lease = SessionHost.state.value.lease
+        if (lease == null) {
+            attachError = "未连接 ComfyUI"
+            return@rememberLauncherForActivityResult
+        }
+        scope.launch {
+            attaching = true
+            attachError = null
+            val loaded = withContext(Dispatchers.IO) {
+                runCatching {
+                    val name = context.contentResolver.query(
+                        uri,
+                        arrayOf(OpenableColumns.DISPLAY_NAME),
+                        null,
+                        null,
+                        null,
+                    )?.use { cursor ->
+                        if (cursor.moveToFirst()) cursor.getString(0) else null
+                    } ?: uri.lastPathSegment ?: "image.png"
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: error("读不到图片内容")
+                    name to bytes
+                }
+            }
+            if (loaded.isFailure) {
+                attachError = loaded.exceptionOrNull()?.message ?: "读取图片失败"
+                attaching = false
+                return@launch
+            }
+            val (filename, bytes) = loaded.getOrThrow()
+            when (
+                val result = ImageUpload.upload(
+                    http = uploader,
+                    baseUrl = lease.baseUrl,
+                    filename = filename,
+                    bytes = bytes,
+                )
+            ) {
+                is ImageUploadResult.Success -> {
+                    attachment = result.reference
+                    if (input.isBlank()) input = "把刚上传的图片设进需要图片的节点，不确定先问我"
+                }
+
+                is ImageUploadResult.Failure -> attachError = result.message
+            }
+            attaching = false
+        }
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -412,6 +483,41 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                 )
             }
 
+            if (attachment.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "图片：$attachment",
+                        color = c.textMuted,
+                        fontSize = 10.sp,
+                        fontFamily = SpectrumMono,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = "移除",
+                        color = c.textDim,
+                        fontSize = 10.sp,
+                        modifier = Modifier
+                            .clickableNoRipple { attachment = "" }
+                            .padding(horizontal = 6.dp),
+                    )
+                }
+            }
+            if (attachError != null) {
+                Text(
+                    text = attachError.orEmpty(),
+                    color = c.err,
+                    fontSize = 10.sp,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                )
+            }
+
             // 输入区
             Row(
                 modifier = Modifier
@@ -421,7 +527,21 @@ fun AiChatDialog(onDismiss: () -> Unit) {
             ) {
                 Box(
                     modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(c.card)
+                        .border(1.dp, c.border, CircleShape)
+                        .clickableNoRipple {
+                            if (!attaching && !snapshot.busy) picker.launch("image/*")
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("图", color = if (attaching) c.textDim else c.textMuted, fontSize = 11.sp)
+                }
+                Box(
+                    modifier = Modifier
                         .weight(1f)
+                        .padding(start = 8.dp)
                         .clip(RoundedCornerShape(18.dp))
                         .background(c.card)
                         .border(1.dp, c.border, RoundedCornerShape(18.dp))
@@ -457,9 +577,19 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                         .clip(CircleShape)
                         .background(if (snapshot.busy) SolidColor(c.cardStrong) else c.gradientBrush())
                         .clickableNoRipple {
-                            if (!snapshot.busy && input.isNotBlank()) {
-                                AiRuntime.send(input)
+                            if (!snapshot.busy && (input.isNotBlank() || attachment.isNotEmpty())) {
+                                val text = input
+                                val attach = attachment
                                 input = ""
+                                attachment = ""
+                                AiRuntime.send(
+                                    if (attach.isEmpty()) {
+                                        text
+                                    } else {
+                                        val lead = text.ifBlank { "用这张图" }
+                                        "$lead\n（图片已上传到服务器，文件名：$attach；要放进节点就用 set_input 写这个文件名）"
+                                    },
+                                )
                             }
                         },
                     contentAlignment = Alignment.Center,
