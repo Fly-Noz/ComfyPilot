@@ -189,7 +189,7 @@ class PageAiHost implements AiHost {
   buildViewJson: () => string = () => '';
   stateJson: () => string = () => '{}';
   applyProposal: (proposal: string) => AiApplyOutcome = () => {
-    return { ok: false, errors: [], changes: [], openWorkflow: '' };
+    return { ok: false, errors: [], changes: [], openWorkflow: '', editCount: 0 };
   };
   submit: () => boolean = () => false;
   openWorkflow: (path: string) => boolean = () => false;
@@ -6598,7 +6598,7 @@ struct Index {
       if (errors.length === 0 && result.message !== undefined) {
         errors.push(result.message);
       }
-      return { ok: false, errors: errors, changes: [], openWorkflow: '' };
+      return { ok: false, errors: errors, changes: [], openWorkflow: '', editCount: 0 };
     }
     const edits = result.edits ?? [];
     edits.forEach((edit: AiBridgeEdit) => {
@@ -6617,7 +6617,7 @@ struct Index {
       this.openWorkflow(open, open);
     }
     this.refreshView(false);
-    return { ok: true, errors: [], changes: result.changes ?? [], openWorkflow: open };
+    return { ok: true, errors: [], changes: result.changes ?? [], openWorkflow: open, editCount: edits.length };
   }
 
   private aiSubmit(): boolean {

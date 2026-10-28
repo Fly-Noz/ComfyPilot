@@ -68,6 +68,8 @@ export interface AiApplyOutcome {
   errors: string[];
   changes: string[];
   openWorkflow: string;
+  /** 桥实际写回的字段条数；0 且有 changes 说明校验过了但没落地。 */
+  editCount: number;
 }
 
 export interface AiQuestion {
@@ -434,18 +436,17 @@ export class AiAssistant {
     }
     this.pending = null;
     this.lastUndoJson = this.buildInverse(proposalJson, pending.oldValuesJson);
-    // 保障层只校验 set_input：节点开关/图选择走异步刷新，应用后立刻回读会是旧值，
-    // 之前因此把成功误报成「改动没有生效」。
-    const verifyKeys = this.setInputKeys(proposalJson);
-    const beforeValues = verifyKeys.length > 0 ? host.fieldValues(JSON.stringify(verifyKeys)) : '';
     const outcome = host.applyProposal(proposalJson);
     if (!outcome.ok) {
       this.error = outcome.errors.join('；');
       this.bump();
       return;
     }
-    if (verifyKeys.length > 0 && host.fieldValues(JSON.stringify(verifyKeys)) === beforeValues) {
-      this.error = '这些改动没有生效（字段值未变化），请重试';
+    // 保障层：桥说有改动、却一条字段都没写回，才算没生效。
+    // 不再按「应用前后 fieldValues 是否变化」判断——那条回读在真机上不可靠，
+    // 会把已经改好的情况误报成失败。
+    if (outcome.changes.length > 0 && outcome.editCount === 0 && this.setInputKeys(proposalJson).length > 0) {
+      this.error = '这些改动没有生效（桥没有写回任何字段），请重试';
     }
     this.canUndo = this.lastUndoJson.length > 0;
     this.actions = [...this.actions, ...outcome.changes].slice(-50);
