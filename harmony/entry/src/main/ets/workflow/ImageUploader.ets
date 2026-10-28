@@ -39,18 +39,34 @@ interface UploadImageResponse {
 export class ImageUploader {
 
   async pick(): Promise<PickedImage | null> {
-    console.info('CP> upload picker open');
+    const list = await this.pickMany(1);
+    return list.length > 0 ? list[0] : null;
+  }
+
+  /** 多选：AI 聊天里一次可以带多张图，各自上传成独立文件名。 */
+  async pickMany(limit: number = 4): Promise<PickedImage[]> {
+    console.info(`CP> upload picker open limit=${limit}`);
     const picker = new photoAccessHelper.PhotoViewPicker();
     const options = new photoAccessHelper.PhotoSelectOptions();
     options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
-    options.maxSelectNumber = 1;
+    options.maxSelectNumber = limit;
     const result = await picker.select(options);
     if (result.photoUris.length === 0) {
       console.info('CP> upload picker cancelled');
-      return null;
+      return [];
     }
+    const picked: PickedImage[] = [];
+    for (const uri of result.photoUris) {
+      try {
+        picked.push(await this.loadPicked(uri));
+      } catch (err) {
+        console.error(`CP> upload load failed ${(err as Error).message}`);
+      }
+    }
+    return picked;
+  }
 
-    const uri = result.photoUris[0];
+  private async loadPicked(uri: string): Promise<PickedImage> {
     const stat = fileIo.statSync(uri);
     console.info(`CP> upload picked size=${stat.size} uri=${uri.substring(0, 80)}`);
     if (stat.size <= 0) {

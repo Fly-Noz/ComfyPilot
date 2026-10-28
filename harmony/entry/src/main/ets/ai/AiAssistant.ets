@@ -104,6 +104,19 @@ export class AiAssistant {
         enabled: this.store.getSync('enabled', false) as boolean,
         autoSubmit: this.store.getSync('auto_submit', false) as boolean,
       };
+      // 恢复上次的对话与操作记录（只留最近一段，避免越存越大）。
+      try {
+        const rawMessages: string = this.store.getSync('messages', '') as string;
+        if (rawMessages.length > 0) {
+          this.messages = JSON.parse(rawMessages) as AiChatMessage[];
+        }
+        const rawActions: string = this.store.getSync('actions', '') as string;
+        if (rawActions.length > 0) {
+          this.actions = JSON.parse(rawActions) as string[];
+        }
+      } catch (err) {
+        console.info('CP> AI 历史记录损坏，已忽略');
+      }
     } catch (err) {
       this.error = (err as Error).message;
     }
@@ -125,7 +138,23 @@ export class AiAssistant {
 
   bump(): number {
     this.version++;
+    this.persist();
     return this.version;
+  }
+
+  /** 对话与操作记录落盘：进程被杀后回来还能看到上一轮改了什么。 */
+  private persist(): void {
+    const store = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      store.putSync('messages', JSON.stringify(this.messages.slice(-40)));
+      store.putSync('actions', JSON.stringify(this.actions.slice(-50)));
+      store.flush();
+    } catch (err) {
+      // 存不下不影响本次会话
+    }
   }
 
   get revision(): number {
@@ -285,8 +314,16 @@ export class AiAssistant {
     this.error = '工具调用轮数过多，已停止';
   }
 
+  /** 宿主可挂一个 sink，把 AI 日志并进 App 内诊断页（没电脑时直接看手机）。 */
+  logSink: ((line: string) => void) | null = null;
+
   private log(message: string): void {
-    hilog.info(0x0000, 'ComfyPilotAI', message.substring(0, 2000));
+    const line: string = message.substring(0, 2000);
+    hilog.info(0x0000, 'ComfyPilotAI', line);
+    const sink = this.logSink;
+    if (sink !== null) {
+      sink(line);
+    }
   }
 
   private async executeTool(name: string, args: string, host: AiHost): Promise<string> {

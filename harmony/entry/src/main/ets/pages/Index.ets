@@ -422,8 +422,8 @@ struct Index {
   @State aiOpen: boolean = false;
   @State aiSettingsOpen: boolean = false;
   @State aiInput: string = '';
-  /** 已上传到 ComfyUI 的图片引用；下一条消息会带上它。 */
-  @State aiAttachment: string = '';
+  /** 已上传到 ComfyUI 的图片引用；下一条消息会带上它们。 */
+  @State aiAttachments: string[] = [];
   @State aiAttachBusy: boolean = false;
   @State aiSide: number = 1;
   @State aiY: number = 0.72;
@@ -778,6 +778,8 @@ struct Index {
     const dismissedReady: boolean = await this.dismissedStore.open(context);
     const draftReady: boolean = await this.draftStore.open(context);
     await this.ai.open(context);
+    // AI 日志并进设置页的诊断列表，没电脑时也能看它在干什么。
+    this.ai.logSink = (line: string) => { this.log(`AI ${line}`); };
     this.aiEnabled = this.ai.config.enabled;
     // 启动就把接口/模型/Key 读进状态：面板标题和设置页都读这些 @State。
     this.loadAiFields();
@@ -6665,10 +6667,10 @@ struct Index {
   }
 
   /**
-   * 选一张图上传到 ComfyUI，把服务器文件名挂到下一次对话上。
+   * 选图上传到 ComfyUI，把服务器文件名挂到下一次对话上（可多张）。
    *
    * AI 不能自己打开相册，所以由用户选图、宿主上传，再把文件名交给模型：
-   * 模型只要用 set_input 把它写进 LoadImage.image 就行。
+   * 模型只要用 set_input 把它们写进对应的 image 输入就行。
    */
   private async aiAttachImage(): Promise<void> {
     if (this.aiBusy || this.aiAttachBusy) {
@@ -6684,20 +6686,24 @@ struct Index {
     this.pickerActive = true;
     this.skipNextAppear = true;
     try {
-      const picked: PickedImage | null = await this.imageUploader.pick();
-      if (picked === null) {
+      const picked: PickedImage[] = await this.imageUploader.pickMany(
+        Math.max(1, 4 - this.aiAttachments.length),
+      );
+      if (picked.length === 0) {
         return;
       }
-      const result = await this.imageUploader.upload(base, picked);
-      if (!result.ok) {
-        this.ai.error = result.message;
-        this.syncAi();
-        return;
+      const added: string[] = [];
+      for (const item of picked) {
+        const result = await this.imageUploader.upload(base, item);
+        if (!result.ok) {
+          this.ai.error = result.message;
+          break;
+        }
+        added.push(result.reference);
       }
-      this.aiAttachment = result.reference;
-      this.ai.error = '';
-      if (this.aiInput.trim().length === 0) {
-        this.aiInput = '把刚上传的图片设进需要图片的节点，不确定先问我';
+      if (added.length > 0) {
+        this.aiAttachments = [...this.aiAttachments, ...added].slice(0, 4);
+        this.ai.error = '';
       }
       this.syncAi();
     } catch (err) {
@@ -6768,22 +6774,34 @@ struct Index {
 
   @Builder
   AiBall() {
-    Text('AI')
-      .fontSize(14)
-      .fontWeight(FontWeight.Bold)
-      .fontColor('#FFFFFF')
-      .textAlign(TextAlign.Center)
-      .width(46)
-      .height(46)
-      .borderRadius(23)
-      .backgroundColor(this.c().isDark ? '#33FFFFFF' : '#59FFFFFF')
-      .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
-      .border({ width: 1, color: '#4DFFFFFF' })
-      .shadow({ radius: 14, color: 'rgba(0,0,0,0.35)', offsetY: 4 })
-      .position({
-        x: this.aiBallPX >= 0 ? this.aiBallPX : (this.aiSide === 1 ? this.aiWidth - 58 : 12),
-        y: this.aiY * Math.max(0, this.aiHeight - 58),
-      })
+    Stack() {
+      Text('AI')
+        .fontSize(14)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#FFFFFF')
+        .textAlign(TextAlign.Center)
+        .width(46)
+        .height(46)
+      // 待处理红点：有未确认的改动、待回答的问题或报错时提示用户进去看。
+      if (this.aiPending !== null || this.aiQuestion !== null || this.aiError.length > 0) {
+        Circle()
+          .width(9)
+          .height(9)
+          .fill(this.c().err)
+          .position({ x: 35, y: 3 })
+      }
+    }
+    .width(46)
+    .height(46)
+    .borderRadius(23)
+    .backgroundColor(this.c().isDark ? '#33FFFFFF' : '#59FFFFFF')
+    .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
+    .border({ width: 1, color: '#4DFFFFFF' })
+    .shadow({ radius: 14, color: 'rgba(0,0,0,0.35)', offsetY: 4 })
+    .position({
+      x: this.aiBallPX >= 0 ? this.aiBallPX : (this.aiSide === 1 ? this.aiWidth - 58 : 12),
+      y: this.aiY * Math.max(0, this.aiHeight - 58),
+    })
       .onClick(() => {
         this.aiOpen = true;
       })
@@ -7002,20 +7020,27 @@ struct Index {
         .padding({ left: 12, right: 12 })
 
         // 输入区
-        if (this.aiAttachment.length > 0) {
-          Row({ space: 6 }) {
-            Text(`图片：${this.aiAttachment}`)
-              .fontSize(10)
-              .fontFamily('monospace')
-              .fontColor(this.c().textMuted)
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .layoutWeight(1)
-            Text('移除')
-              .fontSize(10)
-              .fontColor(this.c().textDim)
-              .padding({ left: 6, right: 6 })
-              .onClick(() => { this.aiAttachment = ''; })
+        if (this.aiAttachments.length > 0) {
+          Column({ space: 4 }) {
+            ForEach(this.aiAttachments, (ref: string, index: number) => {
+              Row({ space: 6 }) {
+                Text(`图片${index + 1}：${ref}`)
+                  .fontSize(10)
+                  .fontFamily('monospace')
+                  .fontColor(this.c().textMuted)
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .layoutWeight(1)
+                Text('移除')
+                  .fontSize(10)
+                  .fontColor(this.c().textDim)
+                  .padding({ left: 6, right: 6 })
+                  .onClick(() => {
+                    this.aiAttachments = this.aiAttachments.filter((item: string) => item !== ref);
+                  })
+              }
+              .width('100%')
+            }, (ref: string, index: number) => `${index}:${ref}`)
           }
           .width('100%')
           .padding({ left: 12, right: 12, bottom: 6 })
@@ -7052,15 +7077,15 @@ struct Index {
             .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
             .opacity(this.aiBusy ? 0.5 : 1)
             .onClick(() => {
-              if (this.aiBusy || (this.aiInput.trim().length === 0 && this.aiAttachment.length === 0)) {
+              if (this.aiBusy || (this.aiInput.trim().length === 0 && this.aiAttachments.length === 0)) {
                 return;
               }
               const text = this.aiInput;
-              const attach = this.aiAttachment;
+              const attach = this.aiAttachments;
               this.aiInput = '';
-              this.aiAttachment = '';
+              this.aiAttachments = [];
               const payload = attach.length > 0
-                ? `${text.length > 0 ? text : '用这张图'}\n（图片已上传到服务器，文件名：${attach}；要放进节点就用 set_input 写这个文件名）`
+                ? `${text.length > 0 ? text : '用这些图'}\n（图片已上传到服务器，文件名：${attach.join('、')}；要放进节点就用 set_input 写这些文件名）`
                 : text;
               this.ai.send(payload).then(() => { this.syncAi(); });
               // send() 在第一个 await 之前就把 busy 置真，这里同步一次能立刻出「停止」。

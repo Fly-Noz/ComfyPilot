@@ -169,12 +169,12 @@ fun AiChatDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val uploader = remember { OkHttpHttpTransport() }
-    var attachment by remember { mutableStateOf("") }
+    var attachments by remember { mutableStateOf(listOf<String>()) }
     var attaching by remember { mutableStateOf(false) }
     var attachError by remember { mutableStateOf<String?>(null) }
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
         val lease = SessionHost.state.value.lease
         if (lease == null) {
             attachError = "未连接 ComfyUI"
@@ -184,41 +184,47 @@ fun AiChatDialog(onDismiss: () -> Unit) {
             attaching = true
             attachError = null
             val loaded = withContext(Dispatchers.IO) {
-                runCatching {
-                    val name = context.contentResolver.query(
-                        uri,
-                        arrayOf(OpenableColumns.DISPLAY_NAME),
-                        null,
-                        null,
-                        null,
-                    )?.use { cursor ->
-                        if (cursor.moveToFirst()) cursor.getString(0) else null
-                    } ?: uri.lastPathSegment ?: "image.png"
-                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                        ?: error("读不到图片内容")
-                    name to bytes
+                uris.take(4 - attachments.size).mapNotNull { uri ->
+                    runCatching {
+                        val name = context.contentResolver.query(
+                            uri,
+                            arrayOf(OpenableColumns.DISPLAY_NAME),
+                            null,
+                            null,
+                            null,
+                        )?.use { cursor ->
+                            if (cursor.moveToFirst()) cursor.getString(0) else null
+                        } ?: uri.lastPathSegment ?: "image.png"
+                        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                            ?: error("读不到图片内容")
+                        name to bytes
+                    }.getOrNull()
                 }
             }
-            if (loaded.isFailure) {
-                attachError = loaded.exceptionOrNull()?.message ?: "读取图片失败"
+            if (loaded.isEmpty()) {
+                attachError = "读取图片失败"
                 attaching = false
                 return@launch
             }
-            val (filename, bytes) = loaded.getOrThrow()
-            when (
-                val result = ImageUpload.upload(
-                    http = uploader,
-                    baseUrl = lease.baseUrl,
-                    filename = filename,
-                    bytes = bytes,
-                )
-            ) {
-                is ImageUploadResult.Success -> {
-                    attachment = result.reference
-                    if (input.isBlank()) input = "把刚上传的图片设进需要图片的节点，不确定先问我"
+            val added = mutableListOf<String>()
+            for ((filename, bytes) in loaded) {
+                when (
+                    val result = ImageUpload.upload(
+                        http = uploader,
+                        baseUrl = lease.baseUrl,
+                        filename = filename,
+                        bytes = bytes,
+                    )
+                ) {
+                    is ImageUploadResult.Success -> added += result.reference
+                    is ImageUploadResult.Failure -> {
+                        attachError = result.message
+                        break
+                    }
                 }
-
-                is ImageUploadResult.Failure -> attachError = result.message
+            }
+            if (added.isNotEmpty()) {
+                attachments = (attachments + added).take(4)
             }
             attaching = false
         }
@@ -483,30 +489,36 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                 )
             }
 
-            if (attachment.isNotEmpty()) {
-                Row(
+            if (attachments.isNotEmpty()) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text(
-                        text = "图片：$attachment",
-                        color = c.textMuted,
-                        fontSize = 10.sp,
-                        fontFamily = SpectrumMono,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        text = "移除",
-                        color = c.textDim,
-                        fontSize = 10.sp,
-                        modifier = Modifier
-                            .clickableNoRipple { attachment = "" }
-                            .padding(horizontal = 6.dp),
-                    )
+                    attachments.forEachIndexed { index, ref ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "图片${index + 1}：$ref",
+                                color = c.textMuted,
+                                fontSize = 10.sp,
+                                fontFamily = SpectrumMono,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                text = "移除",
+                                color = c.textDim,
+                                fontSize = 10.sp,
+                                modifier = Modifier
+                                    .clickableNoRipple {
+                                        attachments = attachments.filterIndexed { i, _ -> i != index }
+                                    }
+                                    .padding(horizontal = 6.dp),
+                            )
+                        }
+                    }
                 }
             }
             if (attachError != null) {
@@ -577,17 +589,17 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                         .clip(CircleShape)
                         .background(if (snapshot.busy) SolidColor(c.cardStrong) else c.gradientBrush())
                         .clickableNoRipple {
-                            if (!snapshot.busy && (input.isNotBlank() || attachment.isNotEmpty())) {
+                            if (!snapshot.busy && (input.isNotBlank() || attachments.isNotEmpty())) {
                                 val text = input
-                                val attach = attachment
+                                val refs = attachments
                                 input = ""
-                                attachment = ""
+                                attachments = emptyList()
                                 AiRuntime.send(
-                                    if (attach.isEmpty()) {
+                                    if (refs.isEmpty()) {
                                         text
                                     } else {
-                                        val lead = text.ifBlank { "用这张图" }
-                                        "$lead\n（图片已上传到服务器，文件名：$attach；要放进节点就用 set_input 写这个文件名）"
+                                        val lead = text.ifBlank { "用这些图" }
+                                        "$lead\n（图片已上传到服务器，文件名：${refs.joinToString("、")}；要放进节点就用 set_input 写这些文件名）"
                                     },
                                 )
                             }

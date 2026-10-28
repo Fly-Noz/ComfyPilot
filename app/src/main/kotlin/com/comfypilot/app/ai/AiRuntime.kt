@@ -218,11 +218,57 @@ object AiRuntime {
     }
 
     private var secretStore: AiSecretStore? = null
+    private var prefs: android.content.SharedPreferences? = null
 
     fun attach(context: Context) {
         if (secretStore == null) {
             secretStore = AiSecretStore(context.applicationContext)
             config = secretStore!!.load()
+            prefs = context.applicationContext.getSharedPreferences("ai_assistant", Context.MODE_PRIVATE)
+            restoreConversation()
+        }
+    }
+
+    /** 对话与操作记录落盘：进程被杀后回来还能看到上一轮改了什么。 */
+    private fun persistConversation() {
+        val store = prefs ?: return
+        runCatching {
+            val chat = buildJsonArray {
+                messages.takeLast(40).forEach { message ->
+                    add(
+                        buildJsonObject {
+                            put("role", message.role)
+                            put("content", message.content)
+                        },
+                    )
+                }
+            }
+            val log = buildJsonArray { actions.takeLast(50).forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } }
+            store.edit()
+                .putString("ai_messages", chat.toString())
+                .putString("ai_actions", log.toString())
+                .apply()
+        }
+    }
+
+    private fun restoreConversation() {
+        val store = prefs ?: return
+        runCatching {
+            val chat = store.getString("ai_messages", null)
+            if (!chat.isNullOrBlank()) {
+                messages = json.parseToJsonElement(chat).jsonArray.mapNotNull { item ->
+                    val obj = item as? JsonObject ?: return@mapNotNull null
+                    val role = obj["role"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                    val content = obj["content"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                    AiChatMessage(role, content)
+                }
+            }
+            val log = store.getString("ai_actions", null)
+            if (!log.isNullOrBlank()) {
+                actions = json.parseToJsonElement(log).jsonArray.mapNotNull {
+                    (it as? JsonPrimitive)?.contentOrNull
+                }
+            }
         }
     }
 
@@ -236,6 +282,7 @@ object AiRuntime {
         pending = null
         error = null
         tokenEstimate = 0
+        persistConversation()
     }
 
     fun clearError() {
@@ -266,6 +313,7 @@ object AiRuntime {
         pending = null
         error = null
         busy = true
+        persistConversation()
         job = scope.launch {
             try {
                 runLoop(currentHost)
@@ -273,6 +321,7 @@ object AiRuntime {
                 error = err.message ?: "AI 请求失败"
             } finally {
                 busy = false
+                persistConversation()
             }
         }
     }
@@ -295,6 +344,7 @@ object AiRuntime {
                 messages = messages + AiChatMessage("assistant", "已提交任务，等待结果。")
             }
         }
+        persistConversation()
     }
 
     fun cancelPending() {
@@ -314,6 +364,7 @@ object AiRuntime {
                 error = err.message ?: "AI 请求失败"
             } finally {
                 busy = false
+                persistConversation()
             }
         }
     }
@@ -373,7 +424,10 @@ object AiRuntime {
     }
 
     private fun aiLog(message: String) {
-        Log.i("ComfyPilotAI", message.take(2000))
+        val line = message.take(2000)
+        Log.i("ComfyPilotAI", line)
+        // 同一批事件也进 App 内诊断页，装不了电脑时能直接在手机上看。
+        com.comfypilot.app.DiagnosticsLog.append("ai $line")
     }
 
     private fun executeTool(name: String, argsJson: String, currentHost: AiWorkflowHost): String {
