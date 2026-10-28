@@ -270,7 +270,10 @@ object WorkflowFields {
                 value = widgetValues[declared.name],
                 linked = linked,
                 widget = declared.isWidget,
-                required = declared.required,
+                // 自动增长 / 动态输入在 API 里可以一个值都没有，PromptBuilder 也只在
+                // !autogrow && !dynamic 时才把缺失当阻断；界面必须用同一套判定，
+                // 否则会出现「红字说提交会被拒绝，实际能提交」的矛盾。
+                required = declared.required && !declared.autogrow && !declared.dynamic,
                 common = isCommon(node.type, declared),
                 fromNodeId = origins[declared.name]?.nodeId,
                 fromSlot = origins[declared.name]?.slot,
