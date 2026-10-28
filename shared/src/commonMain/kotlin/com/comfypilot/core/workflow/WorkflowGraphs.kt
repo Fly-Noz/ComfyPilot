@@ -27,11 +27,22 @@ object WorkflowGraphs {
 
     private val VISUAL_OUTPUT_TYPES = setOf("IMAGE", "VIDEO", "LATENT", "AUDIO")
 
+    /**
+     * 图级分析要考虑本次会话的节点开关：否则「图是否启用 / 哪些节点算未启用」
+     * 只看文件原文，和排序、提交用的生效状态对不上（BUG-02 的根因）。
+     */
     fun analyze(
         document: WorkflowDocument,
         definitions: Map<String, NodeDefinition>,
+        bypassedNodeIds: Set<Int> = emptySet(),
+        enabledNodeIds: Set<Int> = emptySet(),
     ): List<WorkflowGraph> {
-        val graph = UiWorkflowParser.parse(document.raw) ?: return emptyList()
+        val graph = UiWorkflowParser.parse(document.raw)
+            ?.withEffectiveModes(
+                bypassedNodeIds = bypassedNodeIds,
+                enabledNodeIds = enabledNodeIds,
+            )
+            ?: return emptyList()
         val outputs = graph.nodes
             .filter { node ->
                 val definition = definitions[node.type]

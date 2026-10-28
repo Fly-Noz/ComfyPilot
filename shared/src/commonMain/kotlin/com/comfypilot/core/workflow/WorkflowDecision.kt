@@ -130,7 +130,7 @@ object WorkflowDecisions {
         linkOverrides: List<InputLinkOverride> = emptyList(),
     ): WorkflowAnalysis {
         val graphs = if (document.format == WorkflowFormat.UI) {
-            WorkflowGraphs.analyze(document, definitions)
+            WorkflowGraphs.analyze(document, definitions, bypassedNodeIds, enabledNodeIds)
         } else {
             emptyList()
         }
