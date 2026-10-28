@@ -85,6 +85,22 @@ data class AiImage(
     val dataUrl: String,
 )
 
+/** 一个历史会话：消息与操作记录各自独立，切换时不会串台。 */
+data class AiSession(
+    val id: String,
+    var title: String,
+    var messages: MutableList<AiChatMessage>,
+    var actions: MutableList<String>,
+    var updatedAt: Long,
+)
+
+data class AiSessionInfo(
+    val id: String,
+    val title: String,
+    val updatedAt: Long,
+    val active: Boolean,
+)
+
 data class AiQuestion(val question: String, val options: List<String>)
 
 data class AiSnapshot(
@@ -232,56 +248,174 @@ object AiRuntime {
     /** 明确拒绝过图片的模型名；下次直接跳过图片，省一次失败请求。 */
     private var visionOffModel: String = ""
 
+    /** 历史会话；当前会话的 messages/actions 在持久化时同步进来。 */
+    private val sessions = mutableListOf<AiSession>()
+    private var activeSessionId: String = ""
+
     fun attach(context: Context) {
         if (secretStore == null) {
             secretStore = AiSecretStore(context.applicationContext)
             config = secretStore!!.load()
             prefs = context.applicationContext.getSharedPreferences("ai_assistant", Context.MODE_PRIVATE)
             visionOffModel = prefs?.getString("vision_off_model", "").orEmpty()
-            restoreConversation()
+            loadSessions()
         }
     }
 
-    /** 对话与操作记录落盘：进程被杀后回来还能看到上一轮改了什么。 */
+    /** 恢复会话列表；老版本只有单条 messages/actions 的，迁移成一个会话。 */
+    private fun loadSessions() {
+        val store = prefs ?: return
+        runCatching {
+            val raw = store.getString("ai_sessions", null)
+            if (!raw.isNullOrBlank()) {
+                json.parseToJsonElement(raw).jsonArray.forEach { item ->
+                    val obj = item as? JsonObject ?: return@forEach
+                    val id = obj["id"]?.jsonPrimitive?.contentOrNull ?: return@forEach
+                    val title = obj["title"]?.jsonPrimitive?.contentOrNull ?: "新会话"
+                    val updated = obj["updatedAt"]?.jsonPrimitive?.contentOrNull?.toLongOrNull() ?: 0L
+                    val chat = obj["messages"]?.jsonArray?.mapNotNull { entry ->
+                        val msg = entry as? JsonObject ?: return@mapNotNull null
+                        val role = msg["role"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                        val content = msg["content"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                        AiChatMessage(role, content)
+                    }.orEmpty()
+                    val log = obj["actions"]?.jsonArray?.mapNotNull {
+                        (it as? JsonPrimitive)?.contentOrNull
+                    }.orEmpty()
+                    sessions += AiSession(id, title, chat.toMutableList(), log.toMutableList(), updated)
+                }
+            }
+        }
+        if (sessions.isEmpty()) {
+            // 迁移老键值；解析失败就当新会话。
+            val legacyChat = runCatching {
+                store.getString("ai_messages", null)?.let { raw ->
+                    json.parseToJsonElement(raw).jsonArray.mapNotNull { item ->
+                        val obj = item as? JsonObject ?: return@mapNotNull null
+                        val role = obj["role"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                        val content = obj["content"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                        AiChatMessage(role, content)
+                    }
+                }
+            }.getOrNull().orEmpty()
+            val legacyLog = runCatching {
+                store.getString("ai_actions", null)?.let { raw ->
+                    json.parseToJsonElement(raw).jsonArray.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                }
+            }.getOrNull().orEmpty()
+            sessions += AiSession(newSessionId(), titleFor(legacyChat), legacyChat.toMutableList(), legacyLog.toMutableList(), System.currentTimeMillis())
+        }
+        activeSessionId = sessions.first().id
+        messages = sessions.first().messages.toList()
+        actions = sessions.first().actions.toList()
+    }
+
+    private fun newSessionId(): String = "s" + System.currentTimeMillis().toString(36)
+
+    private fun titleFor(chat: List<AiChatMessage>): String {
+        for (message in chat) {
+            if (message.role == "user" && !message.content.startsWith("（工具结果）")) {
+                val text = message.content.replace(Regex("\\s+"), " ").trim()
+                if (text.isNotEmpty()) return if (text.length > 16) text.take(16) + "…" else text
+            }
+        }
+        return "新会话"
+    }
+
+    /** 把当前 messages/actions 写回活动会话。 */
+    private fun syncActiveSession() {
+        val session = sessions.firstOrNull { it.id == activeSessionId } ?: return
+        session.messages = messages.takeLast(40).toMutableList()
+        session.actions = actions.takeLast(50).toMutableList()
+        session.title = titleFor(messages)
+        session.updatedAt = System.currentTimeMillis()
+    }
+
+    fun sessionInfos(): List<AiSessionInfo> {
+        syncActiveSession()
+        return sessions.sortedByDescending { it.updatedAt }.map {
+            AiSessionInfo(it.id, it.title, it.updatedAt, it.id == activeSessionId)
+        }
+    }
+
+    fun newSession() {
+        syncActiveSession()
+        val session = AiSession(newSessionId(), "新会话", mutableListOf(), mutableListOf(), System.currentTimeMillis())
+        sessions += session
+        while (sessions.size > 20) sessions.removeAt(0)
+        activeSessionId = session.id
+        messages = emptyList()
+        actions = emptyList()
+        pending = null
+        question = null
+        error = null
+        persistConversation()
+    }
+
+    fun switchSession(id: String) {
+        val target = sessions.firstOrNull { it.id == id } ?: return
+        if (id == activeSessionId) return
+        syncActiveSession()
+        activeSessionId = id
+        messages = target.messages.toList()
+        actions = target.actions.toList()
+        pending = null
+        question = null
+        error = null
+        persistConversation()
+    }
+
+    fun deleteSession(id: String) {
+        val remaining = sessions.filterNot { it.id == id }
+        if (remaining.isEmpty()) {
+            sessions.clear()
+            activeSessionId = ""
+            newSession()
+            return
+        }
+        sessions.clear()
+        sessions += remaining
+        if (activeSessionId == id) {
+            val next = remaining.last()
+            activeSessionId = next.id
+            messages = next.messages.toList()
+            actions = next.actions.toList()
+            pending = null
+            question = null
+            error = null
+        }
+        persistConversation()
+    }
+
     private fun persistConversation() {
         val store = prefs ?: return
         runCatching {
-            val chat = buildJsonArray {
-                messages.takeLast(40).forEach { message ->
+            syncActiveSession()
+            val array = buildJsonArray {
+                sessions.takeLast(20).forEach { session ->
                     add(
                         buildJsonObject {
-                            put("role", message.role)
-                            put("content", message.content)
+                            put("id", session.id)
+                            put("title", session.title)
+                            put("updatedAt", session.updatedAt)
+                            putJsonArray("messages") {
+                                session.messages.forEach { message ->
+                                    add(
+                                        buildJsonObject {
+                                            put("role", message.role)
+                                            put("content", message.content)
+                                        },
+                                    )
+                                }
+                            }
+                            putJsonArray("actions") {
+                                session.actions.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) }
+                            }
                         },
                     )
                 }
             }
-            val log = buildJsonArray { actions.takeLast(50).forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } }
-            store.edit()
-                .putString("ai_messages", chat.toString())
-                .putString("ai_actions", log.toString())
-                .apply()
-        }
-    }
-
-    private fun restoreConversation() {
-        val store = prefs ?: return
-        runCatching {
-            val chat = store.getString("ai_messages", null)
-            if (!chat.isNullOrBlank()) {
-                messages = json.parseToJsonElement(chat).jsonArray.mapNotNull { item ->
-                    val obj = item as? JsonObject ?: return@mapNotNull null
-                    val role = obj["role"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                    val content = obj["content"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                    AiChatMessage(role, content)
-                }
-            }
-            val log = store.getString("ai_actions", null)
-            if (!log.isNullOrBlank()) {
-                actions = json.parseToJsonElement(log).jsonArray.mapNotNull {
-                    (it as? JsonPrimitive)?.contentOrNull
-                }
-            }
+            store.edit().putString("ai_sessions", array.toString()).apply()
         }
     }
 

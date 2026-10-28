@@ -20,7 +20,7 @@ import {
 } from '../bridge/ComfyBridge';
 import { PinnedNodeStore } from '../bridge/PinnedNodeStore';
 import { WorkflowDraftStore } from '../bridge/WorkflowDraftStore';
-import { AiAssistant, AiApplyOutcome, AiChatMessage, AiConfig, AiHost, AiImage, AiPending, AiQuestion } from '../ai/AiAssistant';
+import { AiAssistant, AiApplyOutcome, AiChatMessage, AiConfig, AiHost, AiImage, AiPending, AiQuestion, AiSessionInfo } from '../ai/AiAssistant';
 import { aiPlainText, isToolResult } from '../ai/AiText';
 import { aiDetectGenModel, aiGenerationGuide } from '../ai/AiPrompt';
 import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
@@ -416,6 +416,7 @@ struct Index {
   @State aiEnabled: boolean = false;
   @State aiPageOpen: boolean = false;
   @State aiScopeOpen: boolean = false;
+  @State aiChatsOpen: boolean = false;
   @State aiScopeAll: boolean = true;
   @State aiScope: string[] = [];
   @State advancedOpen: boolean = false;
@@ -6888,6 +6889,11 @@ struct Index {
             .backgroundColor(this.c().card)
             .borderRadius(8)
 
+          Text('会话')
+            .fontSize(10)
+            .fontColor(this.c().textMuted)
+            .padding(6)
+            .onClick(() => { this.aiChatsOpen = true; })
           if (this.aiBusy) {
             Text('停止')
               .fontSize(10)
@@ -7886,6 +7892,98 @@ struct Index {
       })
       .position({ x: 20, y: 560 })
   }
+  private sessionTime(ms: number): string {
+    const date = new Date(ms);
+    const pad = (value: number): string => (value < 10 ? `0${value}` : `${value}`);
+    return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
+  /** 历史会话：新建 / 切换 / 删除；会话之间的消息与操作记录互不影响。 */
+  @Builder
+  AiSessionsPanel() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#66000000')
+        .onClick(() => { this.aiChatsOpen = false; })
+
+      Column({ space: 8 }) {
+        Row({ space: 8 }) {
+          Text('历史会话').fontSize(15).fontColor(this.c().text).layoutWeight(1)
+          Text('新建')
+            .fontSize(12)
+            .fontColor(this.c().accent)
+            .padding({ left: 8, right: 8, top: 6, bottom: 6 })
+            .onClick(() => {
+              this.ai.newSession();
+              this.syncAi();
+              this.aiChatsOpen = false;
+            })
+          Text('✕')
+            .fontSize(13)
+            .fontColor(this.c().textDim)
+            .padding(6)
+            .onClick(() => { this.aiChatsOpen = false; })
+        }
+        .width('100%')
+
+        Scroll() {
+          Column({ space: 6 }) {
+            ForEach(this.ai.sessionInfos(), (item: AiSessionInfo) => {
+              Row({ space: 8 }) {
+                Column({ space: 2 }) {
+                  Text(item.title)
+                    .fontSize(12)
+                    .fontColor(item.active ? this.c().accent : this.c().text)
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  Text(this.sessionTime(item.updatedAt))
+                    .fontSize(9)
+                    .fontFamily('monospace')
+                    .fontColor(this.c().textDim)
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+                Text('删除')
+                  .fontSize(10)
+                  .fontColor(this.c().err)
+                  .padding(6)
+                  .onClick(() => {
+                    this.ai.deleteSession(item.id);
+                    this.syncAi();
+                  })
+              }
+              .width('100%')
+              .padding(10)
+              .backgroundColor(item.active ? this.c().accentSoft : this.c().card)
+              .borderRadius(10)
+              .border({ width: 1, color: item.active ? this.c().accentBorder : this.c().border })
+              .onClick(() => {
+                this.ai.switchSession(item.id);
+                this.syncAi();
+                this.aiChatsOpen = false;
+              })
+            }, (item: AiSessionInfo) => `${item.id}:${item.updatedAt}`)
+          }
+          .width('100%')
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .scrollBar(BarState.Off)
+      }
+      .width('92%')
+      .height('60%')
+      .padding(14)
+      .backgroundColor(this.glassPanelColor())
+      .backdropBlur(24)
+      .borderRadius(20)
+      .border({ width: 1, color: this.c().borderStrong })
+    }
+    .width('100%')
+    .height('100%')
+  }
+
   /** 任务页：顶栏（关闭 / 标题 + 队列计数 / 连接状态 / 刷新）+ 正文，对应 Android TaskScreen。 */
   /** 整屏覆盖页的底：纯色 + 与根页面完全相同的光晕（复用 AppGlow）。 */
   @Builder
@@ -8585,6 +8683,9 @@ struct Index {
       }
       if (this.aiScopeOpen) {
         this.AiScopePanel()
+      }
+      if (this.aiChatsOpen) {
+        this.AiSessionsPanel()
       }
     }
     .width('100%')

@@ -27,6 +27,22 @@ export interface AiImage {
   dataUrl: string;
 }
 
+/** 一个历史会话：消息与操作记录各自独立，切换时不会串台。 */
+export interface AiSessionInfo {
+  id: string;
+  title: string;
+  updatedAt: number;
+  active: boolean;
+}
+
+interface AiSession {
+  id: string;
+  title: string;
+  messages: AiChatMessage[];
+  actions: string[];
+  updatedAt: number;
+}
+
 /** 多模态 content 数组里的一块；text 与 image_url 二选一。 */
 interface AiContentPart {
   type: string;
@@ -120,6 +136,9 @@ export class AiAssistant {
   private pendingImages: AiImage[] = [];
   /** 明确拒绝过图片的模型名；下次直接跳过图片，省一次失败请求。 */
   private visionOffModel: string = '';
+  /** 全部会话；当前会话的 messages/actions 在 persist 时同步进来。 */
+  private sessions: AiSession[] = [];
+  private activeId: string = '';
 
   async open(context: common.Context): Promise<void> {
     try {
@@ -132,22 +151,151 @@ export class AiAssistant {
         autoSubmit: this.store.getSync('auto_submit', false) as boolean,
       };
       this.visionOffModel = this.store.getSync('vision_off_model', '') as string;
-      // 恢复上次的对话与操作记录（只留最近一段，避免越存越大）。
-      try {
-        const rawMessages: string = this.store.getSync('messages', '') as string;
-        if (rawMessages.length > 0) {
-          this.messages = JSON.parse(rawMessages) as AiChatMessage[];
-        }
-        const rawActions: string = this.store.getSync('actions', '') as string;
-        if (rawActions.length > 0) {
-          this.actions = JSON.parse(rawActions) as string[];
-        }
-      } catch (err) {
-        console.info('CP> AI 历史记录损坏，已忽略');
-      }
+      this.loadSessions();
     } catch (err) {
       this.error = (err as Error).message;
     }
+  }
+
+  /** 恢复会话列表；老版本只有单条 messages/actions 的，迁移成一个会话。 */
+  private loadSessions(): void {
+    const store = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      const raw: string = store.getSync('sessions', '') as string;
+      if (raw.length > 0) {
+        this.sessions = JSON.parse(raw) as AiSession[];
+      }
+    } catch (err) {
+      this.sessions = [];
+    }
+    if (this.sessions.length === 0) {
+      let legacyMessages: AiChatMessage[] = [];
+      let legacyActions: string[] = [];
+      try {
+        const rawMessages: string = store.getSync('messages', '') as string;
+        if (rawMessages.length > 0) {
+          legacyMessages = JSON.parse(rawMessages) as AiChatMessage[];
+        }
+        const rawActions: string = store.getSync('actions', '') as string;
+        if (rawActions.length > 0) {
+          legacyActions = JSON.parse(rawActions) as string[];
+        }
+      } catch (err) {
+        legacyMessages = [];
+      }
+      this.sessions = [{
+        id: this.newSessionId(),
+        title: this.titleFor(legacyMessages),
+        messages: legacyMessages,
+        actions: legacyActions,
+        updatedAt: Date.now(),
+      }];
+    }
+    this.activeId = this.sessions[0].id;
+    this.messages = [...this.sessions[0].messages];
+    this.actions = [...this.sessions[0].actions];
+  }
+
+  private newSessionId(): string {
+    return `s${Date.now().toString(36)}${Math.floor(Math.random() * 1000).toString(36)}`;
+  }
+
+  private titleFor(messages: AiChatMessage[]): string {
+    for (const message of messages) {
+      if (message.role === 'user' && !message.content.startsWith('（工具结果）')) {
+        const text = message.content.replace(/\s+/g, ' ').trim();
+        if (text.length > 0) {
+          return text.length > 16 ? `${text.substring(0, 16)}…` : text;
+        }
+      }
+    }
+    return '新会话';
+  }
+
+  /** 把当前 messages/actions 写回活动会话。 */
+  private syncActiveSession(): void {
+    const index = this.sessions.findIndex((item: AiSession) => item.id === this.activeId);
+    if (index < 0) {
+      return;
+    }
+    this.sessions[index].messages = this.messages.slice(-40);
+    this.sessions[index].actions = this.actions.slice(-50);
+    this.sessions[index].title = this.titleFor(this.messages);
+    this.sessions[index].updatedAt = Date.now();
+  }
+
+  sessionInfos(): AiSessionInfo[] {
+    this.syncActiveSession();
+    return this.sessions
+      .slice()
+      .sort((a: AiSession, b: AiSession) => b.updatedAt - a.updatedAt)
+      .map((item: AiSession): AiSessionInfo => {
+        const info: AiSessionInfo = {
+          id: item.id,
+          title: item.title,
+          updatedAt: item.updatedAt,
+          active: item.id === this.activeId,
+        };
+        return info;
+      });
+  }
+
+  newSession(): void {
+    this.syncActiveSession();
+    const session: AiSession = {
+      id: this.newSessionId(),
+      title: '新会话',
+      messages: [],
+      actions: [],
+      updatedAt: Date.now(),
+    };
+    this.sessions = [...this.sessions, session].slice(-20);
+    this.activeId = session.id;
+    this.messages = [];
+    this.actions = [];
+    this.pending = null;
+    this.question = null;
+    this.error = '';
+    this.bump();
+  }
+
+  switchSession(id: string): void {
+    const target = this.sessions.find((item: AiSession) => item.id === id);
+    if (target === undefined || id === this.activeId) {
+      return;
+    }
+    this.syncActiveSession();
+    this.activeId = id;
+    this.messages = [...target.messages];
+    this.actions = [...target.actions];
+    this.pending = null;
+    this.question = null;
+    this.error = '';
+    this.bump();
+  }
+
+  deleteSession(id: string): void {
+    const remaining = this.sessions.filter((item: AiSession) => item.id !== id);
+    if (remaining.length === 0) {
+      this.sessions = [];
+      this.activeId = '';
+      this.newSession();
+      return;
+    }
+    this.sessions = remaining;
+    if (this.activeId === id) {
+      const next = remaining[remaining.length - 1];
+      this.activeId = next.id;
+      this.messages = [...next.messages];
+      this.actions = [...next.actions];
+      this.pending = null;
+      this.question = null;
+      this.error = '';
+    }
+    this.bump();
   }
 
   saveConfig(next: AiConfig): void {
@@ -177,8 +325,8 @@ export class AiAssistant {
       return;
     }
     try {
-      store.putSync('messages', JSON.stringify(this.messages.slice(-40)));
-      store.putSync('actions', JSON.stringify(this.actions.slice(-50)));
+      this.syncActiveSession();
+      store.putSync('sessions', JSON.stringify(this.sessions.slice(-20)));
       store.flush();
     } catch (err) {
       // 存不下不影响本次会话

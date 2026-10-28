@@ -61,6 +61,7 @@ import com.comfypilot.app.SessionHost
 import com.comfypilot.app.ai.AiConfig
 import com.comfypilot.app.ai.AiImage
 import com.comfypilot.app.ai.AiRuntime
+import com.comfypilot.app.ai.AiSessionInfo
 import com.comfypilot.app.ai.AiSnapshot
 import com.comfypilot.app.ui.theme.Spectrum
 import com.comfypilot.app.ui.theme.SpectrumMono
@@ -167,6 +168,7 @@ fun AiChatDialog(onDismiss: () -> Unit) {
     var snapshot by remember { mutableStateOf(AiRuntime.snapshot()) }
     var input by remember { mutableStateOf("") }
     var scopeOpen by remember { mutableStateOf(false) }
+    var sessionsOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     // 附图：AI 自己打不开相册，由这里选图上传，再把服务器文件名交给模型。
@@ -309,6 +311,14 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                             .padding(horizontal = 6.dp, vertical = 4.dp),
                     )
                 }
+                Text(
+                    "会话",
+                    color = c.textMuted,
+                    fontSize = 10.sp,
+                    modifier = Modifier
+                        .clickableNoRipple { sessionsOpen = true }
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                )
                 Box(
                     modifier = Modifier
                         .padding(start = 6.dp)
@@ -641,6 +651,103 @@ fun AiChatDialog(onDismiss: () -> Unit) {
 
     if (scopeOpen) {
         AiScopeDialog(onDismiss = { scopeOpen = false })
+    }
+    if (sessionsOpen) {
+        AiSessionsDialog(onDismiss = { sessionsOpen = false })
+    }
+}
+
+/** 历史会话：新建 / 切换 / 删除；会话之间的消息与操作记录互不影响。 */
+@Composable
+private fun AiSessionsDialog(onDismiss: () -> Unit) {
+    val c = Spectrum.colors
+    var version by remember { mutableStateOf(0) }
+    val infos = remember(version) { AiRuntime.sessionInfos() }
+    val timeFormat = remember { java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()) }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth(0.9f)
+                .heightIn(max = 520.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(c.dialog)
+                .border(1.dp, c.borderStrong, RoundedCornerShape(20.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("历史会话", color = c.text, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                Text(
+                    "新建",
+                    color = c.accent,
+                    fontSize = 12.sp,
+                    modifier = Modifier
+                        .clickableNoRipple {
+                            AiRuntime.newSession()
+                            version++
+                            onDismiss()
+                        }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                )
+                Text(
+                    "✕",
+                    color = c.textDim,
+                    fontSize = 13.sp,
+                    modifier = Modifier.clickableNoRipple(onDismiss).padding(6.dp),
+                )
+            }
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                modifier = Modifier.weight(1f, fill = false),
+            ) {
+                items(infos) { info ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (info.active) c.accentSoft else c.card)
+                            .border(1.dp, if (info.active) c.accentBorder else c.border, RoundedCornerShape(10.dp))
+                            .clickableNoRipple {
+                                AiRuntime.switchSession(info.id)
+                                version++
+                                onDismiss()
+                            }
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text = info.title,
+                                color = if (info.active) c.accent else c.text,
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = timeFormat.format(java.util.Date(info.updatedAt)),
+                                color = c.textDim,
+                                fontSize = 9.sp,
+                                fontFamily = SpectrumMono,
+                            )
+                        }
+                        Text(
+                            "删除",
+                            color = c.err,
+                            fontSize = 10.sp,
+                            modifier = Modifier
+                                .clickableNoRipple {
+                                    AiRuntime.deleteSession(info.id)
+                                    version++
+                                }
+                                .padding(6.dp),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
