@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.comfypilot.app.ai.AiFeature
 import com.comfypilot.app.ai.AiRuntime
 import com.comfypilot.app.ui.theme.GlassCard
 import com.comfypilot.app.ui.theme.SpectrumDialog
@@ -128,7 +129,11 @@ private fun SettingsMain(
             GlassCard(padding = PaddingValues(6.dp)) {
                 SpectrumLinkRow(
                     label = "AI 助手",
-                    value = if (AiRuntime.config.enabled) "已启用" else "未启用",
+                    value = when {
+                        !AiFeature.available -> "开发中，暂不可用"
+                        AiRuntime.config.enabled -> "已启用"
+                        else -> "未启用"
+                    },
                     onClick = onAi,
                 )
                 SpectrumLinkRow(

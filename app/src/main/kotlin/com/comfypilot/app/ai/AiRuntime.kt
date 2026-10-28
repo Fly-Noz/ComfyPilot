@@ -283,7 +283,8 @@ object AiRuntime {
     fun attach(context: Context) {
         if (secretStore == null) {
             secretStore = AiSecretStore(context.applicationContext)
-            config = secretStore!!.load()
+            // 功能未开放时把 enabled 压成 false：老库里存着 true 的也不会亮起入口。
+            config = AiFeature.gate(secretStore!!.load())
             prefs = context.applicationContext.getSharedPreferences("ai_assistant", Context.MODE_PRIVATE)
             visionOffModel = prefs?.getString("vision_off_model", "").orEmpty()
             loadSessions()
@@ -448,8 +449,9 @@ object AiRuntime {
     }
 
     fun saveConfig(next: AiConfig) {
-        config = next
-        secretStore?.save(next)
+        val gated = AiFeature.gate(next)
+        config = gated
+        secretStore?.save(gated)
     }
 
     /** 权限开关：每次改动先看 diff，还是让 AI 直接改并提交。 */

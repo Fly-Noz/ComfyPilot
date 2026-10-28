@@ -59,6 +59,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.comfypilot.android.transport.OkHttpHttpTransport
 import com.comfypilot.app.SessionHost
 import com.comfypilot.app.ai.AiConfig
+import com.comfypilot.app.ai.AiFeature
 import com.comfypilot.app.ai.AiImage
 import com.comfypilot.app.ai.AiRuntime
 import com.comfypilot.app.ai.AiSessionInfo
@@ -903,41 +904,56 @@ fun AiConfigEditor(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("启用 AI 助手", color = c.text, fontSize = 13.sp)
-                Text("关闭后悬浮球隐藏，不发起请求", color = c.textDim, fontSize = 10.sp)
+                Text(
+                    text = "启用 AI 助手",
+                    color = if (AiFeature.available) c.text else c.textDim,
+                    fontSize = 13.sp,
+                )
+                Text(
+                    text = if (AiFeature.available) "关闭后悬浮球隐藏，不发起请求" else AiFeature.notice,
+                    color = c.textDim,
+                    fontSize = 10.sp,
+                )
             }
-            Switch(checked = enabled, onCheckedChange = { enabled = it })
+            Switch(
+                checked = AiFeature.available && enabled,
+                onCheckedChange = { enabled = it },
+                enabled = AiFeature.available,
+            )
         }
-        AiField("接口地址（OpenAI 兼容）", baseUrl, false) { baseUrl = it }
-        AiField("模型名", model, false) { model = it }
-        AiField("API Key（只存本机）", apiKey, true) { apiKey = it }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("AI 修改后自动提交", color = c.textMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
-            Switch(checked = autoSubmit, onCheckedChange = { autoSubmit = it })
-        }
-        Text(
-            text = "关闭时先展示 diff，确认后再应用。",
-            color = c.textDim,
-            fontSize = 9.5.sp,
-        )
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(c.gradientBrush())
-                .clickableNoRipple {
-                    onSave(
-                        AiConfig(
-                            baseUrl = baseUrl.trim(),
-                            model = model.trim(),
-                            apiKey = apiKey.trim(),
-                            enabled = enabled,
-                            autoSubmit = autoSubmit,
-                        ),
-                    )
-                }
-                .padding(horizontal = 16.dp, vertical = 9.dp),
-        ) {
-            Text("保存", color = Color.White, fontSize = 12.5.sp)
+        // 功能没开放时不摆输入框：填了也不会生效，只会让人以为是自己没配对。
+        if (AiFeature.available) {
+            AiField("接口地址（OpenAI 兼容）", baseUrl, false) { baseUrl = it }
+            AiField("模型名", model, false) { model = it }
+            AiField("API Key（只存本机）", apiKey, true) { apiKey = it }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("AI 修改后自动提交", color = c.textMuted, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                Switch(checked = autoSubmit, onCheckedChange = { autoSubmit = it })
+            }
+            Text(
+                text = "关闭时先展示 diff，确认后再应用。",
+                color = c.textDim,
+                fontSize = 9.5.sp,
+            )
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(c.gradientBrush())
+                    .clickableNoRipple {
+                        onSave(
+                            AiConfig(
+                                baseUrl = baseUrl.trim(),
+                                model = model.trim(),
+                                apiKey = apiKey.trim(),
+                                enabled = enabled,
+                                autoSubmit = autoSubmit,
+                            ),
+                        )
+                    }
+                    .padding(horizontal = 16.dp, vertical = 9.dp),
+            ) {
+                Text("保存", color = Color.White, fontSize = 12.5.sp)
+            }
         }
     }
 }

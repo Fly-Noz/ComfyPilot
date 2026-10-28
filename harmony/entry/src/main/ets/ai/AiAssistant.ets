@@ -8,6 +8,19 @@ import { fetchDoc, lookupPromptGuide } from './AiLookup';
 
 const STORE_NAME: string = 'ai_assistant';
 
+/** AI 助手还没打磨完：这次发布先整体关掉，设置页保留但开不了。 */
+export const AI_AVAILABLE: boolean = false;
+export const AI_NOTICE: string = '该功能尚在开发中，尚不可用，敬请期待';
+
+/** 把「不可用」压到配置上：老库里存的 enabled=true 也不生效。 */
+function gateAi(config: AiConfig): AiConfig {
+  if (AI_AVAILABLE) {
+    return config;
+  }
+  config.enabled = false;
+  return config;
+}
+
 export interface AiConfig {
   baseUrl: string;
   model: string;
@@ -184,13 +197,13 @@ export class AiAssistant {
   async open(context: common.Context): Promise<void> {
     try {
       this.store = await preferences.getPreferences(context, STORE_NAME);
-      this.config = {
+      this.config = gateAi({
         baseUrl: this.store.getSync('base_url', this.config.baseUrl) as string,
         model: this.store.getSync('model', this.config.model) as string,
         apiKey: this.secrets.load(),
         enabled: this.store.getSync('enabled', false) as boolean,
         autoSubmit: this.store.getSync('auto_submit', false) as boolean,
-      };
+      });
       this.visionOffModel = this.store.getSync('vision_off_model', '') as string;
       this.loadSessions();
     } catch (err) {
@@ -340,16 +353,17 @@ export class AiAssistant {
   }
 
   saveConfig(next: AiConfig): void {
-    this.config = next;
+    const gated = gateAi(next);
+    this.config = gated;
     const store = this.store;
     if (store === null) {
       return;
     }
-    store.putSync('base_url', next.baseUrl);
-    store.putSync('model', next.model);
-    store.putSync('enabled', next.enabled);
-    store.putSync('auto_submit', next.autoSubmit);
-    this.secrets.save(next.apiKey);
+    store.putSync('base_url', gated.baseUrl);
+    store.putSync('model', gated.model);
+    store.putSync('enabled', gated.enabled);
+    store.putSync('auto_submit', gated.autoSubmit);
+    this.secrets.save(gated.apiKey);
     store.flush();
   }
 

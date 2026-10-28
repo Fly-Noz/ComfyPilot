@@ -20,7 +20,7 @@ import {
 } from '../bridge/ComfyBridge';
 import { PinnedNodeStore } from '../bridge/PinnedNodeStore';
 import { WorkflowDraftStore } from '../bridge/WorkflowDraftStore';
-import { AiAssistant, AiApplyOutcome, AiChatMessage, AiConfig, AiHost, AiImage, AiPending, AiQuestion, AiSessionInfo } from '../ai/AiAssistant';
+import { AiAssistant, AiApplyOutcome, AiChatMessage, AiConfig, AiHost, AiImage, AiPending, AiQuestion, AiSessionInfo, AI_AVAILABLE, AI_NOTICE } from '../ai/AiAssistant';
 import { aiPlainText, isToolResult } from '../ai/AiText';
 import { aiDetectGenModel, aiGenerationGuide } from '../ai/AiPrompt';
 import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
@@ -8210,12 +8210,14 @@ struct Index {
           Column({ space: 12 }) {
             Row({ space: 8 }) {
               Column({ space: 3 }) {
-                Text('启用 AI 助手').fontSize(14).fontColor(this.c().text)
-                Text('关闭后悬浮球隐藏，不发起请求').fontSize(10.5).fontColor(this.c().textDim)
+                Text('启用 AI 助手').fontSize(14).fontColor(AI_AVAILABLE ? this.c().text : this.c().textDim)
+                Text(AI_AVAILABLE ? '关闭后悬浮球隐藏，不发起请求' : AI_NOTICE)
+                  .fontSize(10.5).fontColor(this.c().textDim)
               }
               .alignItems(HorizontalAlign.Start)
               .layoutWeight(1)
-              Toggle({ type: ToggleType.Switch, isOn: this.aiEnabled })
+              Toggle({ type: ToggleType.Switch, isOn: this.aiEnabled && AI_AVAILABLE })
+                .enabled(AI_AVAILABLE)
                 .onChange((value: boolean) => {
                   const next: AiConfig = {
                     baseUrl: this.ai.config.baseUrl,
@@ -8436,7 +8438,8 @@ struct Index {
     Row({ space: 8 }) {
       Column({ space: 3 }) {
         Text('AI 助手').fontSize(14).fontColor(this.c().text)
-        Text(this.aiEnabled ? '已启用' : '未启用 · 接口、模型与 Key').fontSize(10.5).fontColor(this.c().textDim)
+        Text(!AI_AVAILABLE ? '开发中，暂不可用' : (this.aiEnabled ? '已启用' : '未启用 · 接口、模型与 Key'))
+          .fontSize(10.5).fontColor(this.c().textDim)
       }
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
