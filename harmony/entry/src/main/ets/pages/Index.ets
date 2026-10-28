@@ -6635,14 +6635,6 @@ struct Index {
     return true;
   }
 
-  private hostAvailable(path: string): boolean {
-    if (this.aiScopeAll) {
-      return true;
-    }
-    const picked = this.aiScope.length > 0 ? this.aiScope : [this.selectedPath];
-    return picked.includes(path);
-  }
-
   private aiScopeLabel(): string {
     if (this.aiScopeAll) {
       return '全部工作流';

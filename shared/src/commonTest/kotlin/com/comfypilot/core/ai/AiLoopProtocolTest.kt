@@ -17,7 +17,8 @@ import kotlin.test.assertTrue
  */
 class AiLoopProtocolTest {
 
-    private val context = """{"model":"deepseek-chat","system":["你是助手"],"temperature":0.2}"""
+    private val context =
+        """{"model":"deepseek-chat","system":["你是助手"],"temperature":0.2,"paths":["a.json"]}"""
 
     private fun start(history: String = "[]"): String =
         """{"op":"start","context":$context,"history":$history,
@@ -138,6 +139,22 @@ class AiLoopProtocolTest {
         assertEquals("http", resumed.str("action"))
         val messages = Json.parseToJsonElement(resumed.str("body")).jsonObject["messages"] as JsonArray
         assertTrue(messages.last().toString().contains("插画"))
+    }
+
+    @Test
+    fun `open workflow is checked against the workspace before reaching the host`() {
+        val protocol = AiLoopProtocol()
+        protocol.step(start())
+        // 不在工作区：不产生 call_host，错误直接回填进下一轮请求。
+        val next = action(protocol.send(replyTools("open_workflow", """{\"path\":\"z.json\"}""")))
+        assertEquals("http", next.str("action"))
+        assertTrue(next.str("body").contains("不在当前 AI 工作区内"), next.str("body"))
+
+        val allowed = AiLoopProtocol()
+        allowed.step(start())
+        val call = action(allowed.send(replyTools("open_workflow", """{\"path\":\"a.json\"}""")))
+        assertEquals("call_host", call.str("action"))
+        assertEquals("open_workflow", call.str("name"))
     }
 
     @Test

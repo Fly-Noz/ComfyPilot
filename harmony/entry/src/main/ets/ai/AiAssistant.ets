@@ -64,6 +64,8 @@ interface AiLoopContextRequest {
   model: string;
   system: string[];
   temperature: number;
+  /** AI 工作区里允许切换的工作流：open_workflow 的白名单校验在共享层做。 */
+  paths: string[];
 }
 
 /** 开一轮：之前的对话 + 这一句。 */
@@ -712,7 +714,7 @@ export class AiAssistant {
     if (paths.length > 0) {
       system.push(`可切换的工作流（open_workflow 用）：${paths.slice(0, 60).join('、')}`);
     }
-    return { model: this.config.model, system: system, temperature: 0.2 };
+    return { model: this.config.model, system: system, temperature: 0.2, paths: paths };
   }
 
   /** 用户这一轮的消息：有图时给多模态数组。 */

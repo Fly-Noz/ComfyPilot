@@ -5,7 +5,6 @@ import {
   nativeSessionPreviewAnimation,
   nativeAiDigest,
   nativeAiApply,
-  nativeAiTools,
   nativeAiStep,
   nativeAiSend,
   nativeSessionPump,
@@ -430,11 +429,6 @@ export class ComfyBridge {
   /** AI：校验并应用模型给出的 proposal。 */
   aiApply(requestJson: string): string {
     return nativeAiApply(requestJson);
-  }
-
-  /** AI：工具声明由共享层提供，避免两端各写一份。 */
-  aiTools(): string {
-    return nativeAiTools();
   }
 
   /** AI 循环：把「开始/上下文」交给共享层，拿回下一步动作（http / call_host / done）。 */

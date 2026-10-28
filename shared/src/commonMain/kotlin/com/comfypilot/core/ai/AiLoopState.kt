@@ -62,6 +62,13 @@ data class AiLoopContext(
     /** 按顺序拼在会话前；空白行会被丢掉。 */
     val system: List<String> = emptyList(),
     val temperature: Double = 0.2,
+    /**
+     * 当前 AI 工作区里允许切换的工作流（`open_workflow` 用）。
+     *
+     * Android 的宿主能力就在本进程里，路由器直接问 `AiToolEnv.allowedPaths()`；
+     * 鸿蒙没法同步回调宿主，所以由 ArkTS 随上下文送进来，白名单校验才不会漏。
+     */
+    val paths: List<String> = emptyList(),
 )
 
 /**
