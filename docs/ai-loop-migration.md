@@ -132,8 +132,7 @@ $env:JAVA_HOME='D:\Tools\Java\jdk-21.0.6'
 
 ## 七、未关闭项
 
-- **BUG-04 辅助图组语义**：待用户定 A（整组开关，需新增 forcedBypassNodeIds）或 B（只改文案）。
-- `docs/bug-report-2026-10-28.md`：只差 BUG-04，关闭后删除。
+- **BUG-04 辅助图组语义**：已转入 `docs/open-decisions.md` 待定，定稿后再改共享层与两端 UI。
 - **鸿蒙真机没跑过 AI 发送**（原因见第六节的已知限制）。上真机时重点看：
   第一次 send 是否发出 `/chat/completions`、`call_host` 回来时 `executeTool` 是否命中、
   `pending` / `question` 暂停后 UI 是否正确。

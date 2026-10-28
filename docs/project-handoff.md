@@ -162,7 +162,7 @@ $env:NODE_HOME='D:\Huawei\DevEco Studio\tools\node'
 
 ## 13. 2026-10-28 晚更新
 
-已修复（对应 `docs/bug-report-2026-10-28.md`）：
+已修复（原 2026-10-28 缺陷报告，报告已在收尾时删除；未决项见 `docs/open-decisions.md`）：
 
 - BUG-01 Reroute / PrimitiveNode 穿透；Reroute 的空名输入不再被 `parseInput` 丢弃（否则下游字段既不算连线驱动、提交也只用旧控件值）
 - BUG-02 三份图统一：`WorkflowGraphs.analyze` 接收会话开关后再判断图是否启用/哪些节点未启用；排序包含 `enabledNodeIds`；`disabledNodeIds` 剔除手动启用的节点
