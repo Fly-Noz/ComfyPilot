@@ -178,6 +178,13 @@ interface PopupStateEvent {
   isVisible: boolean;
 }
 
+/** 工作流会话状态快照：节点图选择 + 节点开关，按 host+path 落盘。 */
+interface SessionStateSnapshot {
+  graphs?: string[];
+  bypassed?: number[];
+  enabled?: number[];
+}
+
 class PageAiHost implements AiHost {
   buildViewJson: () => string = () => '';
   stateJson: () => string = () => '{}';
@@ -1589,6 +1596,22 @@ struct Index {
     // 参数草稿按工作流路径从本机恢复；没有草稿就是空 Map。
     this.edits = this.draftStore.load(this.hostScope(), path);
     this.editTick++;
+    // 节点开关与图选择也按 host+path 恢复：重启后不会回到文件默认。
+    const savedSession = this.draftStore.loadSession(this.hostScope(), path);
+    if (savedSession.length > 0) {
+      try {
+        const saved = JSON.parse(savedSession) as SessionStateSnapshot;
+        const savedGraphs = saved.graphs ?? [];
+        if (savedGraphs.length > 0) {
+          this.graphIds = savedGraphs;
+          this.graphsInitialized = true;
+        }
+        this.bypassedIds = saved.bypassed ?? [];
+        this.enabledIds = saved.enabled ?? [];
+      } catch (err) {
+        // 存档损坏就当没有，不影响打开工作流
+      }
+    }
     this.view = emptyView();
     this.viewError = '';
     this.submitNotice = '';
@@ -2093,7 +2116,22 @@ struct Index {
     // 切换节点图后回到自动展开，和 Android toggleGraph 里 expandedOverride = null 一致。 
     this.expandedSeed = false;
     this.expandedIds = [];
+    this.persistSession();
     this.refreshView(true);
+  }
+
+  /** 落盘当前会话状态（节点开关 + 图选择），重启后按 host+path 恢复。 */
+  private persistSession(): void {
+    const path = this.selectedPath;
+    if (path.length === 0) {
+      return;
+    }
+    const snapshot: SessionStateSnapshot = {
+      graphs: this.graphIds,
+      bypassed: this.bypassedIds,
+      enabled: this.enabledIds,
+    };
+    this.draftStore.saveSession(this.hostScope(), path, JSON.stringify(snapshot));
   }
 
   /**
@@ -2234,6 +2272,7 @@ struct Index {
     }
     this.bypassConfirmNodeId = -1;
     this.bypassConfirmReason = '';
+    this.persistSession();
     this.refreshView();
   }
 
@@ -6563,6 +6602,7 @@ struct Index {
       this.graphIds = graphs;
     }
     this.editTick++;
+    this.persistSession();
     const open = result.openWorkflow ?? '';
     if (open.length > 0) {
       this.openWorkflow(open, open);

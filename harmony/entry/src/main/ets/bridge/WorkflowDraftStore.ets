@@ -91,6 +91,33 @@ export class WorkflowDraftStore {
     }
   }
 
+  /** 节点开关与节点图选择：和参数草稿同一套 host+path 作用域，重启后仍生效。 */
+  loadSession(host: string, workflowPath: string): string {
+    const store = this.store;
+    if (store === null || workflowPath.length === 0) {
+      return '';
+    }
+    try {
+      return store.getSync(this.sessionKey(host, workflowPath), '') as string;
+    } catch (err) {
+      this.lastError = (err as Error).message;
+      return '';
+    }
+  }
+
+  async saveSession(host: string, workflowPath: string, json: string): Promise<void> {
+    const store = this.store;
+    if (store === null || workflowPath.length === 0) {
+      return;
+    }
+    try {
+      store.putSync(this.sessionKey(host, workflowPath), json);
+      await store.flush();
+    } catch (err) {
+      this.lastError = (err as Error).message;
+    }
+  }
+
   /** 恢复默认：清掉全部工作流草稿。 */
   async clearAll(): Promise<void> {
     const store = this.store;
@@ -107,5 +134,9 @@ export class WorkflowDraftStore {
 
   private key(host: string, workflowPath: string): string {
     return host.length > 0 ? `${host}|workflow:${workflowPath}` : `workflow:${workflowPath}`;
+  }
+
+  private sessionKey(host: string, workflowPath: string): string {
+    return `session|${this.key(host, workflowPath)}`;
   }
 }
