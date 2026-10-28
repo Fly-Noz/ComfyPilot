@@ -20,7 +20,7 @@ import {
 } from '../bridge/ComfyBridge';
 import { PinnedNodeStore } from '../bridge/PinnedNodeStore';
 import { WorkflowDraftStore } from '../bridge/WorkflowDraftStore';
-import { AiAssistant, AiApplyOutcome, AiChatMessage, AiConfig, AiHost, AiPending, AiQuestion } from '../ai/AiAssistant';
+import { AiAssistant, AiApplyOutcome, AiChatMessage, AiConfig, AiHost, AiImage, AiPending, AiQuestion } from '../ai/AiAssistant';
 import { aiPlainText, isToolResult } from '../ai/AiText';
 import { aiDetectGenModel, aiGenerationGuide } from '../ai/AiPrompt';
 import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
@@ -422,8 +422,8 @@ struct Index {
   @State aiOpen: boolean = false;
   @State aiSettingsOpen: boolean = false;
   @State aiInput: string = '';
-  /** 已上传到 ComfyUI 的图片引用；下一条消息会带上它们。 */
-  @State aiAttachments: string[] = [];
+  /** 已上传到 ComfyUI 的图片；下一条消息会带上它们（含多模态 dataUrl）。 */
+  @State aiAttachments: AiImage[] = [];
   @State aiAttachBusy: boolean = false;
   @State aiSide: number = 1;
   @State aiY: number = 0.72;
@@ -6692,14 +6692,21 @@ struct Index {
       if (picked.length === 0) {
         return;
       }
-      const added: string[] = [];
+      const added: AiImage[] = [];
       for (const item of picked) {
         const result = await this.imageUploader.upload(base, item);
         if (!result.ok) {
           this.ai.error = result.message;
           break;
         }
-        added.push(result.reference);
+        // 只把不大的图塞进请求；太大的仍保留文件名，但让模型只读文字描述。
+        let dataUrl = '';
+        if (item.bytes.length <= 1_200_000) {
+          const encoder = new util.Base64Helper();
+          const mime = item.filename.toLowerCase().endsWith('.png') ? 'image/png' : 'image/jpeg';
+          dataUrl = `data:${mime};base64,${encoder.encodeToStringSync(item.bytes)}`;
+        }
+        added.push({ name: result.reference, dataUrl: dataUrl });
       }
       if (added.length > 0) {
         this.aiAttachments = [...this.aiAttachments, ...added].slice(0, 4);
@@ -7022,9 +7029,9 @@ struct Index {
         // 输入区
         if (this.aiAttachments.length > 0) {
           Column({ space: 4 }) {
-            ForEach(this.aiAttachments, (ref: string, index: number) => {
+            ForEach(this.aiAttachments, (ref: AiImage, index: number) => {
               Row({ space: 6 }) {
-                Text(`图片${index + 1}：${ref}`)
+                Text(`图片${index + 1}：${ref.name}`)
                   .fontSize(10)
                   .fontFamily('monospace')
                   .fontColor(this.c().textMuted)
@@ -7036,11 +7043,11 @@ struct Index {
                   .fontColor(this.c().textDim)
                   .padding({ left: 6, right: 6 })
                   .onClick(() => {
-                    this.aiAttachments = this.aiAttachments.filter((item: string) => item !== ref);
+                    this.aiAttachments = this.aiAttachments.filter((item: AiImage) => item.name !== ref.name);
                   })
               }
               .width('100%')
-            }, (ref: string, index: number) => `${index}:${ref}`)
+            }, (ref: AiImage, index: number) => `${index}:${ref.name}`)
           }
           .width('100%')
           .padding({ left: 12, right: 12, bottom: 6 })
@@ -7085,9 +7092,9 @@ struct Index {
               this.aiInput = '';
               this.aiAttachments = [];
               const payload = attach.length > 0
-                ? `${text.length > 0 ? text : '用这些图'}\n（图片已上传到服务器，文件名：${attach.join('、')}；要放进节点就用 set_input 写这些文件名）`
+                ? `${text.length > 0 ? text : '用这些图'}\n（图片已上传到服务器，文件名：${attach.map((item: AiImage) => item.name).join('、')}；要放进节点就用 set_input 写这些文件名）`
                 : text;
-              this.ai.send(payload).then(() => { this.syncAi(); });
+              this.ai.send(payload, attach).then(() => { this.syncAi(); });
               // send() 在第一个 await 之前就把 busy 置真，这里同步一次能立刻出「停止」。
               this.syncAi();
             })

@@ -1,6 +1,7 @@
 package com.comfypilot.app.ui
 
 import android.provider.OpenableColumns
+import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -56,6 +57,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.comfypilot.android.transport.OkHttpHttpTransport
 import com.comfypilot.app.SessionHost
 import com.comfypilot.app.ai.AiConfig
+import com.comfypilot.app.ai.AiImage
 import com.comfypilot.app.ai.AiRuntime
 import com.comfypilot.app.ai.AiSnapshot
 import com.comfypilot.app.ui.theme.Spectrum
@@ -169,7 +171,7 @@ fun AiChatDialog(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val uploader = remember { OkHttpHttpTransport() }
-    var attachments by remember { mutableStateOf(listOf<String>()) }
+    var attachments by remember { mutableStateOf(listOf<AiAttachment>()) }
     var attaching by remember { mutableStateOf(false) }
     var attachError by remember { mutableStateOf<String?>(null) }
 
@@ -206,7 +208,7 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                 attaching = false
                 return@launch
             }
-            val added = mutableListOf<String>()
+            val added = mutableListOf<AiAttachment>()
             for ((filename, bytes) in loaded) {
                 when (
                     val result = ImageUpload.upload(
@@ -216,7 +218,16 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                         bytes = bytes,
                     )
                 ) {
-                    is ImageUploadResult.Success -> added += result.reference
+                    is ImageUploadResult.Success -> {
+                        // 只把不大的图塞进请求；太大的仍保留文件名，但让模型只读文字描述。
+                        val dataUrl = if (bytes.size <= 1_200_000) {
+                            val mime = if (filename.endsWith(".png", true)) "image/png" else "image/jpeg"
+                            "data:$mime;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+                        } else {
+                            ""
+                        }
+                        added += AiAttachment(result.reference, dataUrl)
+                    }
                     is ImageUploadResult.Failure -> {
                         attachError = result.message
                         break
@@ -499,7 +510,7 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                     attachments.forEachIndexed { index, ref ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "图片${index + 1}：$ref",
+                                text = "图片${index + 1}：${ref.reference}",
                                 color = c.textMuted,
                                 fontSize = 10.sp,
                                 fontFamily = SpectrumMono,
@@ -599,7 +610,10 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                                         text
                                     } else {
                                         val lead = text.ifBlank { "用这些图" }
-                                        "$lead\n（图片已上传到服务器，文件名：${refs.joinToString("、")}；要放进节点就用 set_input 写这些文件名）"
+                                        "$lead\n（图片已上传到服务器，文件名：${refs.joinToString("、") { it.reference }}；要放进节点就用 set_input 写这些文件名）"
+                                    },
+                                    refs.mapNotNull { ref ->
+                                        if (ref.dataUrl.isEmpty()) null else AiImage(ref.reference, ref.dataUrl)
                                     },
                                 )
                             }
@@ -854,3 +868,7 @@ private fun AiField(
         }
     }
 }
+
+/** ���츽����reference �� ComfyUI �ϴ�����ļ�����dataUrl Ϊ�ձ�ʾ̫�󡢲���ͼ��ģ�͡� */
+private data class AiAttachment(val reference: String, val dataUrl: String)
+

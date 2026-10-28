@@ -33,7 +33,7 @@ object AiPrompt {
 5. 有歧义、有多个可行方案、或改动影响较大时，先调用 ask_user（2–4 个选项），不要自己拍板；
 6. 需要提交时调用 submit；回复用中文，简短说明改了什么。
 7. 提示词字段（text/prompt）要按当前生成模型的习惯写：系统消息里的规范优先；规范没覆盖的模型，先 lookup_prompt_guide 搜它的官方提示词指南，挑结果再用 fetch_doc 读正文，查到就照文档写，查不到再用通用写法，别硬套别的模型的格式。
-8. 用户附图时，消息里会给出图片在服务器上的文件名；放进节点就用 propose_edits 的 set_input（通常是 LoadImage 的 image 输入），不确定是哪个节点先用 list_nodes 查 LoadImage，找不到就问。"""
+8. 用户附图时，你能直接看到图片内容（多模态输入），消息里同时给出服务器文件名；先看懂画面再写提示词（主体、构图、光线、风格），放进节点就用 propose_edits 的 set_input（通常是 LoadImage 的 image 输入），不确定是哪个节点先 list_nodes 查 LoadImage，找不到就问。"""
 
     fun systemPrompt(model: String): String {
         val profile = profileFor(model)

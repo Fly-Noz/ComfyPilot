@@ -21,6 +21,28 @@ export interface AiChatMessage {
   content: string;
 }
 
+/** 随消息发给多模态模型的图片：dataUrl 是 data:image/jpeg;base64,... */
+export interface AiImage {
+  name: string;
+  dataUrl: string;
+}
+
+/** 多模态 content 数组里的一块；text 与 image_url 二选一。 */
+interface AiContentPart {
+  type: string;
+  text?: string;
+  image_url?: AiImageUrl;
+}
+
+interface AiImageUrl {
+  url: string;
+}
+
+interface AiPayloadMessage {
+  role: string;
+  content: string | AiContentPart[];
+}
+
 export interface AiChangeView {
   label: string;
 }
@@ -94,6 +116,11 @@ export class AiAssistant {
   private secrets: AiSecretStore = new AiSecretStore();
   private version: number = 0;
 
+  /** 本轮要发给多模态模型的图片；只用于当前请求，不写进历史，避免越存越大。 */
+  private pendingImages: AiImage[] = [];
+  /** 明确拒绝过图片的模型名；下次直接跳过图片，省一次失败请求。 */
+  private visionOffModel: string = '';
+
   async open(context: common.Context): Promise<void> {
     try {
       this.store = await preferences.getPreferences(context, STORE_NAME);
@@ -104,6 +131,7 @@ export class AiAssistant {
         enabled: this.store.getSync('enabled', false) as boolean,
         autoSubmit: this.store.getSync('auto_submit', false) as boolean,
       };
+      this.visionOffModel = this.store.getSync('vision_off_model', '') as string;
       // 恢复上次的对话与操作记录（只留最近一段，避免越存越大）。
       try {
         const rawMessages: string = this.store.getSync('messages', '') as string;
@@ -174,7 +202,7 @@ export class AiAssistant {
     this.bump();
   }
 
-  async send(text: string): Promise<void> {
+  async send(text: string, images: AiImage[] = []): Promise<void> {
     const prompt = text.trim();
     const host = this.host;
     if (prompt.length === 0 || this.busy) {
@@ -190,11 +218,13 @@ export class AiAssistant {
       this.bump();
       return;
     }
-    this.log(`send: ${prompt}`);
+    this.log(`send: ${prompt} images=${images.length}`);
     this.busy = true;
     this.cancelled = false;
     this.error = '';
     this.pending = null;
+    // 上次这个模型明确拒绝过图片，就不再重复撞墙，只发文件名。
+    this.pendingImages = this.visionOffModel === this.config.model ? [] : images;
     this.messages = [...this.messages, { role: 'user', content: prompt }];
     this.bump();
     try {
@@ -289,9 +319,29 @@ export class AiAssistant {
       if (paths.length > 0) {
         systemMessages.push({ role: 'system', content: `可切换的工作流（open_workflow 用）：${paths.slice(0, 60).join('、')}` });
       }
-      const payload = this.buildRequest([...systemMessages, ...this.messages]);
-      this.log(`round ${round} request msgs=${this.messages.length} tokens≈${this.tokens}`);
-      const message = await this.request(payload);
+      const payloadMessages: AiChatMessage[] = [...systemMessages, ...this.messages];
+      const imageIndex = this.pendingImages.length > 0 ? payloadMessages.length - 1 : -1;
+      this.log(`round ${round} request msgs=${this.messages.length} images=${this.pendingImages.length} tokens≈${this.tokens}`);
+      let message: AiResponseMessage;
+      try {
+        message = await this.request(this.buildRequest(payloadMessages, imageIndex));
+      } catch (err) {
+        // 模型不认图片时退回纯文本，并记住这个模型，下次不再带图。
+        if (round === 0 && this.pendingImages.length > 0) {
+          this.log(`vision rejected: ${(err as Error).message}`);
+          this.visionOffModel = this.config.model;
+          this.saveVisionOff();
+          this.pendingImages = [];
+          this.messages = [...this.messages, {
+            role: 'assistant',
+            content: '（当前模型不接受图片输入，已改用文件名描述继续；要让它看图，请在设置里换支持视觉的模型）',
+          }];
+          const retry = [...systemMessages, ...this.messages];
+          message = await this.request(this.buildRequest(retry, -1));
+        } else {
+          throw new Error((err as Error).message);
+        }
+      }
       this.log(`round ${round} reply tools=${(message.tool_calls ?? []).length} content=${(message.content ?? '').length}`);
       const toolCalls = message.tool_calls;
       if (toolCalls === undefined || toolCalls.length === 0) {
@@ -399,9 +449,41 @@ export class AiAssistant {
     return `{"ok":false,"error":"未知工具 ${name}"}`;
   }
 
-  private buildRequest(messages: AiChatMessage[]): string {
+  /**
+   * 有图时把对应那条消息的 content 换成 OpenAI 多模态数组：
+   * [{type:text,text}, {type:image_url,image_url:{url}}]。
+   * 图片只在本次请求里出现，历史里仍然只存文字。
+   */
+  private buildRequest(messages: AiChatMessage[], imageIndex: number): string {
+    const images = this.pendingImages;
+    const payload: AiPayloadMessage[] = [];
+    for (let i = 0; i < messages.length; i++) {
+      if (imageIndex >= 0 && i === imageIndex && images.length > 0) {
+        const parts: AiContentPart[] = [{ type: 'text', text: messages[i].content }];
+        for (const image of images) {
+          const url: AiImageUrl = { url: image.dataUrl };
+          parts.push({ type: 'image_url', image_url: url });
+        }
+        payload.push({ role: messages[i].role, content: parts });
+      } else {
+        payload.push({ role: messages[i].role, content: messages[i].content });
+      }
+    }
     return `{"model":${JSON.stringify(this.config.model)},"temperature":0.2,` +
-      `"messages":${JSON.stringify(messages)},"tools":${TOOLS_JSON},"tool_choice":"auto"}`;
+      `"messages":${JSON.stringify(payload)},"tools":${TOOLS_JSON},"tool_choice":"auto"}`;
+  }
+
+  private saveVisionOff(): void {
+    const store = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      store.putSync('vision_off_model', this.visionOffModel);
+      store.flush();
+    } catch (err) {
+      // 存不下只影响下次是否重试
+    }
   }
 
   private async request(body: string): Promise<AiResponseMessage> {

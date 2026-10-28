@@ -79,6 +79,12 @@ data class AiChatMessage(
     val content: String,
 )
 
+/** 随消息发给多模态模型的图片：dataUrl 是 data:image/jpeg;base64,... */
+data class AiImage(
+    val name: String,
+    val dataUrl: String,
+)
+
 data class AiQuestion(val question: String, val options: List<String>)
 
 data class AiSnapshot(
@@ -220,11 +226,18 @@ object AiRuntime {
     private var secretStore: AiSecretStore? = null
     private var prefs: android.content.SharedPreferences? = null
 
+    /** 本轮要发给多模态模型的图片；只用于当前请求，不写进历史，避免越存越大。 */
+    private var pendingImages: List<AiImage> = emptyList()
+    private var pendingUserText: String = ""
+    /** 明确拒绝过图片的模型名；下次直接跳过图片，省一次失败请求。 */
+    private var visionOffModel: String = ""
+
     fun attach(context: Context) {
         if (secretStore == null) {
             secretStore = AiSecretStore(context.applicationContext)
             config = secretStore!!.load()
             prefs = context.applicationContext.getSharedPreferences("ai_assistant", Context.MODE_PRIVATE)
+            visionOffModel = prefs?.getString("vision_off_model", "").orEmpty()
             restoreConversation()
         }
     }
@@ -292,7 +305,7 @@ object AiRuntime {
     fun snapshot(): AiSnapshot =
         AiSnapshot(actions, messages, pending, question, busy, error, tokenEstimate, config)
 
-    fun send(prompt: String) {
+    fun send(prompt: String, images: List<AiImage> = emptyList()) {
         val text = prompt.trim()
         if (text.isEmpty() || busy) return
         if (!config.enabled) {
@@ -308,11 +321,14 @@ object AiRuntime {
             error = "先打开一个工作流，AI 需要工作流上下文"
             return
         }
-        aiLog("send: $text")
+        aiLog("send: $text images=${images.size}")
         messages = messages + AiChatMessage("user", text)
         pending = null
         error = null
         busy = true
+        // 上次这个模型明确拒绝过图片，就不再重复撞墙，只发文件名。
+        pendingImages = if (visionOffModel == config.model) emptyList() else images
+        pendingUserText = text
         persistConversation()
         job = scope.launch {
             try {
@@ -381,10 +397,7 @@ object AiRuntime {
     private suspend fun runLoop(currentHost: AiWorkflowHost) {
         val view = currentHost.digest()
         val conversation = mutableListOf<JsonObject>()
-        conversation += buildJsonObject {
-            put("role", "user")
-            put("content", messages.lastOrNull()?.content.orEmpty())
-        }
+        conversation += userTurn(pendingUserText, pendingImages)
         repeat(6) { round ->
             val state = currentHost.editState()
             val digest = view?.let { com.comfypilot.core.ai.AiDigest.summary(it, state) }
@@ -392,7 +405,25 @@ object AiRuntime {
                 messages.sumOf { com.comfypilot.core.ai.AiDigest.estimateTokens(it.content) }
             currentHostPaths = allowedPaths(currentHost)
             currentHostPath = view?.path.orEmpty()
-            val message: JsonObject = callModel(digest, conversation)
+            val message: JsonObject = try {
+                callModel(digest, conversation)
+            } catch (err: Throwable) {
+                // 模型不认图片时退回纯文本，并记住这个模型，下次不再带图。
+                if (round == 0 && pendingImages.isNotEmpty()) {
+                    aiLog("vision rejected: ${err.message}")
+                    visionOffModel = config.model
+                    prefs?.edit()?.putString("vision_off_model", visionOffModel)?.apply()
+                    pendingImages = emptyList()
+                    conversation[0] = userTurn(pendingUserText, emptyList())
+                    messages = messages + AiChatMessage(
+                        "assistant",
+                        "（当前模型不接受图片输入，已改用文件名描述继续；要让它看图，请在设置里换支持视觉的模型）",
+                    )
+                    callModel(digest, conversation)
+                } else {
+                    throw err
+                }
+            }
             val toolCalls = message["tool_calls"]?.jsonArray
             if (toolCalls == null || toolCalls.isEmpty()) {
                 val text = message["content"]?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -567,6 +598,34 @@ object AiRuntime {
     private var job: Job? = null
     private var currentHostPaths: List<String> = emptyList()
     private var currentHostPath: String = ""
+
+    /** 用户这一轮的消息：有图时按 OpenAI 多模态格式给 content 数组。 */
+    private fun userTurn(text: String, images: List<AiImage>): JsonObject = buildJsonObject {
+        put("role", "user")
+        if (images.isEmpty()) {
+            put("content", text)
+        } else {
+            putJsonArray("content") {
+                add(
+                    buildJsonObject {
+                        put("type", "text")
+                        put("text", text)
+                    },
+                )
+                images.forEach { image ->
+                    add(
+                        buildJsonObject {
+                            put("type", "image_url")
+                            put(
+                                "image_url",
+                                buildJsonObject { put("url", image.dataUrl) },
+                            )
+                        },
+                    )
+                }
+            }
+        }
+    }
 
     private fun callModel(digest: JsonObject?, conversation: List<JsonObject>): JsonObject {
         val body = buildJsonObject {
