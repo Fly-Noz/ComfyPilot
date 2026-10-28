@@ -2625,7 +2625,7 @@ struct Index {
     }
   }
 
-  private submitWorkflow(): void {
+  private submitWorkflow(force: boolean = false): void {
     if (!this.running) {
       this.submitNotice = '请先连接 ComfyUI';
       return;
@@ -2647,7 +2647,7 @@ struct Index {
       // 这里只说明“请求发出去了”。服务器接受后会回 submit_accepted， 
       // 校验失败会回 submit_rejected；不能在这一步就显示“已提交”。 
       const warnings = response.warnings !== undefined ? response.warnings : [];
-      if (warnings.length > 0) {
+      if (warnings.length > 0 && !force) {
         // Same as Android: warnings do not block, but ask before submitting.
         this.confirmPrompt = JSON.stringify(response.prompt);
         this.confirmWarnings = warnings;
@@ -6519,7 +6519,13 @@ struct Index {
     if (!this.running || !this.view.canSubmit) {
       return false;
     }
-    this.submitWorkflow();
+    // AI 提交是用户在聊天里点过「应用并提交」的显式动作：直接提交，
+    // 不能再弹「提交前确认」——那个对话框会被 AI 面板挡在后面，
+    // 用户退出聊天时才看到，而且此时其实并没有提交。
+    this.confirmOpen = false;
+    this.confirmWarnings = [];
+    this.confirmPrompt = '';
+    this.submitWorkflow(true);
     return true;
   }
 

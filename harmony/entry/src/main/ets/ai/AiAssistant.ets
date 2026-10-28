@@ -3,6 +3,7 @@ import { http } from '@kit.NetworkKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { common } from '@kit.AbilityKit';
 import { AiSecretStore } from './AiSecretStore';
+import { aiSystemPrompt } from './AiPrompt';
 
 const STORE_NAME: string = 'ai_assistant';
 
@@ -57,20 +58,14 @@ export interface AiHost {
 }
 
 const TOOLS_JSON: string = `[
-  {"type":"function","function":{"name":"propose_edits","description":"对当前工作流提交一组声明式修改","parameters":{"type":"object","properties":{"summary":{"type":"string"},"ops":{"type":"array","items":{"type":"object","properties":{"op":{"type":"string"},"node":{"type":"integer"},"input":{"type":"string"},"enabled":{"type":"boolean"},"graphs":{"type":"array","items":{"type":"string"}},"path":{"type":"string"},"value":{}},"required":["op"]}}},"required":["summary","ops"]}}},
+  {"type":"function","function":{"name":"propose_edits","description":"对当前工作流提交一组声明式修改","parameters":{"type":"object","properties":{"summary":{"type":"string","description":"一句话说明这次改了什么"},"ops":{"type":"array","items":{"type":"object","properties":{"op":{"type":"string"},"node":{"type":"integer"},"input":{"type":"string"},"enabled":{"type":"boolean"},"graphs":{"type":"array","items":{"type":"string"}},"path":{"type":"string"},"value":{}},"required":["op"]}}},"required":["summary","ops"]}}},
   {"type":"function","function":{"name":"ask_user","description":"需要用户确认或选择时提问","parameters":{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"}}},"required":["question","options"]}}},
   {"type":"function","function":{"name":"submit","description":"提交当前工作流","parameters":{"type":"object","properties":{}}}},
-  {"type":"function","function":{"name":"open_workflow","description":"切换到另一个工作流","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}
+  {"type":"function","function":{"name":"open_workflow","description":"切换到另一个工作流","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}},
+  {"type":"function","function":{"name":"list_graphs","description":"列出工作流里的节点图及选中状态","parameters":{"type":"object","properties":{}}}},
+  {"type":"function","function":{"name":"list_nodes","description":"按标题/类型/id 搜索节点，返回轻量列表","parameters":{"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer"}}}}},
+  {"type":"function","function":{"name":"get_node","description":"读取单个节点的字段、当前值、COMBO 候选","parameters":{"type":"object","properties":{"id":{"type":"integer"}},"required":["id"]}}}
 ]`;
-
-const SYSTEM_PROMPT: string = [
-  '你是 ComfyPilot 的工作流助手，通过工具操作 ComfyUI 工作流。',
-  '可用工具：propose_edits（set_input / toggle_node / select_graphs / open_workflow）、submit、open_workflow、ask_user。',
-  '规则：只改用户明确要求的内容；值必须匹配字段类型；节点 id 与字段名必须来自工作流摘要，不确定先问；',
-  '用户说「当前/这个工作流」指上下文里的当前工作流，没有打开时说明无法修改并建议先打开；',
-  '有歧义、多个可行方案或改动影响较大时，先调用 ask_user 给出 2-4 个选项，不要自己拍板；',
-  '需要提交时调用 submit；用中文简短说明改了什么。',
-].join('');
 
 /**
  * 鸿蒙侧 AI 会话：OpenAI 兼容请求 + 工具循环 + 配置。
@@ -246,7 +241,7 @@ export class AiAssistant {
       const digest = host.digestJson();
       this.tokens = Math.floor(digest.length / 4);
       const paths = host.availableWorkflows();
-      const systemMessages: AiChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }];
+      const systemMessages: AiChatMessage[] = [{ role: 'system', content: aiSystemPrompt(this.config.model) }];
       const currentPath = host.currentWorkflow();
       if (currentPath.length > 0) {
         systemMessages.push({ role: 'system', content: `用户当前停留的工作流是：${currentPath}` });

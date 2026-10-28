@@ -503,7 +503,7 @@ object AiRuntime {
                 add(
                     buildJsonObject {
                         put("role", "system")
-                        put("content", SYSTEM_PROMPT)
+                        put("content", AiPrompt.systemPrompt(config.model))
                     },
                 )
                 if (currentHostPath.isNotEmpty()) {
@@ -561,25 +561,6 @@ object AiRuntime {
 
     private fun quote(text: String): String =
         kotlinx.serialization.json.JsonPrimitive(text).toString()
-
-    private val SYSTEM_PROMPT = """
-        你是 ComfyPilot 的工作流助手，通过工具操作 ComfyUI 工作流。
-
-        可用工具：
-        - propose_edits {summary, ops[]}：提交修改；op 支持 set_input / toggle_node / select_graphs / open_workflow
-        - submit {}：提交当前工作流
-        - open_workflow {path}：切换工作流（必须在可用工作区列表里）
-        - ask_user {question, options[]}：需要用户确认或做选择时提问
-        - list_graphs {} / list_nodes {query?, limit?} / get_node {id}：按需查询图、节点与字段细节
-
-        规则：
-        1. 只改用户明确要求的内容，不要自作主张；
-        2. 值必须匹配字段类型（INT 用数字，STRING 用字符串，BOOLEAN 用 true/false）；
-        3. 摘要只给节点索引；要改某个节点前，先用 list_nodes / get_node 查清 id、字段名与候选值；
-        4. 用户说「当前 / 这个工作流」时，指上下文里的当前工作流；没有打开工作流时，说明无法修改并建议先打开；
-        5. 有歧义、有多个可行方案、或改动影响较大时，先调用 ask_user（2–4 个选项），不要自己拍板；
-        6. 需要提交时调用 submit；回复用中文，简短说明改了什么。
-    """.trimIndent()
 
     private val TOOLS: JsonArray = buildJsonArray {
         add(

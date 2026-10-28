@@ -568,7 +568,7 @@ private fun DetailBody(
         picker.launch("image/*")
     }
 
-    fun submit() {
+    fun submit(force: Boolean = false) {
         // 和鸿蒙侧一致：每次提交给保存节点追加唯一后缀，避免工作流前缀不唯一时
         // （例如 ComfyUI 不支持的 %date:...%）后一次产物覆盖前一次。
         val decision = WorkflowDecisions.decide(
@@ -584,7 +584,8 @@ private fun DetailBody(
         }
         when (val result = decision.build) {
             is PromptBuild.Ready -> {
-                if (decision.warnings.isEmpty()) {
+                // force 走 AI 提交：用户在聊天里点过「应用并提交」，不再弹确认。
+                if (decision.warnings.isEmpty() || force) {
                     onSubmit(result.prompt.toString(), decision.name, decision.path)
                     submitFlash = true
                     tab = 1
@@ -659,8 +660,8 @@ private fun DetailBody(
 
             override fun submitCurrent(): Boolean {
                 val decision = WorkflowDecisions.decide(analysis = analysis, overrides = overrides)
-                if (!decision.canSubmit || decision.warnings.isNotEmpty()) return false
-                submit()
+                if (!decision.canSubmit) return false
+                submit(force = true)
                 return true
             }
 
