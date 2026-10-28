@@ -179,28 +179,6 @@ private fun AiSettingsPage(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             GlassCard(padding = PaddingValues(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("启用 AI 助手", color = c.text, fontSize = 13.5.sp)
-                        Text(
-                            text = "关闭后悬浮球隐藏，不会发起任何请求",
-                            color = c.textDim,
-                            fontSize = 10.5.sp,
-                        )
-                    }
-                    androidx.compose.material3.Switch(
-                        checked = AiRuntime.config.enabled,
-                        onCheckedChange = { on ->
-                            AiRuntime.saveConfig(AiRuntime.config.copy(enabled = on))
-                            if (on) {
-                                Toast.makeText(context, "已启用，连接后显示悬浮球", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                    )
-                }
-            }
-
-            GlassCard(padding = PaddingValues(12.dp)) {
                 AiConfigEditor(
                     initial = AiRuntime.config,
                     onSave = {

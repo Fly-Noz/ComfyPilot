@@ -887,37 +887,6 @@ private fun PendingAction(
     )
 }
 
-/** 设置页入口：只编辑配置，不打开对话。 */
-@Composable
-fun AiSettingsDialog(onDismiss: () -> Unit) {
-    val c = Spectrum.colors
-    var snapshot by remember { mutableStateOf(AiRuntime.snapshot()) }
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth(0.9f)
-                .clip(RoundedCornerShape(20.dp))
-                .background(c.dialog)
-                .border(1.dp, c.borderStrong, RoundedCornerShape(20.dp))
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text("AI 助手", color = c.text, fontSize = 15.sp)
-            AiConfigEditor(
-                initial = snapshot.config,
-                onSave = {
-                    AiRuntime.saveConfig(it)
-                    snapshot = AiRuntime.snapshot()
-                    onDismiss()
-                },
-            )
-        }
-    }
-}
-
 /** 设置页里编辑 AI 配置：开关、接口、模型、Key、自动提交。 */
 @Composable
 fun AiConfigEditor(
