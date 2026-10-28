@@ -174,6 +174,7 @@ export class AiAssistant {
       this.error = (err as Error).message;
     } finally {
       this.busy = false;
+      this.log(`loop done msgs=${this.messages.length} error=${this.error.substring(0, 120)}`);
       this.bump();
     }
   }
@@ -232,6 +233,7 @@ export class AiAssistant {
       this.error = (err as Error).message;
     } finally {
       this.busy = false;
+      this.log(`loop done msgs=${this.messages.length} error=${this.error.substring(0, 120)}`);
       this.bump();
     }
   }
@@ -254,7 +256,9 @@ export class AiAssistant {
         systemMessages.push({ role: 'system', content: `可切换的工作流（open_workflow 用）：${paths.slice(0, 60).join('、')}` });
       }
       const payload = this.buildRequest([...systemMessages, ...this.messages]);
+      this.log(`round ${round} request msgs=${this.messages.length} tokens≈${this.tokens}`);
       const message = await this.request(payload);
+      this.log(`round ${round} reply tools=${(message.tool_calls ?? []).length} content=${(message.content ?? '').length}`);
       const toolCalls = message.tool_calls;
       if (toolCalls === undefined || toolCalls.length === 0) {
         this.messages = [...this.messages, { role: 'assistant', content: message.content ?? '（空响应）' }];

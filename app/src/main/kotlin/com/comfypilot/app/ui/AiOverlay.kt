@@ -278,14 +278,14 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                         }
                     }
                 }
-                items(snapshot.messages) { message ->
-                    val mine = message.role == "user" && !message.content.startsWith("（工具结果）")
+                items(snapshot.messages.filterNot { isAiToolResult(it.content) }) { message ->
+                    val mine = message.role == "user"
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
                     ) {
                         Text(
-                            text = message.content.ifBlank { "…" },
+                            text = (if (mine) message.content else aiPlainText(message.content)).ifBlank { "…" },
                             color = if (mine) c.text else c.textMuted,
                             fontSize = 12.sp,
                             lineHeight = 17.sp,
@@ -322,7 +322,7 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text(question.question, color = c.text, fontSize = 12.sp, lineHeight = 17.sp)
+                    Text(aiPlainText(question.question), color = c.text, fontSize = 12.sp, lineHeight = 17.sp)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         question.options.forEach { option ->
                             PendingAction(option, c.accent, c.accentSoft) {
@@ -344,7 +344,7 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
-                    Text(pending.summary, color = c.text, fontSize = 12.sp)
+                    Text(aiPlainText(pending.summary), color = c.text, fontSize = 12.sp)
                     pending.changes.take(6).forEach {
                         Text("· ${it.label}", color = c.textMuted, fontSize = 10.5.sp)
                     }

@@ -20,7 +20,8 @@ import {
 } from '../bridge/ComfyBridge';
 import { PinnedNodeStore } from '../bridge/PinnedNodeStore';
 import { WorkflowDraftStore } from '../bridge/WorkflowDraftStore';
-import { AiAssistant, AiApplyOutcome, AiChatMessage, AiConfig, AiHost } from '../ai/AiAssistant';
+import { AiAssistant, AiApplyOutcome, AiChatMessage, AiConfig, AiHost, AiPending, AiQuestion } from '../ai/AiAssistant';
+import { aiPlainText, isToolResult } from '../ai/AiText';
 import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
 import { NodeNoteStore } from '../bridge/NodeNoteStore';
 import { AddressEntry, AddressStore } from '../bridge/AddressStore';
@@ -396,7 +397,20 @@ struct Index {
   private dismissedStore: DismissedErrorStore = new DismissedErrorStore();
   private draftStore: WorkflowDraftStore = new WorkflowDraftStore();
   private ai: AiAssistant = new AiAssistant();
-  @State aiRev: number = 0;
+  /**
+   * 面板读的状态一律走这几个 @State 镜像，不要直接读 this.ai.*。
+   *
+   * AiAssistant 是普通对象，ArkUI 观察不到它的字段；面板直接读 this.ai.messages
+   * 时，请求回来界面不会重建（表现为"发了消息没反应、也没有报错"）。
+   * 每次改动会话后调用 syncAi() 把字段搬进状态变量。
+   */
+  @State aiMessages: AiChatMessage[] = [];
+  @State aiActions: string[] = [];
+  @State aiBusy: boolean = false;
+  @State aiError: string = '';
+  @State aiTokens: number = 0;
+  @State aiPending: AiPending | null = null;
+  @State aiQuestion: AiQuestion | null = null;
   @State aiEnabled: boolean = false;
   @State aiPageOpen: boolean = false;
   @State aiScopeOpen: boolean = false;
@@ -760,6 +774,8 @@ struct Index {
     const draftReady: boolean = await this.draftStore.open(context);
     await this.ai.open(context);
     this.aiEnabled = this.ai.config.enabled;
+    // 启动就把接口/模型/Key 读进状态：面板标题和设置页都读这些 @State。
+    this.loadAiFields();
     // 外观偏好用 preferences 落盘：PersistentStorage 在真机冷启动会丢。
     const savedAppearance: string | null = await this.appearanceStore.load(context);
     if (savedAppearance !== null) {
@@ -6633,6 +6649,24 @@ struct Index {
     this.aiModel = this.ai.config.model;
     this.aiKey = this.ai.config.apiKey;
     this.aiAutoSubmit = this.ai.config.autoSubmit;
+    this.syncAi();
+  }
+
+  /** 工具结果是给模型看的中转消息，不进聊天气泡。 */
+  private aiVisibleMessages(): AiChatMessage[] {
+    return this.aiMessages.filter((message: AiChatMessage) => !isToolResult(message.content));
+  }
+
+  /** 把 AI 会话里会被界面读到的字段搬进 @State；见 aiMessages 处的说明。 */
+  private syncAi(): void {
+    this.ai.bump();
+    this.aiMessages = [...this.ai.messages];
+    this.aiActions = [...this.ai.actions];
+    this.aiBusy = this.ai.busy;
+    this.aiError = this.ai.error;
+    this.aiTokens = this.ai.tokens;
+    this.aiPending = this.ai.pending;
+    this.aiQuestion = this.ai.question;
   }
 
   private openAiSettings(): void {
@@ -6712,7 +6746,7 @@ struct Index {
 
           Column({ space: 1 }) {
             Text('AI 助手').fontSize(14).fontColor(this.c().text)
-            Text(this.ai.config.model.length > 0 ? this.ai.config.model : '未配置模型')
+            Text(this.aiModel.length > 0 ? this.aiModel : '未配置模型')
               .fontSize(9)
               .fontFamily('monospace')
               .fontColor(this.c().textDim)
@@ -6722,7 +6756,7 @@ struct Index {
           .alignItems(HorizontalAlign.Start)
           .layoutWeight(1)
 
-          Text(`≈${this.ai.tokens}`)
+          Text(`≈${this.aiTokens}`)
             .fontSize(9)
             .fontFamily('monospace')
             .fontColor(this.c().textDim)
@@ -6730,12 +6764,12 @@ struct Index {
             .backgroundColor(this.c().card)
             .borderRadius(8)
 
-          if (this.ai.busy) {
+          if (this.aiBusy) {
             Text('停止')
               .fontSize(10)
               .fontColor(this.c().err)
               .padding(6)
-              .onClick(() => { this.ai.stop(); this.aiRev = this.ai.bump(); })
+              .onClick(() => { this.ai.stop(); this.syncAi(); })
           }
           Text('✕')
             .fontSize(13)
@@ -6750,7 +6784,7 @@ struct Index {
 
         Scroll() {
           Column({ space: 8 }) {
-            ForEach(this.ai.actions.slice(-20), (action: string, index: number) => {
+            ForEach(this.aiActions.slice(-20), (action: string, index: number) => {
               Text(`· ${action}`)
                 .fontSize(9.5)
                 .fontFamily('monospace')
@@ -6758,14 +6792,16 @@ struct Index {
                 .width('100%')
             }, (action: string, index: number) => `${index}:${action}`)
 
-            if (this.ai.messages.length === 0) {
+            if (this.aiVisibleMessages().length === 0) {
               Text('想改哪里？').fontSize(13).fontColor(this.c().textMuted).width('100%').textAlign(TextAlign.Center).margin({ top: 24 })
               Text('试试「把步数改成 8」或「关闭 Save Video」')
                 .fontSize(10.5).fontColor(this.c().textDim).width('100%').textAlign(TextAlign.Center)
             }
-            ForEach(this.ai.messages, (message: AiChatMessage, index: number) => {
+            ForEach(this.aiVisibleMessages(), (message: AiChatMessage, index: number) => {
               Row() {
-                Text(message.content.length > 0 ? message.content : '…')
+                Text(message.content.length > 0
+                  ? (message.role === 'user' ? message.content : aiPlainText(message.content))
+                  : '…')
                   .fontSize(12)
                   .lineHeight(17)
                   .fontColor(message.role === 'user' ? this.c().text : this.c().textMuted)
@@ -6781,11 +6817,11 @@ struct Index {
               .justifyContent(message.role === 'user' ? FlexAlign.End : FlexAlign.Start)
             }, (message: AiChatMessage, index: number) => `${index}:${message.content.substring(0, 24)}`)
 
-            if (this.ai.question !== null) {
+            if (this.aiQuestion !== null) {
               Column({ space: 6 }) {
-                Text(this.ai.question.question).fontSize(12).fontColor(this.c().text)
+                Text(aiPlainText(this.aiQuestion.question)).fontSize(12).fontColor(this.c().text)
                 Flex({ wrap: FlexWrap.Wrap }) {
-                  ForEach(this.ai.question.options, (option: string, index: number) => {
+                  ForEach(this.aiQuestion.options, (option: string, index: number) => {
                     Text(option)
                       .fontSize(11)
                       .fontColor(this.c().accent)
@@ -6795,7 +6831,8 @@ struct Index {
                       .borderRadius(9)
                       .border({ width: 1, color: this.c().accentBorder })
                       .onClick(() => {
-                        this.ai.answerQuestion(option).then(() => { this.aiRev = this.ai.bump(); });
+                        this.ai.answerQuestion(option).then(() => { this.syncAi(); });
+                        this.syncAi();
                       })
                   }, (option: string, index: number) => `${index}:${option}`)
                 }
@@ -6808,10 +6845,10 @@ struct Index {
               .border({ width: 1, color: this.c().accentBorder })
             }
 
-            if (this.ai.pending !== null) {
+            if (this.aiPending !== null) {
               Column({ space: 5 }) {
-                Text(this.ai.pending.summary).fontSize(12).fontColor(this.c().text)
-                ForEach(this.ai.pending.changes.slice(0, 6), (change: string, index: number) => {
+                Text(aiPlainText(this.aiPending.summary)).fontSize(12).fontColor(this.c().text)
+                ForEach(this.aiPending.changes.slice(0, 6), (change: string, index: number) => {
                   Text(`· ${change}`).fontSize(10.5).fontColor(this.c().textMuted)
                 }, (change: string, index: number) => `${index}:${change}`)
                 Row({ space: 8 }) {
@@ -6821,19 +6858,19 @@ struct Index {
                     .padding({ left: 10, right: 10, top: 6, bottom: 6 })
                     .backgroundColor(this.c().card)
                     .borderRadius(9)
-                    .onClick(() => { this.ai.confirmPending(false); this.aiRev = this.ai.bump(); })
+                    .onClick(() => { this.ai.confirmPending(false); this.syncAi(); })
                   Text('应用并提交')
                     .fontSize(11)
                     .fontColor('#FFFFFF')
                     .padding({ left: 10, right: 10, top: 6, bottom: 6 })
                     .borderRadius(9)
                     .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
-                    .onClick(() => { this.ai.confirmPending(true); this.aiRev = this.ai.bump(); })
+                    .onClick(() => { this.ai.confirmPending(true); this.syncAi(); })
                   Text('取消')
                     .fontSize(11)
                     .fontColor(this.c().textDim)
                     .padding({ left: 8, right: 8, top: 6, bottom: 6 })
-                    .onClick(() => { this.ai.cancelPending(); this.aiRev = this.ai.bump(); })
+                    .onClick(() => { this.ai.cancelPending(); this.syncAi(); })
                 }
                 .width('100%')
                 .margin({ top: 3 })
@@ -6846,10 +6883,10 @@ struct Index {
               .border({ width: 1, color: this.c().accentBorder })
             }
 
-            if (this.ai.error.length > 0) {
-              Text(this.ai.error).fontSize(10.5).fontColor(this.c().err).width('100%')
+            if (this.aiError.length > 0) {
+              Text(this.aiError).fontSize(10.5).fontColor(this.c().err).width('100%')
             }
-            if (this.ai.busy) {
+            if (this.aiBusy) {
               Text('正在请求模型…').fontSize(10).fontColor(this.c().textDim).width('100%')
             }
           }
@@ -6896,14 +6933,16 @@ struct Index {
             .textAlign(TextAlign.Center)
             .borderRadius(19)
             .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
-            .opacity(this.ai.busy ? 0.5 : 1)
+            .opacity(this.aiBusy ? 0.5 : 1)
             .onClick(() => {
-              if (this.ai.busy || this.aiInput.trim().length === 0) {
+              if (this.aiBusy || this.aiInput.trim().length === 0) {
                 return;
               }
               const text = this.aiInput;
               this.aiInput = '';
-              this.ai.send(text).then(() => { this.aiRev = this.ai.bump(); });
+              this.ai.send(text).then(() => { this.syncAi(); });
+              // send() 在第一个 await 之前就把 busy 置真，这里同步一次能立刻出「停止」。
+              this.syncAi();
             })
         }
         .width('100%')
@@ -7053,7 +7092,7 @@ struct Index {
           };
           this.ai.saveConfig(next);
           this.aiSettingsOpen = false;
-          this.aiRev = this.ai.bump();
+          this.syncAi();
         })
     }
     .width('100%')
@@ -7803,7 +7842,7 @@ struct Index {
                   };
                   this.ai.saveConfig(next);
                   this.aiEnabled = value;
-                  this.aiRev = this.ai.bump();
+                  this.syncAi();
                 })
             }
             .width('100%')
@@ -7840,7 +7879,7 @@ struct Index {
                     };
                     this.ai.saveConfig(next);
                     this.aiEnabled = true;
-                    this.aiRev = this.ai.bump();
+                    this.syncAi();
                     promptAction.showToast({ message: '已保存', duration: 1600 });
                   })
               }
