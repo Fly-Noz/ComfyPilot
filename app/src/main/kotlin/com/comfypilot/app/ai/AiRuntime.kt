@@ -13,6 +13,7 @@ import com.comfypilot.core.ai.AiChange
 import com.comfypilot.core.ai.AiEditState
 import com.comfypilot.core.ai.AiEdits
 import com.comfypilot.core.ai.AiOp
+import com.comfypilot.core.ai.AiToolRouter
 import com.comfypilot.core.ai.AiWorkflowView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -712,12 +713,53 @@ object AiRuntime {
         com.comfypilot.app.DiagnosticsLog.append("ai $line")
     }
 
+    /** 把现有宿主能力包成共享路由器要的接口。 */
+    private fun toolEnv(currentHost: AiWorkflowHost): com.comfypilot.core.ai.AiToolEnv =
+        object : com.comfypilot.core.ai.AiToolEnv {
+            override fun submitCurrent(): Boolean = currentHost.submitCurrent()
+
+            override fun openWorkflow(path: String): Boolean = currentHost.openWorkflow(path)
+
+            override fun allowedPaths(): List<String> = this@AiRuntime.allowedPaths(currentHost)
+
+            override fun queryGraphs(): String {
+                val view = currentHost.digest() ?: return """{"ok":false,"error":"没有打开工作流"}"""
+                return com.comfypilot.core.ai.AiQuery.graphs(view, currentHost.editState()).toString()
+            }
+
+            override fun queryNodes(argsJson: String): String {
+                val view = currentHost.digest() ?: return """{"ok":false,"error":"没有打开工作流"}"""
+                val state = currentHost.editState()
+                val parsed = runCatching { json.parseToJsonElement(argsJson).jsonObject }.getOrNull()
+                val query = parsed?.get("query")?.jsonPrimitive?.contentOrNull
+                val limit = parsed?.get("limit")?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 40
+                return com.comfypilot.core.ai.AiQuery.nodes(view, state, query, limit).toString()
+            }
+
+            override fun queryNode(argsJson: String): String {
+                val view = currentHost.digest() ?: return """{"ok":false,"error":"没有打开工作流"}"""
+                val id = runCatching {
+                    json.parseToJsonElement(argsJson).jsonObject["id"]?.jsonPrimitive?.contentOrNull?.toIntOrNull()
+                }.getOrNull() ?: return """{"ok":false,"error":"缺少节点 id"}"""
+                return com.comfypilot.core.ai.AiQuery.node(view, currentHost.editState(), id)?.toString()
+                    ?: """{"ok":false,"error":"节点不存在"}"""
+            }
+
+            override fun taskSummary(waitSeconds: Int): String = currentHost.taskSummary(waitSeconds)
+
+            override fun lookupPromptGuide(model: String): String = AiLookup.lookupPromptGuide(model)
+
+            override fun fetchDoc(url: String): String = AiLookup.fetchDoc(url)
+        }
+
     private fun executeTool(name: String, argsJson: String, currentHost: AiWorkflowHost): String {
         if (host !== currentHost) {
             aiLog("tool $name rejected: host detached")
             return """{"ok":false,"error":"工作流已关闭，请重新打开后再试"}"""
         }
         aiLog("tool $name args=${argsJson.take(300)}")
+        // 无状态工具交给共享路由器；propose_edits / ask_user 仍由本端处理。
+        AiToolRouter.execute(name, argsJson, toolEnv(currentHost))?.let { return it }
         return when (name) {
             "propose_edits" -> {
                 val proposal = AiEdits.parse(argsJson)
