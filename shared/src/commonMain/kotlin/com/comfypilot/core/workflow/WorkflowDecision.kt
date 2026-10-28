@@ -41,9 +41,17 @@ class WorkflowAnalysis internal constructor(
             "不可提交：正在加载节点定义（还有 ${pendingNodeClasses.size} 个类）"
         }
 
-    /** 未启用图里的节点；它们仍保留置顶状态，但不参与排序和提交。 */
+    /**
+     * 未启用图里的节点；它们仍保留置顶状态，但不参与排序和提交。
+     *
+     * 用户手动启用的节点要剔除：否则「图没选中」会把一个已恢复执行的节点
+     * 继续标成未启用，界面提示与真实提交行为相反。
+     */
     val disabledNodeIds: Set<Int>
-        get() = graphs.filter { it.id !in selectedGraphIds }.flatMap { it.nodeIds }.toSet()
+        get() = graphs.filter { it.id !in selectedGraphIds }
+            .flatMap { it.nodeIds }
+            .toSet()
+            .minus(enabledNodeIds)
 }
 
 /**

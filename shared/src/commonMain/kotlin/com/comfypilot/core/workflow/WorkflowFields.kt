@@ -152,7 +152,12 @@ object WorkflowFields {
         val ordering = if (bypassedNodeIds.isEmpty() && enabledNodeIds.isEmpty()) {
             null
         } else {
-            val orderingGraph = parsed.withEffectiveModes(forcedNormalNodeIds = forcedNormalNodeIds)
+            // 排序忽略「用户手动关闭」（避免节点跳位），但不能忽略「用户手动启用」：
+            // 否则被恢复执行的节点仍被当成未启用，置顶与可达判断都不生效。
+            val orderingGraph = parsed.withEffectiveModes(
+                forcedNormalNodeIds = forcedNormalNodeIds,
+                enabledNodeIds = enabledNodeIds,
+            )
             val orderingResolver = UiGraphResolver(orderingGraph)
             val orderingReachable = reachableNodeIds(
                 outputRootIds(orderingGraph, definitions, enabledOutputIds),
