@@ -12,6 +12,7 @@ import com.comfypilot.core.ai.AiApplyResult
 import com.comfypilot.core.ai.AiChange
 import com.comfypilot.core.ai.AiEditState
 import com.comfypilot.core.ai.AiEdits
+import com.comfypilot.core.ai.AiOp
 import com.comfypilot.core.ai.AiWorkflowView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -112,12 +113,20 @@ data class AiSnapshot(
     val error: String?,
     val tokens: Int,
     val config: AiConfig,
+    /** 有可撤销的 AI 修改。 */
+    val canUndo: Boolean = false,
 )
 
 data class AiPendingEdit(
     val summary: String,
     val state: AiEditState,
     val changes: List<AiChange>,
+    /** 提案时各字段的旧值（"nodeId.input" -> 显示值），用于检测用户期间改过。 */
+    val oldValues: Map<String, String> = emptyMap(),
+    /** 提案时的编辑状态快照，撤销时原样写回。 */
+    val baseState: AiEditState? = null,
+    /** 提案时的工作流指纹（路径 + 字段数），用来判断状态是否过期。 */
+    val baseSignature: String = "",
 )
 
 class AiSecretStore(context: Context) {
@@ -247,6 +256,10 @@ object AiRuntime {
     private var pendingUserText: String = ""
     /** 明确拒绝过图片的模型名；下次直接跳过图片，省一次失败请求。 */
     private var visionOffModel: String = ""
+
+    /** 上一次 AI 修改前的编辑状态；用于「撤销这次修改」。 */
+    private var undoState: AiEditState? = null
+    private var canUndo: Boolean = false
 
     /** 历史会话；当前会话的 messages/actions 在持久化时同步进来。 */
     private val sessions = mutableListOf<AiSession>()
@@ -444,7 +457,7 @@ object AiRuntime {
     }
 
     fun snapshot(): AiSnapshot =
-        AiSnapshot(actions, messages, pending, question, busy, error, tokenEstimate, config)
+        AiSnapshot(actions, messages, pending, question, busy, error, tokenEstimate, config, canUndo)
 
     fun send(prompt: String, images: List<AiImage> = emptyList()) {
         val text = prompt.trim()
@@ -486,14 +499,57 @@ object AiRuntime {
     fun confirmPending(submit: Boolean) {
         val edit = pending ?: return
         val currentHost = host ?: return
+        val view = currentHost.digest()
+        if (view == null) {
+            pending = null
+            error = "工作流已关闭，请重新打开后再试"
+            return
+        }
+        // 状态过期：路径或字段数变了，说明工作流不是生成提案时那一份。
+        if (signatureOf(view) != edit.baseSignature) {
+            pending = null
+            error = "工作流在你等待期间变了，这次修改已作废，请让 AI 重新生成"
+            return
+        }
+        // 同键冲突：用户在等待期间自己改过这些字段，跳过它们，别把人手改的覆盖掉。
+        val current = currentHost.editState()
+        val conflicts = edit.oldValues.filterKeys { key ->
+            val parts = key.split('.')
+            val nodeId = parts.getOrNull(0)?.toIntOrNull()
+            if (nodeId == null || parts.size < 2) false
+            else currentValueText(view, current, nodeId, parts[1]) != edit.oldValues[key]
+        }.keys
+        var stateToApply = edit.state
+        if (conflicts.isNotEmpty()) {
+            val filtered = stateToApply.overrides.mapValues { (nodeId, fields) ->
+                fields.filterKeys { input -> "$nodeId.$input" !in conflicts }
+            }.filterValues { it.isNotEmpty() }
+            stateToApply = stateToApply.copy(overrides = filtered)
+            if (filtered.isEmpty() && stateToApply.bypassed == edit.baseState?.bypassed &&
+                stateToApply.enabled == edit.baseState?.enabled
+            ) {
+                pending = null
+                error = "这些字段你都改过了，本次修改已全部跳过"
+                return
+            }
+        }
         pending = null
-        val result = currentHost.applyEdit(edit.state)
+        val result = currentHost.applyEdit(stateToApply)
         if (!result.ok) {
             error = result.errors.joinToString("\n")
             return
         }
+        undoState = edit.baseState
+        canUndo = edit.baseState != null
         actions = actions + edit.changes.map { it.label }
-        messages = messages + AiChatMessage("assistant", "已应用：${edit.summary}")
+        messages = messages + AiChatMessage(
+            "assistant",
+            if (conflicts.isEmpty()) {
+                "已应用：${edit.summary}"
+            } else {
+                "已应用：${edit.summary}（跳过你期间改过的：${conflicts.joinToString()}）"
+            },
+        )
         if (submit) {
             if (!currentHost.submitCurrent()) {
                 error = "提交失败：请检查工作流是否有未填字段"
@@ -502,6 +558,36 @@ object AiRuntime {
             }
         }
         persistConversation()
+    }
+
+    /** 撤销上一次 AI 修改：把提案前的编辑状态原样写回。 */
+    fun undoLast(): Boolean {
+        val currentHost = host ?: return false
+        val state = undoState ?: return false
+        undoState = null
+        canUndo = false
+        val result = currentHost.applyEdit(state)
+        if (!result.ok) {
+            error = "撤销失败：${result.errors.joinToString("；")}"
+            return false
+        }
+        actions = actions + "撤销上一次修改"
+        messages = messages + AiChatMessage("assistant", "已撤销上一次 AI 修改")
+        persistConversation()
+        return true
+    }
+
+    private fun signatureOf(view: AiWorkflowView): String =
+        "${view.path}#${view.nodes.sumOf { it.fields.size }}"
+
+    private fun currentValueText(
+        view: AiWorkflowView,
+        state: AiEditState,
+        nodeId: Int,
+        input: String,
+    ): String {
+        val field = view.field(nodeId, input) ?: return ""
+        return state.valueOf(field)?.toString().orEmpty()
     }
 
     fun cancelPending() {
@@ -639,7 +725,22 @@ object AiRuntime {
                                 """{"ok":true,"applied":true,"submitted":true}"""
                             }
                         } else {
-                            pending = AiPendingEdit(proposal.summary, result.state, result.changes)
+                            // 记下提案时的旧值与基线状态：确认时检测「用户期间改过」，
+                            // 撤销时原样写回。
+                            val oldValues = proposal.ops.mapNotNull { op ->
+                                (op as? AiOp.SetInput)?.let {
+                                    "${it.nodeId}.${it.input}" to
+                                        currentValueText(view, state, it.nodeId, it.input)
+                                }
+                            }.toMap()
+                            pending = AiPendingEdit(
+                                summary = proposal.summary,
+                                state = result.state,
+                                changes = result.changes,
+                                oldValues = oldValues,
+                                baseState = state,
+                                baseSignature = signatureOf(view),
+                            )
                             """{"ok":true,"pending":true,"summary":${quote(proposal.summary)}}"""
                         }
                     }

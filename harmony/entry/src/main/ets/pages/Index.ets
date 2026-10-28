@@ -193,6 +193,7 @@ class PageAiHost implements AiHost {
   queryNode: (args: string) => string = () => '{"error":"未实现"}';
   digestJson: () => string = () => '{}';
   promptGuide: () => string = () => '';
+  fieldValues: (keysJson: string) => string = () => '{}';
 }
 
 interface NodeQueryProbe {
@@ -413,6 +414,7 @@ struct Index {
   @State aiTokens: number = 0;
   @State aiPending: AiPending | null = null;
   @State aiQuestion: AiQuestion | null = null;
+  @State aiCanUndo: boolean = false;
   @State aiEnabled: boolean = false;
   @State aiPageOpen: boolean = false;
   @State aiScopeOpen: boolean = false;
@@ -6492,6 +6494,27 @@ struct Index {
       `"graphs":[${graphs.join(',')}],"state":${this.aiStateJson()}}`;
   }
 
+  /** 按 key 取当前显示值；AI 用它检测「用户期间改过」与生成撤销补丁。 */
+  private aiFieldValues(keysJson: string): string {
+    let keys: string[] = [];
+    try {
+      keys = JSON.parse(keysJson) as string[];
+    } catch (err) {
+      return '{}';
+    }
+    const wanted = new Set<string>(keys);
+    const out: Record<string, string> = {};
+    this.view.nodes.forEach((node: WorkflowNodeView) => {
+      node.fields.forEach((field: WorkflowFieldView) => {
+        const key = `${node.id}.${field.inputName}`;
+        if (wanted.has(key)) {
+          out[key] = this.fieldText(field);
+        }
+      });
+    });
+    return JSON.stringify(out);
+  }
+
   private aiApplyProposal(proposalJson: string): AiApplyOutcome {
     const view = this.aiViewJson();
     const body = view.substring(0, view.length - 1) + `,"proposal":${proposalJson}}`;
@@ -6634,6 +6657,7 @@ struct Index {
     const host = new PageAiHost();
     host.buildViewJson = () => this.aiViewJson();
     host.stateJson = () => this.aiStateJson();
+    host.fieldValues = (keysJson: string) => this.aiFieldValues(keysJson);
     host.applyProposal = (proposal: string) => this.aiApplyProposal(proposal);
     host.submit = () => this.aiSubmit();
     host.openWorkflow = (path: string) => {
@@ -6780,6 +6804,7 @@ struct Index {
     this.aiTokens = this.ai.tokens;
     this.aiPending = this.ai.pending;
     this.aiQuestion = this.ai.question;
+    this.aiCanUndo = this.ai.canUndo;
   }
 
   private openAiSettings(): void {
@@ -7027,6 +7052,26 @@ struct Index {
         .layoutWeight(1)
         .width('100%')
         .scrollBar(BarState.Off)
+
+        // 撤销入口：只有刚应用过 AI 修改时才出现。
+        if (this.aiCanUndo) {
+          Row() {
+            Text('撤销这次修改')
+              .fontSize(10.5)
+              .fontColor(this.c().textMuted)
+              .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+              .backgroundColor(this.c().card)
+              .borderRadius(10)
+              .border({ width: 1, color: this.c().border })
+              .onClick(() => {
+                this.ai.undoLast();
+                this.syncAi();
+              })
+          }
+          .width('100%')
+          .justifyContent(FlexAlign.End)
+          .padding({ left: 12, right: 12, bottom: 6 })
+        }
 
         // 工具栏：工作区 + 权限
         Row({ space: 8 }) {

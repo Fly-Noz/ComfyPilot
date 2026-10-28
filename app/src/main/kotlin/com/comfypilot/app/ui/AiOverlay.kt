@@ -488,6 +488,27 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                 }
             }
 
+            if (snapshot.canUndo) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    Text(
+                        text = "撤销这次修改",
+                        color = c.textMuted,
+                        fontSize = 10.sp,
+                        modifier = Modifier
+                            .clickableNoRipple {
+                                AiRuntime.undoLast()
+                                snapshot = AiRuntime.snapshot()
+                            }
+                            .padding(6.dp),
+                    )
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

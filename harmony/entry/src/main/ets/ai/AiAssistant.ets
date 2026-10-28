@@ -79,6 +79,10 @@ export interface AiPending {
   proposalJson: string;
   summary: string;
   changes: string[];
+  /** 提案时各字段的旧值（JSON：key -> 显示值），用于检测用户期间改过。 */
+  oldValuesJson: string;
+  /** 提案时所在工作流路径。 */
+  basePath: string;
 }
 
 /** 宿主（Index 页面）提供的桥：视图、应用编辑、提交、切换工作流。 */
@@ -96,6 +100,8 @@ export interface AiHost {
   digestJson(): string;
   /** 当前工作流的生成模型写提示词的习惯（由宿主按节点推断）。 */
   promptGuide(): string;
+  /** 按 key（"节点id.输入名"）取当前显示值，返回 JSON 对象。 */
+  fieldValues(keysJson: string): string;
 }
 
 const TOOLS_JSON: string = `[
@@ -124,6 +130,7 @@ export class AiAssistant {
   busy: boolean = false;
   error: string = '';
   tokens: number = 0;
+  canUndo: boolean = false;
   host: AiHost | null = null;
 
   private store: preferences.Preferences | null = null;
@@ -136,6 +143,8 @@ export class AiAssistant {
   private pendingImages: AiImage[] = [];
   /** 明确拒绝过图片的模型名；下次直接跳过图片，省一次失败请求。 */
   private visionOffModel: string = '';
+  /** 上一次 AI 修改的反向补丁 JSON；用于「撤销这次修改」。 */
+  private lastUndoJson: string = '';
   /** 全部会话；当前会话的 messages/actions 在 persist 时同步进来。 */
   private sessions: AiSession[] = [];
   private activeId: string = '';
@@ -392,19 +401,122 @@ export class AiAssistant {
     if (pending === null || host === null) {
       return;
     }
+    // 状态过期：工作流已经换了，这份提案作废。
+    const currentPath = host.currentWorkflow();
+    if (currentPath.length > 0 && pending.basePath.length > 0 && currentPath !== pending.basePath) {
+      this.pending = null;
+      this.error = '工作流已经切换，这次修改作废，请重新让 AI 生成';
+      this.bump();
+      return;
+    }
+    let proposalJson = pending.proposalJson;
+    let skipped: string[] = [];
+    if (pending.oldValuesJson.length > 0) {
+      const oldValues = JSON.parse(pending.oldValuesJson) as Record<string, string>;
+      const keys = Object.keys(oldValues);
+      if (keys.length > 0) {
+        const currentValues = JSON.parse(host.fieldValues(JSON.stringify(keys))) as Record<string, string>;
+        const conflicts = keys.filter((key: string) => currentValues[key] !== oldValues[key]);
+        if (conflicts.length > 0) {
+          skipped = conflicts;
+          proposalJson = this.filterConflicts(pending.proposalJson, conflicts);
+          if (proposalJson.length === 0) {
+            this.pending = null;
+            this.error = '这些字段你都改过了，本次修改已全部跳过';
+            this.bump();
+            return;
+          }
+        }
+      }
+    }
     this.pending = null;
-    const outcome = host.applyProposal(pending.proposalJson);
+    this.lastUndoJson = this.buildInverse(proposalJson, pending.oldValuesJson);
+    const outcome = host.applyProposal(proposalJson);
     if (!outcome.ok) {
       this.error = outcome.errors.join('；');
       this.bump();
       return;
     }
+    this.canUndo = this.lastUndoJson.length > 0;
     this.actions = [...this.actions, ...outcome.changes].slice(-50);
-    this.messages = [...this.messages, { role: 'assistant', content: `已应用：${pending.summary}` }];
+    const suffix = skipped.length > 0 ? `（跳过你期间改过的：${skipped.join('、')}）` : '';
+    this.messages = [...this.messages, { role: 'assistant', content: `已应用：${pending.summary}${suffix}` }];
     if (submit && !host.submit()) {
       this.error = '提交失败：工作流还有未填字段';
     }
     this.bump();
+  }
+
+  /** 撤销上一次 AI 修改：用提案前记下的旧值构造反向补丁。 */
+  undoLast(): boolean {
+    const host = this.host;
+    const inverse = this.lastUndoJson;
+    if (host === null || inverse.length === 0) {
+      return false;
+    }
+    this.lastUndoJson = '';
+    this.canUndo = false;
+    const outcome = host.applyProposal(inverse);
+    if (!outcome.ok) {
+      this.error = `撤销失败：${outcome.errors.join('；')}`;
+      this.bump();
+      return false;
+    }
+    this.actions = [...this.actions, '撤销上一次修改'].slice(-50);
+    this.messages = [...this.messages, { role: 'assistant', content: '已撤销上一次 AI 修改' }];
+    this.bump();
+    return true;
+  }
+
+  /** 去掉与用户手改冲突的 op，其余照常应用。 */
+  private filterConflicts(proposalJson: string, conflicts: string[]): string {
+    try {
+      const proposal = JSON.parse(proposalJson) as Record<string, Object>;
+      const ops = (proposal.ops as Record<string, Object>[]) ?? [];
+      const kept = ops.filter((op: Record<string, Object>) => {
+        if (op.op !== 'set_input') {
+          return true;
+        }
+        return !conflicts.includes(`${op.node}.${op.input}`);
+      });
+      if (kept.length === 0) {
+        return '';
+      }
+      return JSON.stringify({ summary: proposal.summary, ops: kept });
+    } catch (err) {
+      return '';
+    }
+  }
+
+  /** 由提案 + 旧值构造反向补丁；只覆盖 set_input 与 toggle_node。 */
+  private buildInverse(proposalJson: string, oldValuesJson: string): string {
+    try {
+      if (oldValuesJson.length === 0) {
+        return '';
+      }
+      const oldValues = JSON.parse(oldValuesJson) as Record<string, string>;
+      const proposal = JSON.parse(proposalJson) as Record<string, Object>;
+      const ops = (proposal.ops as Record<string, Object>[]) ?? [];
+      const inverse: string[] = [];
+      for (const op of ops) {
+        if (op.op === 'set_input') {
+          const key = `${op.node}.${op.input}`;
+          if (oldValues[key] !== undefined) {
+            inverse.push(
+              `{"op":"set_input","node":${op.node},"input":${JSON.stringify(op.input)},"value":${JSON.stringify(oldValues[key])}}`,
+            );
+          }
+        } else if (op.op === 'toggle_node') {
+          inverse.push(`{"op":"toggle_node","node":${op.node},"enabled":${!(op.enabled as boolean)}}`);
+        }
+      }
+      if (inverse.length === 0) {
+        return '';
+      }
+      return `{"summary":${JSON.stringify('撤销上一次修改')},"ops":[${inverse.join(',')}]}`;
+    } catch (err) {
+      return '';
+    }
   }
 
   stop(): void {
@@ -546,7 +658,21 @@ export class AiAssistant {
       if (!outcome.ok) {
         return `{"ok":false,"errors":${JSON.stringify(outcome.errors.join('；'))}}`;
       }
-      this.pending = { proposalJson: args, summary: summary, changes: outcome.changes };
+      // 记下这些字段的旧值：确认时检测用户手改，撤销时用它们反向写回。
+      const keys: string[] = [];
+      const ops = (probe.ops as Record<string, Object>[]) ?? [];
+      for (const op of ops) {
+        if (op.op === 'set_input' && op.node !== undefined && op.input !== undefined) {
+          keys.push(`${op.node}.${op.input}`);
+        }
+      }
+      this.pending = {
+        proposalJson: args,
+        summary: summary,
+        changes: outcome.changes,
+        oldValuesJson: keys.length > 0 ? host.fieldValues(JSON.stringify(keys)) : '',
+        basePath: host.currentWorkflow(),
+      };
       return `{"ok":true,"pending":true}`;
     }
     if (name === 'list_graphs') {
