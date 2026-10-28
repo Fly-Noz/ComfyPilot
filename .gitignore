@@ -59,3 +59,9 @@ harmony/build-profile.json5
 keystore.properties
 *.jks
 *.keystore
+
+# 本机会话产物（AI 助手的记忆目录，不进版本库）
+.workbuddy/
+
+# 本机会话产物（AI 助手的记忆目录，不进版本库）
+.workbuddy/
