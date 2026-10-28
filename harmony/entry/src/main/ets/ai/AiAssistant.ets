@@ -434,11 +434,16 @@ export class AiAssistant {
     }
     this.pending = null;
     this.lastUndoJson = this.buildInverse(proposalJson, pending.oldValuesJson);
+    const beforeState = host.stateJson();
     const outcome = host.applyProposal(proposalJson);
     if (!outcome.ok) {
       this.error = outcome.errors.join('；');
       this.bump();
       return;
+    }
+    // 保障层：应用后回读编辑状态，没变化说明改动没落地（宿主刷新/字段被裁剪等）。
+    if (outcome.changes.length > 0 && host.stateJson() === beforeState) {
+      this.error = '这些改动没有生效（工作流状态未变化），请重试';
     }
     this.canUndo = this.lastUndoJson.length > 0;
     this.actions = [...this.actions, ...outcome.changes].slice(-50);

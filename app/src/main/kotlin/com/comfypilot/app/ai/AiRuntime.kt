@@ -545,6 +545,26 @@ object AiRuntime {
             error = result.errors.joinToString("\n")
             return
         }
+        // 保障层：应用后回读一次，确认改动真的落到了编辑状态里。
+        // applyEdit 返回 ok 只代表没报错，不代表每个字段都被宿主接受。
+        val applied = currentHost.editState()
+        val dropped = mutableListOf<String>()
+        stateToApply.overrides.forEach { (nodeId, fields) ->
+            fields.forEach { (input, value) ->
+                if (applied.overrides[nodeId]?.get(input) != value) {
+                    dropped += "#$nodeId.$input"
+                }
+            }
+        }
+        if (applied.bypassed != stateToApply.bypassed || applied.enabled != stateToApply.enabled) {
+            dropped += "节点开关"
+        }
+        if (stateToApply.graphs != null && applied.graphs != stateToApply.graphs) {
+            dropped += "节点图选择"
+        }
+        if (dropped.isNotEmpty()) {
+            error = "这些改动没有生效：${dropped.joinToString()}（工作流可能已刷新，请重试）"
+        }
         undoState = edit.baseState
         canUndo = edit.baseState != null
         actions = actions + edit.changes.map { it.label }
