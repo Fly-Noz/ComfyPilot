@@ -1,5 +1,5 @@
 import { nativeVersion } from 'libentry.so';
-import { common, ConfigurationConstant } from '@kit.AbilityKit';
+import { bundleManager, common, ConfigurationConstant } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { util } from '@kit.ArkTS';
 import { pasteboard } from '@kit.BasicServicesKit';
@@ -21,6 +21,7 @@ import {
 import { PinnedNodeStore } from '../bridge/PinnedNodeStore';
 import { WorkflowDraftStore } from '../bridge/WorkflowDraftStore';
 import { AiAssistant, AiApplyOutcome, AiChatMessage, AiConfig, AiHost, AiImage, AiPending, AiQuestion, AiSessionInfo, AI_AVAILABLE, AI_NOTICE } from '../ai/AiAssistant';
+
 import { aiPlainText, isToolResult } from '../ai/AiText';
 import { aiDetectGenModel, aiGenerationGuide } from '../ai/AiPrompt';
 import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
@@ -48,6 +49,24 @@ import {
   WorkflowNodeView,
   WorkflowViewResponse,
 } from '../model/WorkflowTypes';
+
+/** 项目地址：作者署名改成仓库链接，复制出去就能打开。 */
+const PROJECT_URL: string = 'https://github.com/Fly-Noz/ComfyPilot';
+
+/**
+ * 版本号从包信息读，别在页面上再写死一份——之前「关于」页就停在 0.2.0 没跟上。
+ * 读失败时退回一个占位，至少不显示空白。
+ */
+const APP_VERSION: string = readAppVersion();
+
+function readAppVersion(): string {
+  try {
+    const info = bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
+    return info.versionName.length > 0 ? info.versionName : '0.2.1';
+  } catch (err) {
+    return '0.2.1';
+  }
+}
 
 /** 服务器性能条的轮询间隔（毫秒）；页面不可见时会整个停掉。 */
 const STATS_POLL_MS: number = 2000;
@@ -2998,13 +3017,13 @@ struct Index {
     this.bridge.reconnect();
   }
 
-  /** 关于页：点「项目作者」时复制作者名，并弹一个短暂提示。 */
-  private copyAuthor(): void {
+  /** 关于页：点「项目地址」时复制仓库链接，并弹一个短暂提示。 */
+  private copyProjectUrl(): void {
     try {
       const data: pasteboard.PasteData =
-        pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, 'Fly-Noz');
+        pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, PROJECT_URL);
       pasteboard.getSystemPasteboard().setDataSync(data);
-      promptAction.showToast({ message: '已复制作者：Fly-Noz', duration: 1600 });
+      promptAction.showToast({ message: '已复制项目地址', duration: 1600 });
     } catch (err) {
       promptAction.showToast({ message: this.errorText(err), duration: 1600 });
     }
@@ -8476,7 +8495,7 @@ struct Index {
         .fontSize(14)
         .fontColor(this.c().text)
         .layoutWeight(1)
-      Text('版本 0.2.0')
+      Text(`版本 ${APP_VERSION}`)
         .fontSize(11)
         .fontColor(this.c().textDim)
       Text('›')
@@ -8597,7 +8616,7 @@ struct Index {
                 .fontSize(26)
                 .fontWeight(FontWeight.Bold)
                 .fontColor(this.c().text)
-              Text('版本 0.2.0 · 鸿蒙版')
+              Text(`版本 ${APP_VERSION} · 鸿蒙版`)
                 .fontSize(10)
                 .fontFamily('monospace')
                 .fontColor(this.c().textDim)
@@ -8615,8 +8634,8 @@ struct Index {
               .padding({ left: 8, right: 8 })
 
             Column() {
-              this.AboutRow('项目作者', 'Fly-Noz', () => {
-                this.copyAuthor();
+              this.AboutRow('项目地址', PROJECT_URL, () => {
+                this.copyProjectUrl();
               })
               Divider()
                 .strokeWidth(1)

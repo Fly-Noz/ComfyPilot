@@ -56,7 +56,7 @@ import com.comfypilot.app.ui.theme.SpectrumScaffold
 import com.comfypilot.app.ui.theme.SpectrumTopBar
 import kotlinx.coroutines.delay
 
-private const val AUTHOR = "Fly-Noz"
+private const val PROJECT_URL = "https://github.com/Fly-Noz/ComfyPilot"
 private const val LICENSE = "GPL-3.0"
 
 private const val ABOUT_DESCRIPTION =
@@ -72,7 +72,7 @@ private const val AI_FOOTNOTE =
     "本项目的部分界面、文案与图标由 AI 辅助生成。"
 
 /**
- * 关于页：居中图标 + 名称/版本 + 简介，然后作者、许可证两行。
+ * 关于页：居中图标 + 名称/版本 + 简介，然后项目地址、许可证两行。
  * 从设置页进入，返回键回到设置；沿用 [SpectrumScaffold] 的共享背景。
  */
 @Composable
@@ -169,10 +169,10 @@ fun AboutScreen(onBack: () -> Unit) {
 
             GlassCard(padding = PaddingValues(vertical = 4.dp)) {
                 SpectrumLinkRow(
-                    label = "项目作者",
-                    value = AUTHOR,
+                    label = "项目地址",
+                    value = PROJECT_URL,
                     onClick = {
-                        copyToClipboard(context, "作者", AUTHOR)
+                        copyToClipboard(context, "项目地址", PROJECT_URL)
                         copied = true
                     },
                 )
