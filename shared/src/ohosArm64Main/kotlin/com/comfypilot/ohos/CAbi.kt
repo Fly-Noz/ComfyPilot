@@ -19,10 +19,10 @@ import kotlin.native.CName
 
 /**
  * ABI 版本。2 起新增会话级接口（cp_session_*）；3 起新增工作流按需视图；
- * 4 起新增采样预览按需接口（cp_session_preview）。
+ * 4 起新增采样预览按需接口（cp_session_preview）；5 起新增 AI 循环（cp_ai_step / cp_ai_send）。
  */
 @CName("cp_version")
-fun cpVersion(): Int = 4
+fun cpVersion(): Int = 5
 
 /**
  * 把自检 JSON 写入 [buffer]（容量 [capacity] 字节），返回完整 JSON 的字节数。

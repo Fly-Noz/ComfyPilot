@@ -59,6 +59,44 @@ interface AiPayloadMessage {
   content: string | AiContentPart[];
 }
 
+/** 共享层循环的上下文：system 行由宿主给（它知道当前工作流与摘要）。 */
+interface AiLoopContextRequest {
+  model: string;
+  system: string[];
+  temperature: number;
+}
+
+/** 开一轮：之前的对话 + 这一句。 */
+interface AiStartRequest {
+  op: string;
+  context: AiLoopContextRequest;
+  history: AiChatMessage[];
+  userTurn: AiPayloadMessage;
+}
+
+/** 推进循环：reply（模型响应）/ tool（工具结果）/ resume（用户回答了提问）。 */
+interface AiSendRequest {
+  op: string;
+  context: AiLoopContextRequest;
+  message?: AiResponseMessage;
+  callId?: string;
+  result?: string;
+  pause?: string;
+  question?: string;
+  userTurn?: AiPayloadMessage;
+}
+
+/** 共享层给的下一步：http（发请求）/ call_host（执行工具）/ done（收工）。 */
+interface AiLoopAction {
+  action: string;
+  body?: string;
+  callId?: string;
+  name?: string;
+  args?: string;
+  reason?: string;
+  text?: string;
+}
+
 export interface AiChangeView {
   label: string;
 }
@@ -107,19 +145,6 @@ export interface AiHost {
   /** 最近任务摘要；waitSeconds > 0 时等到没有活动任务或超时。 */
   taskSummary(waitSeconds: number): Promise<string>;
 }
-
-const TOOLS_JSON: string = `[
-  {"type":"function","function":{"name":"propose_edits","description":"对当前工作流提交一组声明式修改","parameters":{"type":"object","properties":{"summary":{"type":"string","description":"一句话说明这次改了什么"},"ops":{"type":"array","items":{"type":"object","properties":{"op":{"type":"string"},"node":{"type":"integer"},"input":{"type":"string"},"enabled":{"type":"boolean"},"graphs":{"type":"array","items":{"type":"string"}},"path":{"type":"string"},"value":{}},"required":["op"]}}},"required":["summary","ops"]}}},
-  {"type":"function","function":{"name":"ask_user","description":"需要用户确认或选择时提问","parameters":{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"}}},"required":["question","options"]}}},
-  {"type":"function","function":{"name":"submit","description":"提交当前工作流","parameters":{"type":"object","properties":{}}}},
-  {"type":"function","function":{"name":"task_status","description":"查看最近任务的状态/进度/产物；wait_seconds 可等待任务跑完（最多 120 秒）","parameters":{"type":"object","properties":{"wait_seconds":{"type":"integer"}}}}},
-  {"type":"function","function":{"name":"open_workflow","description":"切换到另一个工作流","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}},
-  {"type":"function","function":{"name":"list_graphs","description":"列出工作流里的节点图及选中状态","parameters":{"type":"object","properties":{}}}},
-  {"type":"function","function":{"name":"list_nodes","description":"按标题/类型/id 搜索节点，返回轻量列表","parameters":{"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer"}}}}},
-  {"type":"function","function":{"name":"get_node","description":"读取单个节点的字段、当前值、COMBO 候选","parameters":{"type":"object","properties":{"id":{"type":"integer"}},"required":["id"]}}},
-  {"type":"function","function":{"name":"lookup_prompt_guide","description":"搜索某个生成模型的提示词规范，返回标题/链接/摘要；挑一个再用 fetch_doc 读正文","parameters":{"type":"object","properties":{"model":{"type":"string","description":"模型名或文件名，例如 flux1-dev、Qwen-Image"}},"required":["model"]}}},
-  {"type":"function","function":{"name":"fetch_doc","description":"抓取一个 https 文档地址的正文；用于读官方 README/提示词指南","parameters":{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}}}
-]`;
 
 /**
  * 鸿蒙侧 AI 会话：OpenAI 兼容请求 + 工具循环 + 配置。
@@ -389,8 +414,10 @@ export class AiAssistant {
     this.pendingImages = this.visionOffModel === this.config.model ? [] : images;
     this.messages = [...this.messages, { role: 'user', content: prompt }];
     this.bump();
+    const history = this.messages.slice(0, this.messages.length - 1);
+    const first = this.startAction(host, history, this.buildTurn(prompt));
     try {
-      await this.loop(host);
+      await this.loop(host, first, prompt);
     } catch (err) {
       this.error = (err as Error).message;
     } finally {
@@ -574,8 +601,14 @@ export class AiAssistant {
     this.messages = [...this.messages, { role: 'user', content: answer }];
     this.busy = true;
     this.bump();
+    // 循环还在共享层里等着（pending/question 只是暂停），交回回答就继续，不必重开。
+    const first = this.sendAction({
+      op: 'resume',
+      context: this.context(host),
+      userTurn: { role: 'user', content: answer },
+    });
     try {
-      await this.loop(host);
+      await this.loop(host, first, '');
     } catch (err) {
       this.error = (err as Error).message;
     } finally {
@@ -585,78 +618,152 @@ export class AiAssistant {
     }
   }
 
-  private async loop(host: AiHost): Promise<void> {
-    for (let round = 0; round < 5; round++) {
+  /**
+   * 一轮对话：下一步做什么由共享层决定。这里只执行两种动作——
+   * 发一次 HTTP、执行一个宿主能力。等待用户确认/回答时共享层会返回 done，循环自然停下。
+   */
+  private async loop(host: AiHost, first: AiLoopAction, userText: string): Promise<void> {
+    // 重试用：重开一轮时要拿「这条用户消息之前」的对话，不能把提示语混进去。
+    const history = this.messages.slice(0, this.messages.length - 1);
+    let action = first;
+    let httpSeen = 0;
+    while (true) {
       if (this.cancelled) {
         return;
       }
-      const digest = host.digestJson();
-      this.tokens = Math.floor(digest.length / 4);
-      const paths = host.availableWorkflows();
-      const systemMessages: AiChatMessage[] = [{ role: 'system', content: aiSystemPrompt(this.config.model) }];
-      const currentPath = host.currentWorkflow();
-      if (currentPath.length > 0) {
-        systemMessages.push({ role: 'system', content: `用户当前停留的工作流是：${currentPath}` });
-      }
-      systemMessages.push({ role: 'system', content: `当前工作流摘要：${digest}` });
-      const guide = host.promptGuide();
-      if (guide.length > 0) {
-        this.log(`prompt guide ${guide.substring(0, 80)}`);
-        systemMessages.push({ role: 'system', content: `生成提示词规范（写 text/prompt 字段时必须遵守）：${guide}` });
-      }
-      if (paths.length > 0) {
-        systemMessages.push({ role: 'system', content: `可切换的工作流（open_workflow 用）：${paths.slice(0, 60).join('、')}` });
-      }
-      const payloadMessages: AiChatMessage[] = [...systemMessages, ...this.messages];
-      const imageIndex = this.pendingImages.length > 0 ? payloadMessages.length - 1 : -1;
-      this.log(`round ${round} request msgs=${this.messages.length} images=${this.pendingImages.length} tokens≈${this.tokens}`);
-      let message: AiResponseMessage;
-      try {
-        message = await this.request(this.buildRequest(payloadMessages, imageIndex));
-      } catch (err) {
-        // 模型不认图片时退回纯文本，并记住这个模型，下次不再带图。
-        if (round === 0 && this.pendingImages.length > 0) {
-          this.log(`vision rejected: ${(err as Error).message}`);
-          this.visionOffModel = this.config.model;
-          this.saveVisionOff();
-          this.pendingImages = [];
-          this.messages = [...this.messages, {
-            role: 'assistant',
-            content: '（当前模型不接受图片输入，已改用文件名描述继续；要让它看图，请在设置里换支持视觉的模型）',
-          }];
-          const retry = [...systemMessages, ...this.messages];
-          message = await this.request(this.buildRequest(retry, -1));
-        } else {
+      if (action.action === 'http') {
+        this.log(`request ${httpSeen + 1} images=${this.pendingImages.length} tokens≈${this.tokens}`);
+        let message: AiResponseMessage;
+        try {
+          message = await this.request(action.body ?? '');
+        } catch (err) {
+          // 模型不认图片：记下这个模型，用纯文本重开一轮（共享层不支持中途换用户消息）。
+          if (httpSeen === 0 && this.pendingImages.length > 0 && userText.length > 0) {
+            this.log(`vision rejected: ${(err as Error).message}`);
+            this.visionOffModel = this.config.model;
+            this.saveVisionOff();
+            this.pendingImages = [];
+            this.messages = [...this.messages, {
+              role: 'assistant',
+              content: '（当前模型不接受图片输入，已改用文件名描述继续；要让它看图，请在设置里换支持视觉的模型）',
+            }];
+            action = this.startAction(host, history, this.buildTurn(userText));
+            continue;
+          }
           throw new Error((err as Error).message);
         }
+        httpSeen++;
+        action = this.sendAction({ op: 'reply', context: this.context(host), message: message });
+        continue;
       }
-      this.log(`round ${round} reply tools=${(message.tool_calls ?? []).length} content=${(message.content ?? '').length}`);
-      const toolCalls = message.tool_calls;
-      if (toolCalls === undefined || toolCalls.length === 0) {
-        this.messages = [...this.messages, { role: 'assistant', content: message.content ?? '（空响应）' }];
-        return;
+      if (action.action === 'call_host') {
+        const result = await this.executeTool(action.name ?? '', action.args ?? '{}', host);
+        const ask = this.question;
+        let pause = '';
+        if (this.pending !== null) {
+          pause = 'pending';
+        } else if (ask !== null) {
+          pause = 'question';
+        }
+        action = this.sendAction({
+          op: 'tool',
+          context: this.context(host),
+          callId: action.callId ?? '',
+          result: result,
+          pause: pause,
+          question: ask === null ? '' : ask.question,
+        });
+        continue;
       }
-      if (message.content !== undefined && message.content.length > 0) {
-        this.messages = [...this.messages, { role: 'assistant', content: message.content }];
-      }
-      const results: string[] = [];
-      for (const call of toolCalls) {
-        const result = await this.executeTool(call.function.name, call.function.arguments, host);
-        results.push(`${call.function.name} -> ${result}`);
-      }
-      this.messages = [...this.messages, { role: 'user', content: `（工具结果）${results.join('\n')}` }];
-      if (this.pending !== null || this.question !== null) {
-        return;
-      }
+      this.finish(action);
+      return;
     }
-    this.error = '工具调用轮数过多，已停止';
+  }
+
+  private finish(action: AiLoopAction): void {
+    const reason = action.reason ?? '';
+    if (reason === 'answer') {
+      const text = action.text ?? '';
+      this.messages = [...this.messages, { role: 'assistant', content: text.length > 0 ? text : '（空响应）' }];
+      return;
+    }
+    if (reason === 'round_limit' || reason === 'error') {
+      this.error = action.text ?? 'AI 请求失败';
+    }
+    // pending / question：界面已经切到确认或提问；stopped：stop() 已经写了「已停止」。
+  }
+
+  /** 每一步的上下文：system 行 + 模型。摘要必须重算，否则模型对着旧值改。 */
+  private context(host: AiHost): AiLoopContextRequest {
+    const digest = host.digestJson();
+    this.tokens = Math.floor(digest.length / 4);
+    const system: string[] = [aiSystemPrompt(this.config.model)];
+    const currentPath = host.currentWorkflow();
+    if (currentPath.length > 0) {
+      system.push(`用户当前停留的工作流是：${currentPath}`);
+    }
+    system.push(`当前工作流摘要：${digest}`);
+    const guide = host.promptGuide();
+    if (guide.length > 0) {
+      this.log(`prompt guide ${guide.substring(0, 80)}`);
+      system.push(`生成提示词规范（写 text/prompt 字段时必须遵守）：${guide}`);
+    }
+    const paths = host.availableWorkflows();
+    if (paths.length > 0) {
+      system.push(`可切换的工作流（open_workflow 用）：${paths.slice(0, 60).join('、')}`);
+    }
+    return { model: this.config.model, system: system, temperature: 0.2 };
+  }
+
+  /** 用户这一轮的消息：有图时给多模态数组。 */
+  private buildTurn(text: string): AiPayloadMessage {
+    const images = this.pendingImages;
+    if (images.length === 0) {
+      return { role: 'user', content: text };
+    }
+    const parts: AiContentPart[] = [{ type: 'text', text: text }];
+    for (const image of images) {
+      const url: AiImageUrl = { url: image.dataUrl };
+      parts.push({ type: 'image_url', image_url: url });
+    }
+    return { role: 'user', content: parts };
+  }
+
+  private startAction(host: AiHost, history: AiChatMessage[], turn: AiPayloadMessage): AiLoopAction {
+    const request: AiStartRequest = {
+      op: 'start',
+      context: this.context(host),
+      history: history,
+      userTurn: turn,
+    };
+    return this.callNative(false, JSON.stringify(request));
+  }
+
+  private sendAction(request: AiSendRequest): AiLoopAction {
+    return this.callNative(true, JSON.stringify(request));
+  }
+
+  private callNative(send: boolean, request: string): AiLoopAction {
+    const call = send ? this.sendFn : this.stepFn;
+    if (call === null) {
+      return { action: 'done', reason: 'error', text: 'AI 循环没有接上共享层（native 桥未注入）' };
+    }
+    try {
+      return JSON.parse(call(request)) as AiLoopAction;
+    } catch (err) {
+      return { action: 'done', reason: 'error', text: (err as Error).message };
+    }
   }
 
   /** 宿主可挂一个 sink，把 AI 日志并进 App 内诊断页（没电脑时直接看手机）。 */
   logSink: ((line: string) => void) | null = null;
 
-  /** 工具声明：由宿主从共享层取（cp_ai_tools_json）；取不到时退回内置副本。 */
-  toolsJson: string = '';
+  /**
+   * 共享层循环的两个入口（cp_ai_step / cp_ai_send），由 Index 在初始化时注入。
+   * 循环、消息拼装、工具分派都在 Kotlin；这里只负责执行 HTTP 与宿主动作。
+   */
+  stepFn: ((request: string) => string) | null = null;
+  sendFn: ((request: string) => string) | null = null;
 
   private log(message: string): void {
     const line: string = message.substring(0, 2000);
@@ -743,10 +850,8 @@ export class AiAssistant {
     }
     if (name === 'submit') {
       this.actions = [...this.actions, '提交任务'].slice(-50);
-      const ok: boolean = host.submit();
-      return ok
-        ? '{"ok":true,"queued":true,"hint":"用 task_status（wait_seconds 例如 30）确认真实结果，别直接说已完成"}'
-        : '{"ok":false,"error":"工作流还有未填字段或未就绪"}';
+      // 只回原始结果：核实提示由共享层的 formatResult 统一加，两端不再各写一份。
+      return `{"ok":${host.submit()}}`;
     }
     if (name === 'task_status') {
       const probe = JSON.parse(args) as Record<string, Object>;
@@ -760,31 +865,6 @@ export class AiAssistant {
       return `{"ok":${host.openWorkflow(path)}}`;
     }
     return `{"ok":false,"error":"未知工具 ${name}"}`;
-  }
-
-  /**
-   * 有图时把对应那条消息的 content 换成 OpenAI 多模态数组：
-   * [{type:text,text}, {type:image_url,image_url:{url}}]。
-   * 图片只在本次请求里出现，历史里仍然只存文字。
-   */
-  private buildRequest(messages: AiChatMessage[], imageIndex: number): string {
-    const images = this.pendingImages;
-    const payload: AiPayloadMessage[] = [];
-    for (let i = 0; i < messages.length; i++) {
-      if (imageIndex >= 0 && i === imageIndex && images.length > 0) {
-        const parts: AiContentPart[] = [{ type: 'text', text: messages[i].content }];
-        for (const image of images) {
-          const url: AiImageUrl = { url: image.dataUrl };
-          parts.push({ type: 'image_url', image_url: url });
-        }
-        payload.push({ role: messages[i].role, content: parts });
-      } else {
-        payload.push({ role: messages[i].role, content: messages[i].content });
-      }
-    }
-    const tools = this.toolsJson.length > 0 ? this.toolsJson : TOOLS_JSON;
-    return `{"model":${JSON.stringify(this.config.model)},"temperature":0.2,` +
-      `"messages":${JSON.stringify(payload)},"tools":${tools},"tool_choice":"auto"}`;
   }
 
   private saveVisionOff(): void {

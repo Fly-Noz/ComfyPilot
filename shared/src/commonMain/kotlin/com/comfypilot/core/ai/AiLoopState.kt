@@ -115,8 +115,13 @@ class AiLoopState(
     /** 暂停中：用户在确认提案或回答问题，循环不该自己往下走。 */
     val paused: Boolean get() = pending || question != null
 
-    /** 开始新的一轮用户输入；清空上一轮的会话与计数。 */
-    fun start(userTurn: JsonObject) {
+    /**
+     * 开始新的一轮用户输入；清空上一轮的会话与计数。
+     *
+     * [history] 是之前的对话（宿主决定给多少）：鸿蒙一直带历史，Android 目前只发
+     * 当前这一句。带上历史时它排在 [userTurn] 前面，消息形状与 provider 一致。
+     */
+    fun start(userTurn: JsonObject, history: List<JsonObject> = emptyList()) {
         turns.clear()
         queue.clear()
         awaiting = false
@@ -125,6 +130,7 @@ class AiLoopState(
         question = null
         finished = false
         answer = null
+        turns += history
         turns += userTurn
     }
 

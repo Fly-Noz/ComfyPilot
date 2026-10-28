@@ -210,6 +210,45 @@ napi_value NativeAiTools(napi_env env, napi_callback_info /*info*/) {
     return MakeString(env, std::string(buffer.data(), static_cast<size_t>(needed)));
 }
 
+/**
+ * AI 循环：Kotlin 决定下一步（http / call_host / done），这里只转 JSON。
+ * 请求体给一份可写副本（ABI 头把入参声明为 void*）；响应超缓冲时按返回长度扩容重取。
+ */
+napi_value AiLoopAction(napi_env env, napi_callback_info info, bool send) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    const std::string request = argc > 0 ? ReadString(env, argv[0]) : "{}";
+    std::vector<char> requestBytes(request.begin(), request.end());
+    requestBytes.push_back('\0');
+
+    std::vector<char> buffer(kJsonBufferSize, 0);
+    int32_t needed = send
+        ? cp_ai_send(requestBytes.data(), buffer.data(), static_cast<int32_t>(buffer.size()))
+        : cp_ai_step(requestBytes.data(), buffer.data(), static_cast<int32_t>(buffer.size()));
+    if (needed <= 0) {
+        return MakeString(env, R"({"action":"done","reason":"error","text":"AI 循环没有返回内容"})");
+    }
+    if (static_cast<size_t>(needed) >= buffer.size()) {
+        buffer.assign(static_cast<size_t>(needed) + 1, 0);
+        needed = send
+            ? cp_ai_send(requestBytes.data(), buffer.data(), static_cast<int32_t>(buffer.size()))
+            : cp_ai_step(requestBytes.data(), buffer.data(), static_cast<int32_t>(buffer.size()));
+        if (needed <= 0 || static_cast<size_t>(needed) >= buffer.size()) {
+            return MakeString(env, R"({"action":"done","reason":"error","text":"AI 动作超出缓冲区"})");
+        }
+    }
+    return MakeString(env, std::string(buffer.data(), static_cast<size_t>(needed)));
+}
+
+napi_value NativeAiStep(napi_env env, napi_callback_info info) {
+    return AiLoopAction(env, info, false);
+}
+
+napi_value NativeAiSend(napi_env env, napi_callback_info info) {
+    return AiLoopAction(env, info, true);
+}
+
 napi_value NativeSessionDestroy(napi_env env, napi_callback_info /*info*/) {
     cp_session_destroy();
     napi_value result = nullptr;
@@ -231,6 +270,8 @@ static napi_value Init(napi_env env, napi_value exports) {
         {"nativeAiDigest", nullptr, NativeAiDigest, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeAiApply", nullptr, NativeAiApply, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeAiTools", nullptr, NativeAiTools, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"nativeAiStep", nullptr, NativeAiStep, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"nativeAiSend", nullptr, NativeAiSend, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeSessionPreview", nullptr, NativeSessionPreview, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeSessionPreviewAnimation", nullptr, NativeSessionPreviewAnimation, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"nativeSessionDestroy", nullptr, NativeSessionDestroy, nullptr, nullptr, nullptr, napi_default, nullptr},
