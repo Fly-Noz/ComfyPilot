@@ -4,13 +4,9 @@
 #include <vector>
 
 #include "napi/native_api.h"
+// 所有 cp_* 导出都由这个生成的头声明，别再手写一份：手写会和 Kotlin 侧签名漂移
+// （例如入参从 void* 变成 const char* 时直接编译失败）。
 #include "libcomfypilot_core_api.h"
-
-extern "C" int32_t cp_ai_digest(const char* request, void* buffer, int32_t capacity);
-extern "C" int32_t cp_ai_apply(const char* request, void* buffer, int32_t capacity);
-
-// VHS 动画帧 ABI（Kotlin @CName 导出）
-extern "C" int32_t cp_session_preview_animation(void* buffer, int32_t capacity);
 
 namespace {
 
@@ -166,18 +162,22 @@ napi_value NativeAiBridge(napi_env env, napi_callback_info info, bool apply) {
     napi_value args[1] = {nullptr};
     napi_get_cb_info(env, info, &argc, args, nullptr, nullptr);
     std::string request = argc > 0 ? ReadString(env, args[0]) : "{}";
+    // ABI 头把入参声明为 void*（Kotlin 侧 CPointer<ByteVar>），string::data() 在
+    // C++17 之前是 const char*，这里给一份可写、NUL 结尾的副本。
+    std::vector<char> requestBytes(request.begin(), request.end());
+    requestBytes.push_back('\0');
     std::vector<char> buffer(kJsonBufferSize, 0);
     int32_t needed = apply
-        ? cp_ai_apply(request.data(), buffer.data(), static_cast<int32_t>(buffer.size()))
-        : cp_ai_digest(request.data(), buffer.data(), static_cast<int32_t>(buffer.size()));
+        ? cp_ai_apply(requestBytes.data(), buffer.data(), static_cast<int32_t>(buffer.size()))
+        : cp_ai_digest(requestBytes.data(), buffer.data(), static_cast<int32_t>(buffer.size()));
     if (needed <= 0) {
         return MakeString(env, R"({"ok":false,"message":"AI 桥没有返回内容"})");
     }
     if (static_cast<size_t>(needed) >= buffer.size()) {
         buffer.assign(static_cast<size_t>(needed) + 1, 0);
         needed = apply
-            ? cp_ai_apply(request.data(), buffer.data(), static_cast<int32_t>(buffer.size()))
-            : cp_ai_digest(request.data(), buffer.data(), static_cast<int32_t>(buffer.size()));
+            ? cp_ai_apply(requestBytes.data(), buffer.data(), static_cast<int32_t>(buffer.size()))
+            : cp_ai_digest(requestBytes.data(), buffer.data(), static_cast<int32_t>(buffer.size()));
         if (needed <= 0 || static_cast<size_t>(needed) >= buffer.size()) {
             return MakeString(env, R"({"ok":false,"message":"AI 响应超出缓冲区"})");
         }
