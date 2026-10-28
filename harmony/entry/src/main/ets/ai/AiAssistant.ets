@@ -4,6 +4,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { common } from '@kit.AbilityKit';
 import { AiSecretStore } from './AiSecretStore';
 import { aiSystemPrompt } from './AiPrompt';
+import { fetchDoc, lookupPromptGuide } from './AiLookup';
 
 const STORE_NAME: string = 'ai_assistant';
 
@@ -66,7 +67,9 @@ const TOOLS_JSON: string = `[
   {"type":"function","function":{"name":"open_workflow","description":"切换到另一个工作流","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}},
   {"type":"function","function":{"name":"list_graphs","description":"列出工作流里的节点图及选中状态","parameters":{"type":"object","properties":{}}}},
   {"type":"function","function":{"name":"list_nodes","description":"按标题/类型/id 搜索节点，返回轻量列表","parameters":{"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer"}}}}},
-  {"type":"function","function":{"name":"get_node","description":"读取单个节点的字段、当前值、COMBO 候选","parameters":{"type":"object","properties":{"id":{"type":"integer"}},"required":["id"]}}}
+  {"type":"function","function":{"name":"get_node","description":"读取单个节点的字段、当前值、COMBO 候选","parameters":{"type":"object","properties":{"id":{"type":"integer"}},"required":["id"]}}},
+  {"type":"function","function":{"name":"lookup_prompt_guide","description":"搜索某个生成模型的提示词规范，返回标题/链接/摘要；挑一个再用 fetch_doc 读正文","parameters":{"type":"object","properties":{"model":{"type":"string","description":"模型名或文件名，例如 flux1-dev、Qwen-Image"}},"required":["model"]}}},
+  {"type":"function","function":{"name":"fetch_doc","description":"抓取一个 https 文档地址的正文；用于读官方 README/提示词指南","parameters":{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}}}
 ]`;
 
 /**
@@ -271,7 +274,7 @@ export class AiAssistant {
       }
       const results: string[] = [];
       for (const call of toolCalls) {
-        const result = this.executeTool(call.function.name, call.function.arguments, host);
+        const result = await this.executeTool(call.function.name, call.function.arguments, host);
         results.push(`${call.function.name} -> ${result}`);
       }
       this.messages = [...this.messages, { role: 'user', content: `（工具结果）${results.join('\n')}` }];
@@ -286,7 +289,7 @@ export class AiAssistant {
     hilog.info(0x0000, 'ComfyPilotAI', message.substring(0, 2000));
   }
 
-  private executeTool(name: string, args: string, host: AiHost): string {
+  private async executeTool(name: string, args: string, host: AiHost): Promise<string> {
     this.log(`tool ${name} args=${args.substring(0, 300)}`);
     if (this.host !== host) {
       return '{"ok":false,"error":"工作流已关闭，请重新打开后再试"}';
@@ -319,6 +322,22 @@ export class AiAssistant {
     }
     if (name === 'get_node') {
       return host.queryNode(args);
+    }
+    if (name === 'lookup_prompt_guide') {
+      const probe = JSON.parse(args) as Record<string, Object>;
+      const model = (probe.model as string) ?? '';
+      if (model.length === 0) {
+        return '{"ok":false,"error":"model 为空"}';
+      }
+      return await lookupPromptGuide(model);
+    }
+    if (name === 'fetch_doc') {
+      const probe = JSON.parse(args) as Record<string, Object>;
+      const url = (probe.url as string) ?? '';
+      if (url.length === 0) {
+        return '{"ok":false,"error":"url 为空"}';
+      }
+      return await fetchDoc(url);
     }
     if (name === 'ask_user') {
       const probe = JSON.parse(args) as AskProbe;

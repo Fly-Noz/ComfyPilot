@@ -23,6 +23,7 @@ object AiPrompt {
 - open_workflow {path}：切换工作流（必须在可用工作区列表里）
 - ask_user {question, options[]}：需要用户确认或做选择时提问
 - list_graphs {} / list_nodes {query?, limit?} / get_node {id}：按需查询图、节点与字段细节
+- lookup_prompt_guide {model} / fetch_doc {url}：查模型卡或官方文档里的提示词规范
 
 规则：
 1. 只改用户明确要求的内容，不要自作主张；
@@ -30,7 +31,8 @@ object AiPrompt {
 3. 摘要只给节点索引；要改某个节点前，先用 list_nodes / get_node 查清 id、字段名与候选值；
 4. 用户说「当前 / 这个工作流」时，指上下文里的当前工作流；没有打开工作流时，说明无法修改并建议先打开；
 5. 有歧义、有多个可行方案、或改动影响较大时，先调用 ask_user（2–4 个选项），不要自己拍板；
-6. 需要提交时调用 submit；回复用中文，简短说明改了什么。"""
+6. 需要提交时调用 submit；回复用中文，简短说明改了什么。
+7. 提示词字段（text/prompt）要按当前生成模型的习惯写：系统消息里的规范优先；规范没覆盖的模型，先 lookup_prompt_guide 搜它的官方提示词指南，挑结果再用 fetch_doc 读正文，查到就照文档写，查不到再用通用写法，别硬套别的模型的格式。"""
 
     fun systemPrompt(model: String): String {
         val profile = profileFor(model)

@@ -454,6 +454,22 @@ object AiRuntime {
                 }
             }
 
+            "lookup_prompt_guide" -> {
+                val model = runCatching {
+                    json.parseToJsonElement(argsJson).jsonObject["model"]?.jsonPrimitive?.contentOrNull
+                }.getOrNull()
+                if (model.isNullOrBlank()) """{"ok":false,"error":"model 为空"}"""
+                else AiLookup.lookupPromptGuide(model)
+            }
+
+            "fetch_doc" -> {
+                val url = runCatching {
+                    json.parseToJsonElement(argsJson).jsonObject["url"]?.jsonPrimitive?.contentOrNull
+                }.getOrNull()
+                if (url.isNullOrBlank()) """{"ok":false,"error":"url 为空"}"""
+                else AiLookup.fetchDoc(url)
+            }
+
             "ask_user" -> {
                 val parsed = runCatching { json.parseToJsonElement(argsJson).jsonObject }.getOrNull()
                 val question = parsed?.get("question")?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -766,6 +782,65 @@ object AiRuntime {
                                     buildJsonObject { put("id", buildJsonObject { put("type", "integer") }) },
                                 )
                                 put("required", buildJsonArray { add(okJson("id")) })
+                            },
+                        )
+                    },
+                )
+            },
+        )
+        add(
+            buildJsonObject {
+                put("type", "function")
+                put(
+                    "function",
+                    buildJsonObject {
+                        put("name", "lookup_prompt_guide")
+                        put(
+                            "description",
+                            "搜索某个生成模型的提示词规范，返回标题/链接/摘要；挑一个再用 fetch_doc 读正文",
+                        )
+                        put(
+                            "parameters",
+                            buildJsonObject {
+                                put("type", "object")
+                                put(
+                                    "properties",
+                                    buildJsonObject {
+                                        put(
+                                            "model",
+                                            buildJsonObject {
+                                                put("type", "string")
+                                                put("description", "模型名或文件名，例如 flux1-dev、Qwen-Image")
+                                            },
+                                        )
+                                    },
+                                )
+                                put("required", buildJsonArray { add(okJson("model")) })
+                            },
+                        )
+                    },
+                )
+            },
+        )
+        add(
+            buildJsonObject {
+                put("type", "function")
+                put(
+                    "function",
+                    buildJsonObject {
+                        put("name", "fetch_doc")
+                        put("description", "抓取一个 https 文档地址的正文；用于读官方 README/提示词指南")
+                        put(
+                            "parameters",
+                            buildJsonObject {
+                                put("type", "object")
+                                put(
+                                    "properties",
+                                    buildJsonObject {
+                                        put("url", buildJsonObject { put("type", "string") })
+                                    },
+                                )
+                                put("required", buildJsonArray { add(okJson("url")) })
                             },
                         )
                     },
