@@ -260,13 +260,18 @@ object UiWorkflowParser {
 
     private fun parseInput(obj: JsonObject?): UiInput? {
         obj ?: return null
-        val name = obj.stringOrNull("name")?.takeIf { it.isNotBlank() } ?: return null
+        val linkId = obj["link"].asIntOrNull()
+        // Reroute 这类纯转接节点的输入名就是空字符串；以前按"名字为空"直接丢弃，
+        // 结果 Reroute 被解析成零输入，穿透时断链：下游字段既不算被连线驱动，
+        // 提交时也只用旧控件值。保留带连线的空名输入，空名未连线的仍然丢弃。
+        val name = obj.stringOrNull("name")?.takeIf { it.isNotBlank() }
+            ?: if (linkId != null) "" else return null
         // 老工作流没有 type 的情况极少；空类型按通配处理，不影响连接解析。
         val type = obj.stringOrNull("type") ?: ""
         return UiInput(
             name = name,
             type = type,
-            linkId = obj["link"].asIntOrNull(),
+            linkId = linkId,
             widgetName = (obj["widget"] as? JsonObject)?.stringOrNull("name"),
             localizedName = obj.stringOrNull("localized_name"),
         )
