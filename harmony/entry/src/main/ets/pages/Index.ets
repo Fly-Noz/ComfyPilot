@@ -7382,15 +7382,8 @@ struct Index {
    * 底下一层压暗的遮罩，提示"先把这个答了再输入"。
    */
   @Builder
-  AiQuestionSheet() {
-    Stack({ alignContent: Alignment.Bottom }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor(this.c().dialog)
-        .opacity(0.94)
-
-      Column({ space: 9 }) {
+  AiQuestionCard() {
+    Column({ space: 9 }) {
         Row() {
           Text('需要你确认')
             .fontSize(9.5)
@@ -7449,8 +7442,6 @@ struct Index {
       .backgroundColor(this.c().cardStrong)
       .borderRadius({ topLeft: 18, topRight: 18 })
       .border({ width: 1, color: this.c().accentBorder })
-    }
-    .width('100%')
   }
 
   @Builder
@@ -7839,10 +7830,6 @@ struct Index {
             .padding({ left: 12, right: 12, top: 8, bottom: 12 })
           }
           .width('100%')
-
-          if (this.aiQuestion !== null) {
-            this.AiQuestionSheet()
-          }
         }
         .width('100%')
       }
