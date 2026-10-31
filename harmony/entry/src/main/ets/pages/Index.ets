@@ -7652,6 +7652,9 @@ struct Index {
           .width('100%')
           .alignItems(HorizontalAlign.Start)
           .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+          // 内容不足一屏时把容器撑满：否则 Scroll 会把这一整块垂直居中，
+          // 短对话和空状态就吊在面板中间，看着像没对齐。
+          .constraintSize({ minHeight: '100%' })
         }
         .layoutWeight(1)
         .width('100%')
@@ -8709,6 +8712,8 @@ struct Index {
             }, (item: AiSessionInfo) => `${item.id}:${item.updatedAt}`)
           }
           .width('100%')
+          // 同上：会话只有一两条时也要贴顶，不能吊在面板中间。
+          .constraintSize({ minHeight: '100%' })
         }
         .layoutWeight(1)
         .width('100%')
