@@ -603,6 +603,117 @@ struct Index {
   }
 
   /**
+   * 系统返回（返回键 / 侧滑手势）。
+   *
+   * 不接管的话 ArkUI 一律直接退出应用——安卓那边有 BackHandler 逐层退，这里必须对齐：
+   * 先收浮层，再按页面栈往回走，只有停在连接页时才交给系统退出。
+   *
+   * 判断顺序与 build() 里的挂载顺序相反（后挂的盖在上面，先收）。
+   * 页面切换一律走 goPage(false, ...)，保证返回方向的滑动动画和点「返回」时一致。
+   */
+  onBackPress(): boolean {
+    if (this.aiChatsOpen) {
+      this.aiChatsOpen = false;
+      return true;
+    }
+    if (this.aiScopeOpen) {
+      this.aiScopeOpen = false;
+      return true;
+    }
+    if (this.aiOpen) {
+      this.aiOpen = false;
+      return true;
+    }
+    if (this.updateOpen) {
+      this.dismissUpdate();
+      return true;
+    }
+    if (this.graphOpen) {
+      this.graphOpen = false;
+      return true;
+    }
+    if (this.promptConfirmOpen) {
+      this.promptConfirmOpen = false;
+      return true;
+    }
+    if (this.advancedOpen) {
+      this.advancedOpen = false;
+      return true;
+    }
+    if (this.aiPageOpen) {
+      this.aiPageOpen = false;
+      return true;
+    }
+    if (this.allNodesOpen) {
+      this.allNodesOpen = false;
+      return true;
+    }
+    if (this.artifactOpen) {
+      // 产物面板里还有一层大图/播放预览：先退预览，再退面板。
+      if (this.previewOpen) {
+        this.previewOpen = false;
+      } else {
+        this.closeArtifacts();
+      }
+      return true;
+    }
+    if (this.tasksOpen) {
+      this.closeTasks();
+      return true;
+    }
+    // 页内浮层（许可证、图选择下拉、地址下拉、AI 设置页）：它们挂在页面内部，
+    // 不先收掉的话，返回会把整页退掉、浮层状态却还留着。
+    if (this.licenseOpen) {
+      this.licenseOpen = false;
+      return true;
+    }
+    if (this.aiSettingsOpen) {
+      this.aiSettingsOpen = false;
+      return true;
+    }
+    if (this.graphMenuOpen) {
+      this.graphMenuOpen = false;
+      return true;
+    }
+    if (this.addressMenuOpen) {
+      this.addressMenuOpen = false;
+      return true;
+    }
+    // 单节点关闭的确认框只在详情页出现，位置在根浮层之下。
+    if (this.bypassConfirmNodeId !== -1) {
+      this.bypassConfirmNodeId = -1;
+      this.bypassConfirmReason = '';
+      return true;
+    }
+    if (this.aboutOpen) {
+      this.goPage(false, () => {
+        this.aboutOpen = false;
+      });
+      return true;
+    }
+    if (this.settingsOpen) {
+      this.goPage(false, () => {
+        this.settingsOpen = false;
+      });
+      return true;
+    }
+    if (this.selectedPath.length > 0) {
+      this.goPage(false, () => {
+        this.closeWorkflow();
+      });
+      return true;
+    }
+    // 已连接时从工作流列表退回连接页；再按一次才退出应用（与安卓一致）。
+    if (this.running && !this.connectView) {
+      this.goPage(false, () => {
+        this.connectView = true;
+      });
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * 页面切换：先定方向再在 animateTo 里翻页状态，页面容器的 transition 负责滑动+淡入淡出。
    * 只包裹导航本身，不改原来的 if/else 返回栈。
    */
