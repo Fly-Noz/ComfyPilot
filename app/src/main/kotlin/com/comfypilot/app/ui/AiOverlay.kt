@@ -621,17 +621,19 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                                         val refs = attachments
                                         input = ""
                                         attachments = emptyList()
+                                        val lead = text.ifBlank { "用这些图" }
                                         AiRuntime.send(
                                             if (refs.isEmpty()) {
                                                 text
                                             } else {
-                                                val lead = text.ifBlank { "用这些图" }
                                                 "$lead\n（附了 ${refs.size} 张图，序号从 1 开始：${refs.joinToString("、") { it.name }}；看图回答不必上传，要把图用进工作流时再用 upload_image 上传）"
                                             },
                                             refs.mapNotNull { ref ->
                                                 if (ref.dataUrl.isEmpty()) null
                                                 else AiImage(ref.name, ref.dataUrl, ref.uploadBytes)
                                             },
+                                            // 气泡只显示用户原话；附图说明是给模型的。
+                                            displayText = if (refs.isEmpty()) null else lead,
                                         )
                                     }
                                 },
@@ -955,7 +957,9 @@ private fun AiMessageBubble(message: AiChatMessage, modifier: Modifier = Modifie
             androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
         }
         Text(
-            text = (if (mine) message.content else aiPlainText(message.content)).ifBlank { "…" },
+            // 气泡只看 display：附图时发给模型的「附了 N 张图…」属于内部说明，不上屏。
+            text = (if (mine) message.display ?: message.content else aiPlainText(message.content))
+                .ifBlank { "…" },
             color = if (mine) c.text else c.textMuted,
             fontSize = 12.sp,
             lineHeight = 17.sp,

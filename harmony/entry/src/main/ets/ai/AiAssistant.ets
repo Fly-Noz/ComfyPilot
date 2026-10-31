@@ -32,6 +32,8 @@ export interface AiConfig {
 export interface AiChatMessage {
   role: string;
   content: string;
+  /** 气泡里给用户看的正文；为空时用 content。content 里可能带「附了 N 张图…」这类内部说明。 */
+  display?: string;
 }
 
 /**
@@ -455,7 +457,7 @@ export class AiAssistant {
     this.bump();
   }
 
-  async send(text: string, images: AiImage[] = []): Promise<void> {
+  async send(text: string, images: AiImage[] = [], display?: string): Promise<void> {
     const prompt = text.trim();
     const host = this.host;
     if (prompt.length === 0 || this.busy) {
@@ -479,7 +481,7 @@ export class AiAssistant {
     // 上次这个模型明确拒绝过图片，就不再重复撞墙，只发文件名。
     this.pendingImages = this.visionOffModel === this.config.model ? [] : images;
     this.uploadedRefs = new Map();
-    this.messages = [...this.messages, { role: 'user', content: prompt }];
+    this.messages = [...this.messages, { role: 'user', content: prompt, display: display }];
     // 第一条用户消息落地，这轮对话才算真的用过；bump 会顺带落盘。
     this.materializeDraft();
     this.bump();

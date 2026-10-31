@@ -7524,7 +7524,9 @@ struct Index {
                   .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
                 }
                 Text(message.content.length > 0
-                  ? (message.role === 'user' ? message.content : aiPlainText(message.content))
+                  ? (message.role === 'user'
+                    ? (message.display !== undefined ? message.display : message.content)
+                    : aiPlainText(message.content))
                   : '…')
                   .fontSize(12)
                   .lineHeight(17)
@@ -7820,7 +7822,9 @@ struct Index {
                     const payload = attach.length > 0
                       ? `${text.length > 0 ? text : '用这些图'}\n（附了 ${attach.length} 张图，序号从 1 开始：${attach.map((item: AiImage) => item.name).join('、')}；看图回答不必上传，要把图用进工作流时再用 upload_image 上传）`
                       : text;
-                    this.ai.send(payload, attach).then(() => { this.syncAi(); });
+                    // 气泡只显示用户原话；附图说明是给模型的。
+                    const shown = attach.length > 0 ? (text.length > 0 ? text : '用这些图') : undefined;
+                    this.ai.send(payload, attach, shown).then(() => { this.syncAi(); });
                     // send() 在第一个 await 之前就把 busy 置真，这里同步一次能立刻切成停止。
                     this.syncAi();
                   })
@@ -7840,6 +7844,23 @@ struct Index {
       .borderRadius(22)
       .border({ width: 1, color: this.c().borderStrong })
       .shadow({ radius: 28, color: 'rgba(0,0,0,0.45)', offsetY: 10 })
+
+      // 提问浮层：和面板同尺寸同圆角，盖在输入区上；卡片贴底，不会被面板圆角裁掉。
+      if (this.aiQuestion !== null) {
+        Stack({ alignContent: Alignment.Bottom }) {
+          Column()
+            .width('100%')
+            .height('100%')
+            .backgroundColor(this.c().dialog)
+            .opacity(0.94)
+          this.AiQuestionCard()
+        }
+        .width('92%')
+        .height('66%')
+        .borderRadius(22)
+        .clip(true)
+        .border({ width: 1, color: this.c().borderStrong })
+      }
     }
     .width('100%')
     .height('100%')

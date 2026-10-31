@@ -94,9 +94,17 @@ interface AiWorkflowHost {
     fun taskSummary(waitSeconds: Int = 0): String = ""
 }
 
+/**
+ * 对话里的一条消息。
+ *
+ * [content] 是**发给模型**的正文（附图时末尾带「附了 N 张图…」这类给模型的说明）；
+ * [display] 是气泡里给用户看的正文，为空时用 [content]。两者分开，是因为内部说明
+ * 不该出现在用户眼前，但模型又必须看到。
+ */
 data class AiChatMessage(
     val role: String,
     val content: String,
+    val display: String? = null,
 )
 
 /**
@@ -330,7 +338,8 @@ object AiRuntime {
                         val msg = entry as? JsonObject ?: return@mapNotNull null
                         val role = msg["role"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
                         val content = msg["content"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                        AiChatMessage(role, content)
+                        val display = msg["display"]?.jsonPrimitive?.contentOrNull
+                        AiChatMessage(role, content, display)
                     }.orEmpty()
                     val log = obj["actions"]?.jsonArray?.mapNotNull {
                         (it as? JsonPrimitive)?.contentOrNull
@@ -486,6 +495,7 @@ object AiRuntime {
                                         buildJsonObject {
                                             put("role", message.role)
                                             put("content", message.content)
+                                            message.display?.let { put("display", it) }
                                         },
                                     )
                                 }
@@ -529,7 +539,12 @@ object AiRuntime {
     fun snapshot(): AiSnapshot =
         AiSnapshot(actions, messages, pending, question, busy, error, tokenEstimate, config, canUndo)
 
-    fun send(prompt: String, images: List<AiImage> = emptyList()) {
+    /**
+     * 发一轮对话。
+     *
+     * [prompt] 是发给模型的正文；[displayText] 是气泡里显示的内容（附图时去掉内部说明）。
+     */
+    fun send(prompt: String, images: List<AiImage> = emptyList(), displayText: String? = null) {
         val text = prompt.trim()
         if (text.isEmpty() || busy) return
         if (!config.enabled) {
@@ -546,7 +561,8 @@ object AiRuntime {
             return
         }
         aiLog("send: $text images=${images.size}")
-        messages = messages + AiChatMessage("user", text)
+        // content 给模型（可能带附图说明），display 给气泡；两者分开，内部说明不上屏。
+        messages = messages + AiChatMessage("user", text, displayText)
         // 第一条用户消息落地，这轮对话才算真的用过，转正并参与持久化。
         materializeDraft()
         pending = null
