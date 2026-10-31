@@ -194,7 +194,11 @@ class AiLoopStateTest {
 
         assertEquals("deepseek-chat", root["model"]?.toString()?.trim('"'))
         assertEquals("auto", root["tool_choice"]?.toString()?.trim('"'))
-        assertEquals(12, (root["tools"] as JsonArray).size)
+        // 工具表只有一份来源，这里只验它确实被整份带上了（数量跟着声明走，不再手写常数）。
+        assertEquals(
+            (Json.parseToJsonElement(AiToolSpec.json) as JsonArray).size,
+            (root["tools"] as JsonArray).size,
+        )
 
         val messages = root["messages"] as JsonArray
         assertEquals(3, messages.size)

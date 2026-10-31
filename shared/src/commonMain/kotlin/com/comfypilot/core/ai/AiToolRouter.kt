@@ -186,7 +186,27 @@ object AiToolRouter {
         "submit" -> if (ok(rawJson)) SUBMITTED else SUBMIT_REJECTED
         "host_status" -> formatHostStatus(rawJson)
         "list_models" -> formatModels(rawJson)
+        "upload_image" -> formatUpload(rawJson)
         else -> rawJson
+    }
+
+    /**
+     * 上传结果 → 给模型看的一小段。
+     *
+     * 只回「传好了，文件名是 X」还不够：模型常接着去编一个文件名，或者忘了下一步。
+     * 这里直接把「写进 image 字段」这一步写在旁边，少一轮猜。
+     */
+    private fun formatUpload(rawJson: String): String {
+        if (!ok(rawJson)) return rawJson
+        val root = runCatching { Json.parseToJsonElement(rawJson) as? JsonObject }.getOrNull()
+            ?: return rawJson
+        val filename = (root["filename"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+        if (filename.isBlank()) return rawJson
+        return buildJsonObject {
+            put("ok", true)
+            put("filename", filename)
+            put("hint", "图已在服务器上；要放进工作流就用 propose_edits 的 set_input 把这个文件名写到 image 字段")
+        }.toString()
     }
 
     private val statsJson = Json { ignoreUnknownKeys = true }

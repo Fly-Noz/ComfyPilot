@@ -72,8 +72,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.comfypilot.android.transport.OkHttpHttpTransport
-import com.comfypilot.app.SessionHost
 import com.comfypilot.app.ai.AiConfig
 import com.comfypilot.app.ai.AiFeature
 import com.comfypilot.app.ai.AiChatMessage
@@ -85,8 +83,6 @@ import com.comfypilot.app.ai.AiSnapshot
 import com.comfypilot.app.ui.theme.Spectrum
 import com.comfypilot.app.ui.theme.SpectrumDialog
 import com.comfypilot.app.ui.theme.SpectrumMono
-import com.comfypilot.core.api.ImageUpload
-import com.comfypilot.core.api.ImageUploadResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -189,21 +185,17 @@ fun AiChatDialog(onDismiss: () -> Unit) {
     var stepsOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
-    // 附图：AI 自己打不开相册，由这里选图上传，再把服务器文件名交给模型。
+    // 附图：AI 自己打不开相册，由这里选图、只在本机编码（一份给模型看、一份留待上传），
+    // 不直接上传。要不要上传到 ComfyUI、传哪张，由 AI 在真正要把图写进节点时用
+    // upload_image 工具决定——只在服务器上留用得上的图。
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val uploader = remember { OkHttpHttpTransport() }
     var attachments by remember { mutableStateOf(listOf<AiAttachment>()) }
     var attaching by remember { mutableStateOf(false) }
     var attachError by remember { mutableStateOf<String?>(null) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        val lease = SessionHost.state.value.lease
-        if (lease == null) {
-            attachError = "未连接 ComfyUI"
-            return@rememberLauncherForActivityResult
-        }
         scope.launch {
             attaching = true
             attachError = null
@@ -232,24 +224,10 @@ fun AiChatDialog(onDismiss: () -> Unit) {
             }
             val added = mutableListOf<AiAttachment>()
             for ((filename, bytes) in loaded) {
-                when (
-                    val result = ImageUpload.upload(
-                        http = uploader,
-                        baseUrl = lease.baseUrl,
-                        filename = filename,
-                        bytes = bytes,
-                    )
-                ) {
-                    is ImageUploadResult.Success -> {
-                        // 大图先压到长边 1024 再编码：模型必须看到画面，不能退回只给文件名。
-                        val dataUrl = withContext(Dispatchers.Default) { visionDataUrl(bytes, filename) }
-                        added += AiAttachment(result.reference, dataUrl)
-                    }
-                    is ImageUploadResult.Failure -> {
-                        attachError = result.message
-                        break
-                    }
-                }
+                // 只在本地编码，不发请求：vision 给模型看，upload 留着等 AI 决定上传。
+                val dataUrl = withContext(Dispatchers.Default) { visionDataUrl(bytes, filename) }
+                val upload = withContext(Dispatchers.Default) { uploadData(bytes, filename) }
+                added += AiAttachment(filename, dataUrl, upload)
             }
             if (added.isNotEmpty()) {
                 attachments = (attachments + added).take(4)
@@ -648,10 +626,11 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                                                 text
                                             } else {
                                                 val lead = text.ifBlank { "用这些图" }
-                                                "$lead\n（图片已上传到服务器，文件名：${refs.joinToString("、") { it.reference }}；要放进节点就用 set_input 写这些文件名）"
+                                                "$lead\n（附了 ${refs.size} 张图，序号从 1 开始：${refs.joinToString("、") { it.name }}；看图回答不必上传，要把图用进工作流时再用 upload_image 上传）"
                                             },
                                             refs.mapNotNull { ref ->
-                                                if (ref.dataUrl.isEmpty()) null else AiImage(ref.reference, ref.dataUrl)
+                                                if (ref.dataUrl.isEmpty()) null
+                                                else AiImage(ref.name, ref.dataUrl, ref.uploadBytes)
                                             },
                                         )
                                     }
@@ -702,7 +681,7 @@ private fun AiAttachmentChip(attachment: AiAttachment, onRemove: () -> Unit) {
         if (bitmap != null) {
             Image(
                 bitmap = bitmap,
-                contentDescription = attachment.reference,
+                contentDescription = attachment.name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .matchParentSize()
@@ -1299,9 +1278,16 @@ private fun AiField(
 }
 
 /**
- * 聊天附件：reference 是 ComfyUI 上传后的文件名，dataUrl 为空表示编码失败。
+ * 聊天附件：一张待发的图。
+ *
+ * [name] 是原文件名（含扩展名）；[dataUrl] 是给多模态模型看的 base64（vision 压缩），
+ * 为空表示编码失败；[uploadBytes] 是等 AI 决定上传时才发出去的字节（长边 2048 压缩）。
  */
-private data class AiAttachment(val reference: String, val dataUrl: String)
+private data class AiAttachment(
+    val name: String,
+    val dataUrl: String,
+    val uploadBytes: ByteArray?,
+)
 
 /**
  * 给多模态模型用的 data URL：太大先压到长边 1024 / JPEG 80。
@@ -1328,4 +1314,38 @@ private fun visionDataUrl(bytes: ByteArray, filename: String): String {
         scaled.compress(Bitmap.CompressFormat.JPEG, 80, out)
         "data:image/jpeg;base64," + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
     }.getOrDefault("")
+}
+
+/**
+ * 给 ComfyUI 上传用的字节：长边压到 2048 / JPEG 90，小图原样。
+ *
+ * 相册原图常 5–20 MB，经热点/Tailscale 上传会撞超时；压到 1 MB 上下既快又够 LoadImage 用。
+ * 鸿蒙用的是 `ImageUploader.compressForUpload`（同一组参数），改这里要同步那边。
+ */
+private fun uploadData(bytes: ByteArray, filename: String): ByteArray? {
+    if (bytes.size <= 2 * 1024 * 1024) {
+        return runCatching {
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@runCatching null
+            val maxSide = maxOf(bitmap.width, bitmap.height)
+            if (maxSide <= 2048) bytes else compressUpload(bitmap)
+        }.getOrNull()
+    }
+    return runCatching {
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@runCatching null
+        compressUpload(bitmap)
+    }.getOrNull()
+}
+
+private fun compressUpload(bitmap: Bitmap): ByteArray {
+    val maxSide = maxOf(bitmap.width, bitmap.height)
+    val scale = if (maxSide > 2048) 2048f / maxSide else 1f
+    val scaled = Bitmap.createScaledBitmap(
+        bitmap,
+        (bitmap.width * scale).toInt().coerceAtLeast(1),
+        (bitmap.height * scale).toInt().coerceAtLeast(1),
+        true,
+    )
+    val out = java.io.ByteArrayOutputStream()
+    scaled.compress(Bitmap.CompressFormat.JPEG, 90, out)
+    return out.toByteArray()
 }

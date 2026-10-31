@@ -34,10 +34,16 @@ export interface AiChatMessage {
   content: string;
 }
 
-/** 随消息发给多模态模型的图片：dataUrl 是 data:image/jpeg;base64,... */
+/**
+ * 随消息发给多模态模型的图片。
+ *
+ * name 是原文件名（含扩展名）；dataUrl 是给模型的 base64；uploadBytes 是「等 AI 决定
+ * 上传时才发出去」的字节——选图时不传，由 upload_image 工具在模型真正要把图写进节点时上传。
+ */
 export interface AiImage {
   name: string;
   dataUrl: string;
+  uploadBytes?: Uint8Array;
 }
 
 /** 一个历史会话：消息与操作记录各自独立，切换时不会串台。 */
@@ -177,6 +183,8 @@ export class AiAssistant {
   tokens: number = 0;
   canUndo: boolean = false;
   host: AiHost | null = null;
+  /** 当前连接的 ComfyUI 服务器地址（连的是哪台）；由 Index 在连接变化时注入。 */
+  comfyBase: string = '';
 
   private store: preferences.Preferences | null = null;
   private client: http.HttpRequest | null = null;
@@ -186,6 +194,8 @@ export class AiAssistant {
 
   /** 本轮要发给多模态模型的图片；只用于当前请求，不写进历史，避免越存越大。 */
   private pendingImages: AiImage[] = [];
+  /** 本轮已上传过的附图（原文件名 → 服务器文件名）；避免同一张图重复上传。 */
+  private uploadedRefs: Map<string, string> = new Map();
   /** 明确拒绝过图片的模型名；下次直接跳过图片，省一次失败请求。 */
   private visionOffModel: string = '';
   /** 上一次 AI 修改的反向补丁 JSON；用于「撤销这次修改」。 */
@@ -468,6 +478,7 @@ export class AiAssistant {
     this.pending = null;
     // 上次这个模型明确拒绝过图片，就不再重复撞墙，只发文件名。
     this.pendingImages = this.visionOffModel === this.config.model ? [] : images;
+    this.uploadedRefs = new Map();
     this.messages = [...this.messages, { role: 'user', content: prompt }];
     // 第一条用户消息落地，这轮对话才算真的用过；bump 会顺带落盘。
     this.materializeDraft();
@@ -700,7 +711,11 @@ export class AiAssistant {
             this.log(`vision rejected: ${(err as Error).message}`);
             this.visionOffModel = this.config.model;
             this.saveVisionOff();
-            this.pendingImages = [];
+            // 只丢「给模型看」的那份；uploadBytes 留着，模型看不见图不代表不能用 upload_image。
+            this.pendingImages = this.pendingImages.map((image: AiImage) => {
+              const cleared: AiImage = { name: image.name, dataUrl: '', uploadBytes: image.uploadBytes };
+              return cleared;
+            });
             this.messages = [...this.messages, {
               role: 'assistant',
               content: '（当前模型不接受图片输入，已改用文件名描述继续；要让它看图，请在设置里换支持视觉的模型）',
@@ -823,6 +838,13 @@ export class AiAssistant {
   stepFn: ((request: string) => string) | null = null;
   sendFn: ((request: string) => string) | null = null;
 
+  /**
+   * 真正把一张图 POST 到 ComfyUI /upload/image，返回给模型的 JSON 字符串。
+   * 由 Index 注入（它在那边握着 imageUploader）；这里只按 index/name 找到 pendingImages
+   * 里的那张，把字节与文件名交出去。
+   */
+  uploadImageFn: ((bytes: Uint8Array, filename: string) => Promise<string>) | null = null;
+
   private log(message: string): void {
     const line: string = message.substring(0, 2000);
     hilog.info(0x0000, 'ComfyPilotAI', line);
@@ -931,7 +953,54 @@ export class AiAssistant {
       this.actions = [...this.actions, `切换工作流：${path}`].slice(-50);
       return `{"ok":${host.openWorkflow(path)}}`;
     }
+    if (name === 'upload_image') {
+      return await this.uploadImageTool(args);
+    }
     return `{"ok":false,"error":"未知工具 ${name}"}`;
+  }
+
+  /**
+   * upload_image：AI 决定把某张附图用进工作流时，才真正上传。
+   * 字节在 pendingImages 里（选图时只编码、不上传）；定位到图后交给 uploadImageFn 执行，
+   * 措辞由共享层 formatResult 统一收尾。
+   */
+  private async uploadImageTool(args: string): Promise<string> {
+    const upload = this.uploadImageFn;
+    if (upload === null) {
+      return '{"ok":false,"error":"上传能力没接上"}';
+    }
+    const probe = JSON.parse(args) as Record<string, Object>;
+    const index = (probe.index as number) ?? 0;
+    const name = ((probe.name as string) ?? '').trim();
+    let target: AiImage | undefined = undefined;
+    if (index > 0) {
+      target = this.pendingImages[index - 1];
+    } else if (name.length > 0) {
+      target = this.pendingImages.find((image: AiImage) => image.name === name);
+    }
+    if (target === undefined) {
+      return '{"ok":false,"error":"没找到这张附图：给 index（第几张，从 1 开始）或 name（原文件名）"}';
+    }
+    // 同一张图被重复要求上传时直接用上次的结果，别在服务器上堆副本。
+    const cached = this.uploadedRefs.get(target.name);
+    if (cached !== undefined) {
+      return `{"ok":true,"filename":${JSON.stringify(cached)}}`;
+    }
+    if (target.uploadBytes === undefined || target.uploadBytes.length === 0) {
+      return '{"ok":false,"error":"这张图没准备好上传的字节"}';
+    }
+    this.log(`upload_image ${target.name} bytes=${target.uploadBytes.length}`);
+    const raw = await upload(target.uploadBytes, target.name);
+    try {
+      const result = JSON.parse(raw) as Record<string, Object>;
+      const reference = (result.filename as string) ?? '';
+      if (result.ok === true && reference.length > 0) {
+        this.uploadedRefs.set(target.name, reference);
+      }
+    } catch (err) {
+      // 解析不了就原样交给共享层去格式化
+    }
+    return raw;
   }
 
   private saveVisionOff(): void {
@@ -951,12 +1020,12 @@ export class AiAssistant {
    * GET 一个 ComfyUI 的只读端点。
    *
    * host_status / list_models 打的是 ComfyUI 自己的路由，不走模型接口，所以不带
-   * Authorization。失败时返回 ok:false 而不是抛：模型拿到错误还能自己换个参数再试。
+   * Authorization。地址是 comfyBase（连的是哪台 ComfyUI），不是模型接口地址。
    */
   private async getComfy(path: string): Promise<string> {
-    const base = this.config.baseUrl.trim().replace(/\/+$/, '');
+    const base = this.comfyBase.trim().replace(/\/+$/, '');
     if (base.length === 0) {
-      return '{"ok":false,"error":"还没配置 ComfyUI 地址"}';
+      return '{"ok":false,"error":"还没连接 ComfyUI"}';
     }
     const client = http.createHttp();
     try {

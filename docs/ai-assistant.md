@@ -129,6 +129,24 @@
 
 执行前逐条校验：节点存在、字段可编辑、值类型匹配；任意一条失败就整批拒绝并回给模型。
 
+### 5.1 工具清单（`AiToolSpec`，两端同一份）
+
+| 工具 | 作用 |
+|---|---|
+| `propose_edits` | 声明式修改（op 见上表） |
+| `submit` | 提交当前工作流 |
+| `task_status` | 查最近任务；`wait_seconds` 可等到终态（上限 120s） |
+| `open_workflow` | 切换工作流（受 AI 工作区白名单约束） |
+| `ask_user` | 提问并给 2–4 个选项 |
+| `list_graphs` / `list_nodes` / `get_node` | 查询节点图、节点与字段 |
+| `host_status` | 显卡/显存/内存与 ComfyUI、PyTorch 版本 |
+| `list_models` | 服务器上真实可用的模型文件（不凭记忆编文件名） |
+| `upload_image` | 把用户附图上传到 ComfyUI，返回服务器文件名 |
+| `lookup_prompt_guide` / `fetch_doc` | 查模型提示词规范 |
+
+附图的两段式：选图时只在**本机**编码（一份压缩给模型看，一份字节留着待上传），AI 判断
+要写进节点时才调 `upload_image`，文件落在 ComfyUI 的 `input/` 目录。
+
 ## 6. 会话状态机
 
 ```

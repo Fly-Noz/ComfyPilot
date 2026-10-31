@@ -35,6 +35,7 @@ class AiToolSpecTest {
                 "fetch_doc",
                 "host_status",
                 "list_models",
+                "upload_image",
             ),
             names.toSet(),
         )

@@ -24,7 +24,8 @@ object AiToolSpec {
  {"type":"function","function":{"name":"lookup_prompt_guide","description":"搜索某个生成模型的提示词规范，返回标题/链接/摘要；挑一个再用 fetch_doc 读正文","parameters":{"type":"object","properties":{"model":{"type":"string","description":"模型名或文件名，例如 flux1-dev、Qwen-Image"}},"required":["model"]}}},
  {"type":"function","function":{"name":"fetch_doc","description":"抓取一个 https 文档地址的正文；用于读官方 README/提示词指南","parameters":{"type":"object","properties":{"url":{"type":"string"}},"required":["url"]}}},
  {"type":"function","function":{"name":"host_status","description":"查看跑 ComfyUI 的那台机器：显卡型号与显存、内存、ComfyUI / Python / PyTorch 版本。判断模型放不放得下、为什么 OOM、该不该降分辨率时先看它，别猜","parameters":{"type":"object","properties":{}}}},
- {"type":"function","function":{"name":"list_models","description":"列出服务器上实际可用的模型文件。换模型前必须先查，不要凭记忆编文件名——服务器上没有的名字会直接提交失败","parameters":{"type":"object","properties":{"kind":{"type":"string","enum":["checkpoint","lora","unet","vae","clip","clip_vision","controlnet","upscale","embedding"],"description":"要找哪一类；embedding 是文本反演"}},"required":["kind"]}}}
+ {"type":"function","function":{"name":"list_models","description":"列出服务器上实际可用的模型文件。换模型前必须先查，不要凭记忆编文件名——服务器上没有的名字会直接提交失败","parameters":{"type":"object","properties":{"kind":{"type":"string","enum":["checkpoint","lora","unet","vae","clip","clip_vision","controlnet","upscale","embedding"],"description":"要找哪一类；embedding 是文本反演"}},"required":["kind"]}}},
+ {"type":"function","function":{"name":"upload_image","description":"把用户随消息附上的图片上传到 ComfyUI，返回服务器文件名。只有要把这张图真正用进工作流时（通常是写进 LoadImage 的 image 字段）才调用；只想看图、回答关于图片的问题时不需要上传。index 从 1 开始，对应消息里「附图」的序号；也可以改用 name 指定原文件名","parameters":{"type":"object","properties":{"index":{"type":"integer","description":"第几张附图，从 1 开始"},"name":{"type":"string","description":"图的原文件名，跨轮次引用时用"}}}}}
 ]
 """.trimIndent()
 }

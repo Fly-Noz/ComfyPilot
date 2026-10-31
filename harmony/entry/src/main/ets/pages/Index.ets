@@ -970,6 +970,18 @@ struct Index {
     // AI 循环、消息拼装、工具分派都在共享层；ArkTS 只执行 HTTP 与宿主动作。
     this.ai.stepFn = (request: string) => this.bridge.aiStep(request);
     this.ai.sendFn = (request: string) => this.bridge.aiSend(request);
+    // 真正把一张图 POST 到 ComfyUI /upload/image；只有 AI 调 upload_image 时才会走到。
+    this.ai.uploadImageFn = async (bytes: Uint8Array, filename: string): Promise<string> => {
+      const base: string = this.normalizedBaseUrl();
+      if (!this.running || base.length === 0) {
+        return '{"ok":false,"error":"还没连接 ComfyUI，没法上传图片"}';
+      }
+      const result = await this.imageUploader.upload(base, { filename: filename, bytes: bytes, uri: '' });
+      if (!result.ok) {
+        return `{"ok":false,"error":${JSON.stringify(result.message)}}`;
+      }
+      return `{"ok":true,"filename":${JSON.stringify(result.reference)}}`;
+    };
     const pinnedReady: boolean = await this.pinnedStore.open(context);
     const notesReady: boolean = await this.noteStore.open(context);
     const workflowPinsReady: boolean = await this.pinnedWorkflowStore.open(context);
@@ -1722,6 +1734,8 @@ struct Index {
       return;
     }
     this.baseUrl = url;
+    // AI 的 host_status / list_models / upload_image 打的是这台 ComfyUI，不是模型接口。
+    this.ai.comfyBase = url;
     if (!this.storageReady) {
       this.notice = '本地存储还在初始化，请稍等';
       return;
@@ -1752,6 +1766,7 @@ struct Index {
     this.stopStatsPolling();
     this.bridge.stop();
     this.running = false;
+    this.ai.comfyBase = '';
     this.label = '未连接';
     this.tasks = [];
     this.doneNotified.clear();
@@ -7040,19 +7055,13 @@ struct Index {
   }
 
   /**
-   * 选图上传到 ComfyUI，把服务器文件名挂到下一次对话上（可多张）。
+   * 选图：只在本机编码（vision 给模型看、bytes 留待上传），不直接上传。
    *
-   * AI 不能自己打开相册，所以由用户选图、宿主上传，再把文件名交给模型：
-   * 模型只要用 set_input 把它们写进对应的 image 输入就行。
+   * AI 不能自己打开相册，所以由用户选图；要不要上传到 ComfyUI、传哪张，由 AI 在
+   * 真正要把图写进节点时用 upload_image 决定——只在服务器上留用得上的图。
    */
   private async aiAttachImage(): Promise<void> {
     if (this.aiBusy || this.aiAttachBusy) {
-      return;
-    }
-    const base: string = this.normalizedBaseUrl();
-    if (!this.running || base.length === 0) {
-      this.ai.error = '未连接 ComfyUI，没法上传图片';
-      this.syncAi();
       return;
     }
     this.aiAttachBusy = true;
@@ -7069,14 +7078,9 @@ struct Index {
       this.aiUploading = true;
       this.syncAi();
       for (const item of picked) {
-        const result = await this.imageUploader.upload(base, item);
-        if (!result.ok) {
-          this.ai.error = result.message;
-          break;
-        }
-        // 大图先压到长边 1024 再编码，保证模型真的能看到画面。
+        // 只在本地编码：dataUrl 给模型看，bytes 就是长边 2048 的待上传字节。
         const dataUrl = await this.imageUploader.visionDataUrl(item.bytes, item.filename);
-        added.push({ name: result.reference, dataUrl: dataUrl });
+        added.push({ name: item.filename, dataUrl: dataUrl, uploadBytes: item.bytes });
       }
       if (added.length > 0) {
         this.aiAttachments = [...this.aiAttachments, ...added].slice(0, 4);
@@ -7823,7 +7827,7 @@ struct Index {
                     this.aiInput = '';
                     this.aiAttachments = [];
                     const payload = attach.length > 0
-                      ? `${text.length > 0 ? text : '用这些图'}\n（图片已上传到服务器，文件名：${attach.map((item: AiImage) => item.name).join('、')}；要放进节点就用 set_input 写这些文件名）`
+                      ? `${text.length > 0 ? text : '用这些图'}\n（附了 ${attach.length} 张图，序号从 1 开始：${attach.map((item: AiImage) => item.name).join('、')}；看图回答不必上传，要把图用进工作流时再用 upload_image 上传）`
                       : text;
                     this.ai.send(payload, attach).then(() => { this.syncAi(); });
                     // send() 在第一个 await 之前就把 busy 置真，这里同步一次能立刻切成停止。

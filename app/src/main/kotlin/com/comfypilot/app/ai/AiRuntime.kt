@@ -23,6 +23,10 @@ import com.comfypilot.core.ai.AiToolEnv
 import com.comfypilot.core.ai.AiToolOutcome
 import com.comfypilot.core.ai.AiToolRouter
 import com.comfypilot.core.ai.AiWorkflowView
+import com.comfypilot.core.api.ImageUpload
+import com.comfypilot.core.api.ImageUploadResult
+import com.comfypilot.android.transport.OkHttpHttpTransport
+import com.comfypilot.app.SessionHost
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -95,10 +99,20 @@ data class AiChatMessage(
     val content: String,
 )
 
-/** 随消息发给多模态模型的图片：dataUrl 是 data:image/jpeg;base64,... */
+/**
+ * 随消息发给多模态模型的图片。
+ *
+ * [name] 是原文件名（含扩展名，作展示与去重用）；[dataUrl] 是给模型的 data:image/...;base64；
+ * [uploadBytes] 是「等 AI 决定要上传时」才发出去的字节——选图时不传，由 `upload_image`
+ * 工具在模型真正要把图写进节点的那一刻上传。
+ *
+ * 注意：这是 data class 但 [uploadBytes] 是数组，`equals` 按引用比。查找一律按 [name]，
+ * 不要拿两张图做相等判断。
+ */
 data class AiImage(
     val name: String,
     val dataUrl: String,
+    val uploadBytes: ByteArray? = null,
 )
 
 /** 一个历史会话：消息与操作记录各自独立，切换时不会串台。 */
@@ -269,6 +283,8 @@ object AiRuntime {
     /** 本轮要发给多模态模型的图片；只用于当前请求，不写进历史，避免越存越大。 */
     private var pendingImages: List<AiImage> = emptyList()
     private var pendingUserText: String = ""
+    /** 本轮已上传过的附图（原文件名 → 服务器文件名）；避免同一张图重复上传。 */
+    private val uploadedRefs = mutableMapOf<String, String>()
     /** 明确拒绝过图片的模型名；下次直接跳过图片，省一次失败请求。 */
     private var visionOffModel: String = ""
 
@@ -538,6 +554,7 @@ object AiRuntime {
         busy = true
         // 上次这个模型明确拒绝过图片，就不再重复撞墙，只发文件名。
         pendingImages = if (visionOffModel == config.model) emptyList() else images
+        uploadedRefs.clear()
         pendingUserText = text
         persistConversation()
         job = scope.launch {
@@ -714,7 +731,9 @@ object AiRuntime {
                             aiLog("vision rejected: ${err.message}")
                             visionOffModel = config.model
                             prefs?.edit()?.putString("vision_off_model", visionOffModel)?.apply()
-                            pendingImages = emptyList()
+                            // 只丢「给模型看」的那份；uploadBytes 留着，
+                            // 模型看不见图不代表不能用 upload_image 把图送进 LoadImage。
+                            pendingImages = pendingImages.map { it.copy(dataUrl = "") }
                             loop.replaceUserTurn(userTurn(pendingUserText, emptyList()))
                             messages = messages + AiChatMessage(
                                 "assistant",
@@ -873,10 +892,19 @@ object AiRuntime {
      *
      * host_status / list_models 打的是 ComfyUI 自己的路由，不走模型接口，所以不带
      * Authorization——ComfyUI 默认没有鉴权，真加了反向代理认证也不是这个 key 管用。
+     * 地址是 [SessionHost.baseUrl]（连的是哪台 ComfyUI），不是模型接口地址。
      */
+    private fun comfyBase(): String? {
+        // 不能用 SessionHost.baseUrl 判空：它有默认值（10.0.2.2:8188），未连接时也非空。
+        // 以会话租约为准——没有 lease 就是没连上，直接告诉模型，别拿默认地址去撞超时。
+        if (SessionHost.state.value.lease == null) return null
+        return SessionHost.baseUrl.trimEnd('/').takeIf { it.isNotEmpty() }
+    }
+
     private fun getComfy(path: String): String {
+        val base = comfyBase() ?: return """{"ok":false,"error":"还没连接 ComfyUI"}"""
         val request = Request.Builder()
-            .url(config.baseUrl.trimEnd('/') + path)
+            .url(base + path)
             .get()
             .build()
         return http.newCall(request).execute().use { response ->
@@ -886,7 +914,7 @@ object AiRuntime {
         }
     }
 
-    private fun executeTool(name: String, argsJson: String, currentHost: AiWorkflowHost): String {
+    private suspend fun executeTool(name: String, argsJson: String, currentHost: AiWorkflowHost): String {
         if (host !== currentHost) {
             aiLog("tool $name rejected: host detached")
             return """{"ok":false,"error":"工作流已关闭，请重新打开后再试"}"""
@@ -970,7 +998,62 @@ object AiRuntime {
                 }
             }
 
+            "upload_image" -> uploadImageTool(argsJson)
+
             else -> """{"ok":false,"error":"未知工具 $name"}"""
+        }
+    }
+
+    /**
+     * `upload_image {index|name}`：AI 决定把某张附图用进工作流时，才真正上传到 ComfyUI。
+     *
+     * 图片字节在 [pendingImages] 里（选图时只编码、不上传）。按序号（从 1 开始）或原文件名
+     * 定位，再走共享层的 [ImageUpload]。上传后的措辞统一由 [AiToolRouter.formatResult] 收尾。
+     */
+    private suspend fun uploadImageTool(argsJson: String): String {
+        val base = comfyBase() ?: return """{"ok":false,"error":"还没连接 ComfyUI，没法上传图片"}"""
+        val parsed = runCatching { json.parseToJsonElement(argsJson).jsonObject }.getOrNull()
+        val index = parsed?.get("index")?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: 0
+        val name = parsed?.get("name")?.jsonPrimitive?.contentOrNull.orEmpty().trim()
+
+        val target = when {
+            index > 0 -> pendingImages.getOrNull(index - 1)
+            name.isNotEmpty() -> pendingImages.firstOrNull { it.name == name }
+            else -> null
+        } ?: return """{"ok":false,"error":"没找到这张附图：给 index（第几张，从 1 开始）或 name（原文件名）"}"""
+
+        // 同一张图被重复要求上传时直接用上次的结果，别在服务器上堆副本。
+        uploadedRefs[target.name]?.let { cached ->
+            val raw = buildJsonObject {
+                put("ok", true)
+                put("filename", cached)
+            }.toString()
+            return AiToolRouter.formatResult("upload_image", raw)
+        }
+
+        val bytes = target.uploadBytes
+            ?: return """{"ok":false,"error":"这张图没准备好上传的字节"}"""
+
+        aiLog("upload_image ${target.name} bytes=${bytes.size}")
+        return when (
+            val result = ImageUpload.upload(
+                http = OkHttpHttpTransport(),
+                baseUrl = base,
+                filename = target.name,
+                bytes = bytes,
+            )
+        ) {
+            is ImageUploadResult.Success -> {
+                uploadedRefs[target.name] = result.reference
+                val raw = buildJsonObject {
+                    put("ok", true)
+                    put("filename", result.reference)
+                }.toString()
+                AiToolRouter.formatResult("upload_image", raw)
+            }
+            is ImageUploadResult.Failure -> result.message.let {
+                """{"ok":false,"error":${quote(it)}}"""
+            }
         }
     }
 

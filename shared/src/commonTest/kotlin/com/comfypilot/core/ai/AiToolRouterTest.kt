@@ -226,4 +226,24 @@ class AiToolRouterTest {
         assertTrue(formatted.contains("embedding"), formatted)
     }
 
+    @Test
+    fun `upload image is a host tool, not routed`() {
+        // 上传要拿到宿主手里的图片字节，属于 propose_edits / ask_user 那一类有状态工具，
+        // 路由器不碰，交还宿主去执行。
+        val env = FakeEnv()
+        assertNull(AiToolRouter.execute("upload_image", """{"index":1}""", env))
+    }
+
+    @Test
+    fun `upload result tells the model where the filename goes`() {
+        val formatted = AiToolRouter.formatResult(
+            "upload_image",
+            """{"ok":true,"filename":"photo.jpg"}""",
+        )
+        assertTrue(formatted.contains("\"filename\":\"photo.jpg\""), formatted)
+        assertTrue(formatted.contains("set_input"), formatted)
+        // 失败原样透传，别把宿主的错误吃掉。
+        val failed = """{"ok":false,"error":"未连接 ComfyUI"}"""
+        assertEquals(failed, AiToolRouter.formatResult("upload_image", failed))
+    }
 }
