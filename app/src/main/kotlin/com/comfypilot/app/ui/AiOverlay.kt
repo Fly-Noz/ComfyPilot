@@ -1,5 +1,6 @@
 package com.comfypilot.app.ui
 
+import androidx.compose.foundation.Image
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.provider.OpenableColumns
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.clickable
@@ -56,6 +58,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -514,34 +518,31 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                     )
                 }
 
-                if (attachments.isNotEmpty()) {
-                    Column(
+                // 附图：上传中给转圈，传完直接摆缩略图。
+                // 以前只有一行「图片1：文件名」，传没传上去、传的哪张都要靠猜。
+                if (attaching || attachments.isNotEmpty()) {
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
                             .padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        attachments.forEachIndexed { index, ref ->
+                        if (attaching) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "图片${index + 1}：${ref.reference}",
-                                    color = c.textMuted,
-                                    fontSize = 10.sp,
-                                    fontFamily = SpectrumMono,
-                                    maxLines = 1,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f),
+                                androidx.compose.material3.CircularProgressIndicator(
+                                    modifier = Modifier.size(12.dp),
+                                    strokeWidth = 1.6.dp,
+                                    color = c.accent,
                                 )
-                                Text(
-                                    text = "移除",
-                                    color = c.textDim,
-                                    fontSize = 10.sp,
-                                    modifier = Modifier
-                                        .clickableNoRipple {
-                                            attachments = attachments.filterIndexed { i, _ -> i != index }
-                                        }
-                                        .padding(horizontal = 6.dp),
-                                )
+                                androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
+                                Text("正在上传…", color = c.textDim, fontSize = 10.sp)
+                            }
+                        }
+                        attachments.forEachIndexed { index, ref ->
+                            AiAttachmentChip(ref) {
+                                attachments = attachments.filterIndexed { i, _ -> i != index }
                             }
                         }
                     }
@@ -680,6 +681,61 @@ fun AiChatDialog(onDismiss: () -> Unit) {
 }
 
 /** 历史会话：新建 / 切换 / 删除；会话之间的消息与操作记录互不影响。 */
+/**
+ * 一张待发送的附图：缩略图 + 右上角的移除。
+ *
+ * 用缩略图而不是文件名，是因为「传上没传上」只能靠眼睛确认——文字行和"已选文件"长得一样，
+ * 分不清是排队中还是已经到服务器了。
+ */
+@Composable
+private fun AiAttachmentChip(attachment: AiAttachment, onRemove: () -> Unit) {
+    val c = Spectrum.colors
+    val bitmap = remember(attachment.dataUrl) {
+        runCatching {
+            val encoded = attachment.dataUrl.substringAfter("base64,", "")
+            if (encoded.isEmpty()) return@runCatching null
+            val bytes = android.util.Base64.decode(encoded, android.util.Base64.DEFAULT)
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        }.getOrNull()
+    }
+    Box(modifier = Modifier.size(44.dp)) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = attachment.reference,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(RoundedCornerShape(10.dp))
+                    .border(1.dp, c.border, RoundedCornerShape(10.dp)),
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(c.card)
+                    .border(1.dp, c.border, RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center,
+            ) {
+                AiImageGlyph(size = 18.dp, tint = c.textDim)
+            }
+        }
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .size(16.dp)
+                .clip(CircleShape)
+                .background(c.dialog)
+                .border(1.dp, c.border, CircleShape)
+                .clickableNoRipple(onRemove),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("✕", color = c.textMuted, fontSize = 8.sp)
+        }
+    }
+}
+
 @Composable
 private fun AiSessionsDialog(onDismiss: () -> Unit) {
     val c = Spectrum.colors

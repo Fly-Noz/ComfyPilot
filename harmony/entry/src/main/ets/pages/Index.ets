@@ -502,6 +502,8 @@ struct Index {
   @State aiInput: string = '';
   /** 已上传到 ComfyUI 的图片；下一条消息会带上它们（含多模态 dataUrl）。 */
   @State aiAttachments: AiImage[] = [];
+  /** 真正在上传（选完图之后）。选图时 aiAttachBusy 也是 true，但那会儿不该说"正在上传"。 */
+  @State aiUploading: boolean = false;
   @State aiAttachBusy: boolean = false;
   @State aiSide: number = 1;
   @State aiY: number = 0.72;
@@ -7064,6 +7066,8 @@ struct Index {
         return;
       }
       const added: AiImage[] = [];
+      this.aiUploading = true;
+      this.syncAi();
       for (const item of picked) {
         const result = await this.imageUploader.upload(base, item);
         if (!result.ok) {
@@ -7084,6 +7088,7 @@ struct Index {
       this.syncAi();
     } finally {
       this.aiAttachBusy = false;
+      this.aiUploading = false;
       this.pickerActive = false;
     }
   }
@@ -7719,29 +7724,46 @@ struct Index {
             .padding({ left: 12, right: 12 })
 
             // 输入区
-            if (this.aiAttachments.length > 0) {
-              Column({ space: 4 }) {
-                ForEach(this.aiAttachments, (ref: AiImage, index: number) => {
+            // 附图：上传中给转圈，传完直接摆缩略图。以前只有一行「图片1：文件名」，
+            // 传没传上去、传的是哪张，全靠猜。
+            if (this.aiUploading || this.aiAttachments.length > 0) {
+              Row({ space: 8 }) {
+                if (this.aiUploading) {
                   Row({ space: 6 }) {
-                    Text(`图片${index + 1}：${ref.name}`)
-                      .fontSize(10)
-                      .fontFamily('monospace')
-                      .fontColor(this.c().textMuted)
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                      .layoutWeight(1)
-                    Text('移除')
+                    LoadingProgress()
+                      .width(14)
+                      .height(14)
+                      .color(this.c().accent)
+                    Text('正在上传…')
                       .fontSize(10)
                       .fontColor(this.c().textDim)
-                      .padding({ left: 6, right: 6 })
+                  }
+                }
+                ForEach(this.aiAttachments, (ref: AiImage, index: number) => {
+                  Stack({ alignContent: Alignment.TopEnd }) {
+                    Image(ref.dataUrl)
+                      .width(44)
+                      .height(44)
+                      .borderRadius(10)
+                      .objectFit(ImageFit.Cover)
+                      .border({ width: 1, color: this.c().border })
+                    Text('✕')
+                      .fontSize(8)
+                      .fontColor('#FFFFFF')
+                      .width(16)
+                      .height(16)
+                      .textAlign(TextAlign.Center)
+                      .borderRadius(8)
+                      .backgroundColor('#B3000000')
                       .onClick(() => {
                         this.aiAttachments = this.aiAttachments.filter((item: AiImage) => item.name !== ref.name);
+                        this.syncAi();
                       })
                   }
-                  .width('100%')
                 }, (ref: AiImage, index: number) => `${index}:${ref.name}`)
               }
               .width('100%')
+              .alignItems(VerticalAlign.Center)
               .padding({ left: 12, right: 12, bottom: 6 })
             }
             Row({ space: 8 }) {
