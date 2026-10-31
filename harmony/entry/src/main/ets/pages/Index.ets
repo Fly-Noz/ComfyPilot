@@ -69,6 +69,26 @@ function readAppVersion(): string {
   }
 }
 
+/**
+ * AI 图标的形状，画在 24×24 的视口里。
+ *
+ * 每组是「起点 x,y」+ 4 组「控制点 x,y, 终点 x,y」，用二次贝塞尔画出内凹的四角星。
+ * 和 Android 的 AiGlyph 是同一组坐标，改形状要两边一起改。
+ */
+const GLYPH_STAR_MAIN: number[] = [
+  9.6, 5, 12.5, 10.5, 18, 13.4, 12.5, 16.3, 9.6, 21.8, 6.7, 16.3, 1.2, 13.4, 6.7, 10.5, 9.6, 5,
+];
+
+/** 右上角的小星：两颗一起才读得出「闪」，单画一颗像普通的星标收藏。 */
+const GLYPH_STAR_CROWN: number[] = [
+  19.8, 1.2, 21, 3.4, 23.2, 4.6, 21, 5.8, 19.8, 8, 18.6, 5.8, 16.4, 4.6, 18.6, 3.4, 19.8, 1.2,
+];
+
+/** 小尺寸专用：只留主星，居中放大到画布边缘。 */
+const GLYPH_STAR_SOLO: number[] = [
+  12, 2, 15.6, 8.4, 22, 12, 15.6, 15.6, 12, 22, 8.4, 15.6, 2, 12, 8.4, 8.4, 12, 2,
+];
+
 /** 服务器性能条的轮询间隔（毫秒）；页面不可见时会整个停掉。 */
 const STATS_POLL_MS: number = 2000;
 
@@ -7148,13 +7168,8 @@ struct Index {
   @Builder
   AiBall() {
     Stack() {
-      Text('AI')
-        .fontSize(14)
-        .fontWeight(FontWeight.Bold)
-        .fontColor('#FFFFFF')
-        .textAlign(TextAlign.Center)
-        .width(46)
-        .height(46)
+      // 玻璃球里用强调色：浅色主题下白色图压在浅色玻璃上几乎看不见。
+      this.AiGlyph(28, this.c().accent, false)
       // 待处理红点：有未确认的改动、待回答的问题或报错时提示用户进去看。
       if (this.aiPending !== null || this.aiQuestion !== null || this.aiError.length > 0) {
         Circle()
@@ -7199,6 +7214,47 @@ struct Index {
             this.aiBallPX = this.aiSide === 1 ? Math.max(0, this.aiWidth - 58) : 12;
           }),
       )
+  }
+
+  /**
+   * AI 图标：四角星光晕。
+   *
+   * 为什么不再写「AI」两个字：20dp 头像里两个字母要么糊成一团、要么得描边才看得清；
+   * 星光在任何尺寸下都成立，也是现在大家认「AI」的通用符号。
+   *
+   * 注意 Path 的 commands 是按 **px** 解析的，不是 vp：实测 26vp 的图标若直接写
+   * 0~24 的坐标，只会画出 26px，缩成三分之一。所以先把 24 视口乘上 vp2px(size)/24。
+   * （Shape + viewPort 也一样按 px 算，试过，不能用来缩放。）
+   *
+   * @param single 小尺寸（≤14）只画主星——两颗星缩进 20dp 头像，小的那颗会糊成一个点。
+   */
+  @Builder
+  AiGlyph(size: number, tint: string, single: boolean) {
+    Path({ width: size, height: size, commands: this.glyphCommands(size, single) })
+      .fill(tint)
+      // Path 即使只设了 fill，默认描边也会画出来（黑色）。这里把描边设成透明：
+      // 直接用 tint 当描边色的话，1vp 的描边会把四角星的尖角磨圆，看着像颗菱形。
+      .stroke('#00000000')
+  }
+
+  /** 把 24 视口的坐标按目标尺寸换算成 px 命令串。 */
+  private glyphCommands(size: number, single: boolean): string {
+    const k: number = vp2px(size) / 24;
+    let out: string = this.subPath(single ? GLYPH_STAR_SOLO : GLYPH_STAR_MAIN, k);
+    if (!single) {
+      out += this.subPath(GLYPH_STAR_CROWN, k);
+    }
+    return out;
+  }
+
+  /** 一段子路径：M 起点，接 4 个 Q。 */
+  private subPath(nums: number[], k: number): string {
+    let out: string = `M${(nums[0] * k).toFixed(2)} ${(nums[1] * k).toFixed(2)}`;
+    for (let i = 2; i < nums.length; i += 4) {
+      out += ` Q${(nums[i] * k).toFixed(2)} ${(nums[i + 1] * k).toFixed(2)}`
+        + ` ${(nums[i + 2] * k).toFixed(2)} ${(nums[i + 3] * k).toFixed(2)}`;
+    }
+    return out + ' Z ';
   }
 
   /** 三个呼吸点：比一行「正在请求模型…」更像在说话。 */
@@ -7311,10 +7367,7 @@ struct Index {
         // 头部
         Row({ space: 8 }) {
           Stack() {
-            Text('AI')
-              .fontSize(11)
-              .fontWeight(FontWeight.Bold)
-              .fontColor('#FFFFFF')
+            this.AiGlyph(18, '#FFFFFF', false)
           }
           .width(30)
           .height(30)
@@ -7369,7 +7422,8 @@ struct Index {
                 // 助手消息带头像：一眼能分清"谁在说"，自己的消息不需要。
                 if (message.role !== 'user') {
                   Stack() {
-                    Text('AI').fontSize(7.5).fontColor('#FFFFFF').fontFamily('monospace')
+                    // 20dp 里只留主星，两颗星会糊成一个点。
+                    this.AiGlyph(12, '#FFFFFF', true)
                   }
                   .width(20)
                   .height(20)
@@ -7444,7 +7498,7 @@ struct Index {
             if (this.aiBusy) {
               Row({ space: 6 }) {
                 Stack() {
-                  Text('AI').fontSize(7.5).fontColor('#FFFFFF').fontFamily('monospace')
+                  this.AiGlyph(12, '#FFFFFF', true)
                 }
                 .width(20)
                 .height(20)

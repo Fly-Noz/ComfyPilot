@@ -141,12 +141,8 @@ fun AiFloatingOverlay(visible: Boolean) {
                 .clickableNoRipple { open = true },
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                text = "AI",
-                color = Color.White,
-                fontSize = 12.sp,
-                fontFamily = SpectrumMono,
-            )
+            // 玻璃球里用强调色而不是白字：浅色主题下白字压在浅色玻璃上几乎看不见。
+            AiGlyph(size = 28.dp, tint = c.accent)
             if (!open && (AiRuntime.pending != null || AiRuntime.question != null)) {
                 Box(
                     modifier = Modifier
@@ -292,7 +288,7 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                         .background(c.gradientBrush()),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("AI", color = Color.White, fontSize = 11.sp, fontFamily = SpectrumMono)
+                    AiGlyph(size = 18.dp, tint = Color.White)
                 }
                 androidx.compose.foundation.layout.Spacer(Modifier.width(10.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -847,7 +843,8 @@ private fun AiAvatar(size: Dp = 20.dp) {
             .background(c.gradientBrush()),
         contentAlignment = Alignment.Center,
     ) {
-        Text("AI", color = Color.White, fontSize = 7.5.sp, fontFamily = SpectrumMono)
+        // 20dp 里只留主星：两颗星缩到这么小，小的那颗会糊成一个点。
+        AiGlyph(size = size * 0.62f, tint = Color.White, single = true)
     }
 }
 
