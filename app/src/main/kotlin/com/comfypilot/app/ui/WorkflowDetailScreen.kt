@@ -150,6 +150,7 @@ import com.comfypilot.core.api.ApiPaths
 import com.comfypilot.core.api.ArtifactNames
 import com.comfypilot.core.api.ImageUpload
 import com.comfypilot.core.api.ImageUploadResult
+import com.comfypilot.core.api.TaskOutput
 import com.comfypilot.core.api.ViewRequest
 import com.comfypilot.core.net.PreviewFrame
 import com.comfypilot.core.net.SessionState
@@ -2139,8 +2140,9 @@ private fun PreviewPane(
         return
     }
     var showArtifacts by remember(latest.id) { mutableStateOf(false) }
-    // 从视频首帧进产物弹窗时，直接停在该视频并自动播放。
-    var autoVideo by remember(latest.id) { mutableStateOf(false) }
+    // 从预览区进产物弹窗时，直接停在点中的那一份：图片是放大看，视频顺带自动播放。
+    var focusOutput by remember(latest.id) { mutableStateOf<TaskOutput?>(null) }
+    var autoStartVideo by remember(latest.id) { mutableStateOf(false) }
     val c = Spectrum.colors
 
     Column(
@@ -2165,7 +2167,16 @@ private fun PreviewPane(
         }
         Hero(modifier = Modifier.fillMaxWidth().height(420.dp), tag = "RESULT") {
             if (imageUrl != null) {
-                RemoteOutputImage(url = imageUrl, modifier = Modifier.matchParentSize())
+                // 图片和视频首帧一样可点：点开就是这一张的放大预览，不用再进产物列表翻。
+                RemoteOutputImage(
+                    url = imageUrl,
+                    modifier = Modifier.matchParentSize(),
+                    onClick = {
+                        focusOutput = output
+                        autoStartVideo = false
+                        showArtifacts = true
+                    },
+                )
             } else if (videoUrl != null) {
                 // 与鸿蒙一致：首帧 + 播放按钮，点击打开产物弹窗并直接播放。
                 VideoPosterFrame(
@@ -2173,7 +2184,8 @@ private fun PreviewPane(
                     label = "点击播放",
                     modifier = Modifier.matchParentSize(),
                     onClick = {
-                        autoVideo = true
+                        focusOutput = videoOutput
+                        autoStartVideo = true
                         showArtifacts = true
                     },
                 )
@@ -2234,7 +2246,16 @@ private fun PreviewPane(
 
         if (latest.outputs.isNotEmpty()) {
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                GhostButton(text = "查看产物", onClick = { showArtifacts = true }, height = 38.dp)
+                GhostButton(
+                    text = "查看产物",
+                    onClick = {
+                        // 从按钮进：不带焦点，停在产物列表。
+                        focusOutput = null
+                        autoStartVideo = false
+                        showArtifacts = true
+                    },
+                    height = 38.dp,
+                )
                 GhostButton(text = "任务页查看全部", onClick = onTasks, height = 38.dp)
             }
         }
@@ -2246,10 +2267,11 @@ private fun PreviewPane(
             baseUrl = state.lease?.baseUrl,
             onDismiss = {
                 showArtifacts = false
-                autoVideo = false
+                focusOutput = null
+                autoStartVideo = false
             },
-            initialOutput = if (autoVideo) latest.outputs.firstOrNull { ArtifactNames.isVideo(it.filename) } else null,
-            autoStartVideo = autoVideo,
+            initialOutput = focusOutput,
+            autoStartVideo = autoStartVideo,
         )
     }
 }

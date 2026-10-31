@@ -3,6 +3,7 @@ package com.comfypilot.app.ui
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -38,6 +39,8 @@ fun RemoteOutputImage(
     url: String,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Fit,
+    /** 传了才可点：预览区用它打开产物弹窗，列表里不传就保持纯展示。 */
+    onClick: (() -> Unit)? = null,
 ) {
     var bitmap by remember(url) { mutableStateOf<Bitmap?>(null) }
     var failed by remember(url) { mutableStateOf(false) }
@@ -57,7 +60,7 @@ fun RemoteOutputImage(
     }
 
     Box(
-        modifier = modifier,
+        modifier = if (onClick != null) modifier.clickable(onClick = onClick) else modifier,
         contentAlignment = Alignment.Center,
     ) {
         when {

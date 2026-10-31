@@ -1024,6 +1024,17 @@ struct Index {
     return '';
   }
 
+  /** 首个图片产物：点开预览时要带上它，不能只有 URL。 */
+  private firstImageOutput(task: BridgeTask): BridgeOutput | null {
+    for (let i = 0; i < task.outputRefs.length; i++) {
+      const output = task.outputRefs[i];
+      if (output.image && this.artifactUrl(output).length > 0) {
+        return output;
+      }
+    }
+    return null;
+  }
+
   /** 首个视频产物的 URL：预览页用它显示首帧，点开即可内嵌播放。 */
   private firstVideoUrl(task: BridgeTask): string {
     for (let i = 0; i < task.outputRefs.length; i++) {
@@ -4928,7 +4939,18 @@ struct Index {
           .position({ x: 10, y: 10 })
 
           if (this.firstImageUrl(task).length > 0) {
-            this.RemoteImage(this.firstImageUrl(task), ImageFit.Contain)
+            // 图片和视频首帧一样可点：点开就是这一张的放大预览。
+            Stack() {
+              this.RemoteImage(this.firstImageUrl(task), ImageFit.Contain)
+            }
+            .width('100%')
+            .height('100%')
+            .onClick(() => {
+              const output = this.firstImageOutput(task);
+              if (output !== null) {
+                this.openImagePage(task, output);
+              }
+            })
 
           } else if (this.firstVideoUrl(task).length > 0) {
             // 视频产物：Hero 只显示首帧 + 播放按钮；点击跳到产物预览页，在那里播放。
@@ -5876,6 +5898,21 @@ struct Index {
     }
     return null;
   }
+  /**
+   * 打开图片预览：和 [playVideoPage] 走同一个面板，只是不自动播放。
+   * 结果区的图片首帧因此和视频一样「点一下就放大」，不用再进产物列表翻。
+   */
+  private openImagePage(task: BridgeTask, output: BridgeOutput): void {
+    this.artifactTask = task;
+    this.previewOutput = output;
+    this.previewError = false;
+    this.videoInlineKey = '';
+    animateTo({ duration: 220, curve: Curve.EaseOut }, () => {
+      this.artifactOpen = true;
+      this.previewOpen = true;
+    });
+  }
+
   private openPreview(output: BridgeOutput): void {
     this.videoInlineKey = '';
     this.previewOutput = output;
