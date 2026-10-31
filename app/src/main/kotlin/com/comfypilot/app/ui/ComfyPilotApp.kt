@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import com.comfypilot.app.SessionHost
 import com.comfypilot.app.ai.AiRuntime
+import com.comfypilot.app.update.UpdateCenter
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.comfypilot.app.ui.theme.AppearanceStore
@@ -71,7 +72,11 @@ fun ComfyPilotApp(
 ) {
     val context = LocalContext.current
     val appearance = remember(context) { AppearanceStore(context.applicationContext) }
-    LaunchedEffect(Unit) { AiRuntime.attach(context.applicationContext) }
+    LaunchedEffect(Unit) {
+        AiRuntime.attach(context.applicationContext)
+        // 启动时静默查一次更新：有新版才弹，失败不打扰。用户点过「稍后」的版本不再提。
+        UpdateCenter.check(context.applicationContext, manual = false)
+    }
 
     // 回到前台补一次对账：WebSocket 半死时收不到事件，不能让任务一直停在排队中。
     LifecycleResumeEffect(Unit) {
@@ -238,6 +243,16 @@ fun ComfyPilotApp(
 
             // AI 悬浮球：只在已连接时出现。
             AiFloatingOverlay(visible = state.lease != null && AiRuntime.config.enabled)
+
+            // 更新提示盖在最上层：启动静默检查或关于页手动检查都可能把它点亮。
+            UpdateCenter.pending?.let { prompt ->
+                UpdateDialog(
+                    prompt = prompt,
+                    onDismiss = { UpdateCenter.dismiss() },
+                    onSkip = { UpdateCenter.skip(context, prompt.versionCode) },
+                    onOpen = { UpdateCenter.open(context, it) },
+                )
+            }
         }
     }
 }

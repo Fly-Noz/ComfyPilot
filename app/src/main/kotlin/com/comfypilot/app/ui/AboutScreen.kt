@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import com.comfypilot.app.R
+import com.comfypilot.app.update.UpdateCenter
 import com.comfypilot.app.ui.theme.GlassCard
 import com.comfypilot.app.ui.theme.Spectrum
 import com.comfypilot.app.ui.theme.SpectrumDialog
@@ -55,6 +57,7 @@ import com.comfypilot.app.ui.theme.SpectrumMono
 import com.comfypilot.app.ui.theme.SpectrumScaffold
 import com.comfypilot.app.ui.theme.SpectrumTopBar
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private const val PROJECT_URL = "https://github.com/Fly-Noz/ComfyPilot"
 private const val LICENSE = "GPL-3.0"
@@ -82,6 +85,14 @@ fun AboutScreen(onBack: () -> Unit) {
     val version = remember(context) { appVersion(context) }
     var licenseOpen by remember { mutableStateOf(false) }
     var copied by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    // 手动检查的结论由 UpdateCenter 持有；这里读状态，弹窗在根组件统一渲染。
+    val updateValue = when {
+        UpdateCenter.checking -> "检查中…"
+        UpdateCenter.manualNote != null -> UpdateCenter.manualNote!!
+        else -> "当前 $version"
+    }
 
     // 系统在 API 26+ 会把 ic_launcher 解析成 adaptive-icon XML，
     // painterResource 只吃 vector/raster，这里先把 Drawable 画成位图。
@@ -168,6 +179,20 @@ fun AboutScreen(onBack: () -> Unit) {
             Spacer(Modifier.height(22.dp))
 
             GlassCard(padding = PaddingValues(vertical = 4.dp)) {
+                SpectrumLinkRow(
+                    label = "检查更新",
+                    value = updateValue,
+                    onClick = {
+                        scope.launch { UpdateCenter.check(context, manual = true) }
+                    },
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp)
+                        .height(1.dp)
+                        .background(c.border),
+                )
                 SpectrumLinkRow(
                     label = "项目地址",
                     value = PROJECT_URL,

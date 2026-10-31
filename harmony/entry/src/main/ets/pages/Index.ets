@@ -1,5 +1,5 @@
 import { nativeVersion } from 'libentry.so';
-import { bundleManager, common, ConfigurationConstant } from '@kit.AbilityKit';
+import { bundleManager, common, ConfigurationConstant, Want } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { util } from '@kit.ArkTS';
 import { pasteboard } from '@kit.BasicServicesKit';
@@ -23,6 +23,7 @@ import { WorkflowDraftStore } from '../bridge/WorkflowDraftStore';
 import { AiAssistant, AiApplyOutcome, AiChatMessage, AiConfig, AiHost, AiImage, AiPending, AiQuestion, AiSessionInfo, AI_AVAILABLE, AI_NOTICE } from '../ai/AiAssistant';
 
 import { aiPlainText, isToolResult } from '../ai/AiText';
+import { checkUpdate, UpdateResult } from '../update/UpdateChecker';
 import { aiDetectGenModel, aiGenerationGuide } from '../ai/AiPrompt';
 import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
 import { NodeNoteStore } from '../bridge/NodeNoteStore';
@@ -374,6 +375,13 @@ struct Index {
   @State aboutOpen: boolean = false;
   /** 关于页内的许可证说明浮层。 */
   @State licenseOpen: boolean = false;
+  /** 更新检查结果；available 为 false 时 updateOpen 不会打开。 */
+  @State update: UpdateResult = new UpdateResult();
+  /** 新版本提示浮层。 */
+  @State updateOpen: boolean = false;
+  @State updateChecking: boolean = false;
+  /** 关于页那一行的副标题。单独用基础类型存：@Builder 里读类实例的字段不会触发重绘。 */
+  @State updateNote: string = '';
   @State noteDraft: string = '';
   @State nodeQuery: string = '';
   @State traitFilter: number[] = [];
@@ -512,6 +520,9 @@ struct Index {
   aboutToAppear(): void {
     // 从相册选择器或后台回来时页面重新可见：恢复性能轮询（此时连接可能还活着）。 
     this.statsPaused = false;
+    // 启动时静默查一次更新：有新版才弹，网络失败不打扰。
+    PersistentStorage.persistProp('updateSkippedVersion', 0);
+    this.checkUpdateSilently();
     if (this.running) {
       this.startStatsPolling();
     }
@@ -3026,6 +3037,67 @@ struct Index {
       promptAction.showToast({ message: '已复制项目地址', duration: 1600 });
     } catch (err) {
       promptAction.showToast({ message: this.errorText(err), duration: 1600 });
+    }
+  }
+
+  /** 关于页手动检查：无论结果如何都要给一句话，不能点完没反应。 */
+  private async checkUpdateManually(): Promise<void> {
+    if (this.updateChecking) {
+      return;
+    }
+    this.updateChecking = true;
+    this.updateNote = '检查中…';
+    const result = await checkUpdate('harmony');
+    this.updateChecking = false;
+    this.update = result;
+    this.updateNote = result.message;
+    if (result.available) {
+      this.updateOpen = true;
+      return;
+    }
+    promptAction.showToast({ message: result.message, duration: 1800 });
+  }
+
+  /** 启动静默检查：只在真有新版、且用户没对这个版本点过「稍后」时才弹。 */
+  private async checkUpdateSilently(): Promise<void> {
+    if (this.updateChecking) {
+      return;
+    }
+    this.updateChecking = true;
+    const result = await checkUpdate('harmony');
+    this.updateChecking = false;
+    if (!result.available) {
+      return;
+    }
+    const skipped: number = AppStorage.get<number>('updateSkippedVersion') ?? 0;
+    if (result.versionCode <= skipped) {
+      return;
+    }
+    this.update = result;
+    this.updateOpen = true;
+  }
+
+  /** 「稍后」：记住这个版本号，下次发版前不再打扰。 */
+  private skipUpdate(): void {
+    AppStorage.setOrCreate('updateSkippedVersion', this.update.versionCode);
+    this.updateOpen = false;
+  }
+
+  /** 用系统浏览器打开下载页。鸿蒙装包仍需自行签名，提示写在面板里。 */
+  private async openUpdate(url: string): Promise<void> {
+    if (url.length === 0) {
+      return;
+    }
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const want: Want = {
+        action: 'ohos.want.action.viewData',
+        entities: ['entity.system.browsable'],
+        uri: url,
+      };
+      await context.startAbility(want);
+    } catch (err) {
+      promptAction.showToast({ message: this.errorText(err), duration: 2000 });
     }
   }
 
@@ -8536,6 +8608,117 @@ struct Index {
     .onClick(action)
   }
 
+  /** 更新提示的遮罩与居中卡片：盖在所有页面之上。 */
+  @Builder
+  UpdateOverlay() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor(this.c().background)
+        .opacity(0.72)
+      this.UpdatePanel()
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  /**
+   * 新版本提示。
+   *
+   * 与 Android 同一个弹窗，只有一处不同：鸿蒙没有「点安装包就装」的通道，
+   * 下载完也得在电脑上签名安装。这句提示必须写在按钮上方，否则用户点完
+   * 跳浏览器下载一个 HAP，回来发现打不开，会以为是包坏了。
+   */
+  @Builder
+  UpdatePanel() {
+    Column({ space: 12 }) {
+      Text(`发现新版本 ${this.update.versionName}`)
+        .fontSize(17)
+        .fontWeight(FontWeight.Bold)
+        .letterSpacing(-0.2)
+        .fontColor(this.c().text)
+      Text(`当前 ${APP_VERSION} · 最新 ${this.update.versionName}`)
+        .fontSize(10.5)
+        .fontColor(this.c().textDim)
+
+      if (this.update.notes.length > 0) {
+        Scroll() {
+          Text(this.update.notes)
+            .fontSize(12.5)
+            .lineHeight(19)
+            .fontColor(this.c().textMuted)
+            .width('100%')
+        }
+        .constraintSize({ maxHeight: 120 })
+        .width('100%')
+        .scrollBar(BarState.Off)
+        .align(Alignment.TopStart)
+      }
+
+      Column({ space: 4 }) {
+        Text('鸿蒙版需自行签名后安装')
+          .fontSize(11.5)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.c().warn)
+        Text('下载后请在电脑上用 DevEco Studio 或 hdc install 安装；手机上直接点 HAP 不会有反应。')
+          .fontSize(10.5)
+          .lineHeight(16)
+          .fontColor(this.c().textDim)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+      .padding(10)
+      .backgroundColor(this.c().warnSoft)
+      .borderRadius(10)
+      .border({ width: 1, color: this.c().warn })
+
+      Row({ space: 8 }) {
+        Text('稍后')
+          .fontSize(13)
+          .fontColor(this.c().textDim)
+          .padding({ left: 14, right: 14, top: 9, bottom: 9 })
+          .borderRadius(10)
+          .border({ width: 1, color: this.c().border })
+          .onClick(() => {
+            this.skipUpdate();
+          })
+        Blank()
+        if (this.update.github.length > 0) {
+          Text('GitHub')
+            .fontSize(13)
+            .fontColor(this.c().text)
+            .padding({ left: 14, right: 14, top: 9, bottom: 9 })
+            .borderRadius(10)
+            .border({ width: 1, color: this.c().border })
+            .onClick(() => {
+              this.openUpdate(this.update.github);
+            })
+        }
+        if (this.update.gitee.length > 0) {
+          Text('Gitee')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.c().accentInk)
+            .padding({ left: 14, right: 14, top: 9, bottom: 9 })
+            .borderRadius(10)
+            .backgroundColor(this.c().accent)
+            .onClick(() => {
+              this.openUpdate(this.update.gitee);
+            })
+        }
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+    }
+    .padding(18)
+    .width('84%')
+    .alignItems(HorizontalAlign.Start)
+    .backgroundColor(this.c().dialog)
+    .borderRadius(18)
+    .border({ width: 1, color: this.c().borderStrong })
+  }
+
   /** 许可证说明浮层：居中卡片，点「关闭」收起。 */
   @Builder
   LicensePanel() {
@@ -8634,6 +8817,33 @@ struct Index {
               .padding({ left: 8, right: 8 })
 
             Column() {
+              // 这一行不能用 AboutRow：@Builder 的参数不是响应式的，
+              // 检查完值变了 Text 也不会重绘。内联写，Text 直接绑定状态才会更新。
+              Row({ space: 8 }) {
+                Text('检查更新')
+                  .fontSize(15)
+                  .fontColor(this.c().text)
+                  .layoutWeight(1)
+                Text(this.updateChecking
+                  ? '检查中…'
+                  : (this.updateNote.length > 0 ? this.updateNote : `当前 ${APP_VERSION}`))
+                  .fontSize(12)
+                  .fontColor(this.c().textDim)
+                Text('›')
+                  .fontSize(16)
+                  .fontColor(this.c().textDim)
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 14, bottom: 14 })
+              .alignItems(VerticalAlign.Center)
+              .onClick(() => {
+                this.checkUpdateManually();
+              })
+
+              Divider()
+                .strokeWidth(1)
+                .color(this.c().border)
+                .margin({ left: 16, right: 16 })
               this.AboutRow('项目地址', PROJECT_URL, () => {
                 this.copyProjectUrl();
               })
@@ -8809,6 +9019,9 @@ struct Index {
             this.refreshView(false);
           },
         })
+      }
+      if (this.updateOpen) {
+        this.UpdateOverlay()
       }
       if (this.running && this.aiEnabled) {
         this.AiBall()
