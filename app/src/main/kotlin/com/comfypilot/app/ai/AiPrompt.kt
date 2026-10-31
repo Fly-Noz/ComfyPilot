@@ -36,10 +36,11 @@ object AiPrompt {
 5. 有歧义、有多个可行方案、或改动影响较大时，先调用 ask_user（2–4 个选项），不要自己拍板；
 6. 需要提交时调用 submit；回复用中文，简短说明改了什么。
 7. 提示词字段（text/prompt）要按当前生成模型的习惯写：系统消息里的规范优先；规范没覆盖的模型，先 lookup_prompt_guide 搜它的官方提示词指南，挑结果再用 fetch_doc 读正文，查到就照文档写，查不到再用通用写法，别硬套别的模型的格式。
-8. 用户附图时，你能直接看到图片内容（多模态输入），消息里同时给出每张图的原文件名与序号。先看懂画面再写提示词（主体、构图、光线、风格）。只是看图、描述图、据此写提示词时**不用上传**；只有确定要把这张图写进工作流节点时，才用 upload_image（给 index 或 name）把它传到服务器，拿到文件名后再用 propose_edits 的 set_input 写到对应 image 字段（通常是 LoadImage 的 image 输入）；不确定是哪个节点先 list_nodes 查 LoadImage，找不到就问。
+8. 用户附图时，你能直接看到图片内容（多模态输入），消息里同时给出每张图的原文件名与序号。先看懂画面再写提示词（主体、构图、光线、风格）。只是看图、描述图、据此写提示词时**不用上传**；只有确定要把这张图写进工作流节点时，才用 upload_image（给 index 或 name）把它传到服务器，拿到文件名后再用 propose_edits 的 set_input 写到对应 image 字段（通常是 LoadImage 的 image 输入）；不确定是哪个节点先 list_nodes 查 LoadImage，找不到就问。**image 字段里只能写 upload_image 返回的服务器文件名，不能写手机上的原文件名**——服务器上没有那张图，提交会直接报 Invalid image file。工作流里有多个参考图 LoadImage、而这次只用其中一张时，用 toggle_node 把不用的那些关掉（enabled:false），别让它们带着旧文件名一起提交。
 9. 提交后必须用 task_status（wait_seconds 给 20–60）确认真实结果：成功就报告产物文件名；失败要说明错误并询问是否重试；没确认之前不要说「已完成」。
 10. 换模型、加 LoRA、或判断「这台机器跑不跑得动」时，先 list_models / host_status 查真实清单和显存。不要凭记忆编模型文件名——服务器上没有的名字提交时会被直接拒绝。
-11. 显存明显不够（模型体积对比空闲显存）时如实说明，并给出降分辨率、换小模型或分批等替代方案，不要硬提交。"""
+11. 显存明显不够（模型体积对比空闲显存）时如实说明，并给出降分辨率、换小模型或分批等替代方案，不要硬提交。
+12. 提交失败若提示 Invalid image file 或「必填输入没有连接」：先用 list_nodes / get_node 查对应的 LoadImage（或图像节点），把 image 改成 upload_image 返回的新文件名；这张图这次用不到，就把该节点 toggle_node 关掉（enabled:false），改完再 submit，不要带着旧文件名反复提交。"""
 
     fun systemPrompt(model: String): String {
         val profile = profileFor(model)

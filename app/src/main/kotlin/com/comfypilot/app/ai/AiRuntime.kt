@@ -956,6 +956,24 @@ object AiRuntime {
                     if (view == null) {
                         """{"ok":false,"error":"没有工作流上下文"}"""
                     } else {
+                        // 硬拦：把手机上的原文件名写进字段，服务器上没有那张图，提交必然失败。
+                        val localNames = pendingImages.map { it.name }.toSet()
+                        val wroteLocal = if (localNames.isEmpty()) null else proposal.ops
+                            .filterIsInstance<AiOp.SetInput>()
+                            .firstOrNull { op ->
+                                val text = (op.value as? JsonPrimitive)?.contentOrNull?.trim()
+                                text != null && text in localNames
+                            }
+                        if (wroteLocal != null) {
+                            buildJsonObject {
+                                put("ok", false)
+                                put(
+                                    "error",
+                                    "「${wroteLocal.input}」写的是手机上的原文件名，服务器上没有这张图；" +
+                                        "先调用 upload_image（index 或 name）拿到服务器文件名再写",
+                                )
+                            }.toString()
+                        } else {
                         val state = currentHost.editState()
                         val result = AiEdits.apply(view, state, proposal)
                         if (!result.ok) {
@@ -994,6 +1012,7 @@ object AiRuntime {
                                 baseSignature = signatureOf(view),
                             )
                             """{"ok":true,"pending":true,"summary":${quote(proposal.summary)}}"""
+                        }
                         }
                     }
                 }

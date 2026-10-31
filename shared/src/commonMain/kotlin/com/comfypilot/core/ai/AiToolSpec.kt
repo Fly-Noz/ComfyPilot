@@ -13,7 +13,7 @@ package com.comfypilot.core.ai
 object AiToolSpec {
     val json: String = """
 [
- {"type":"function","function":{"name":"propose_edits","description":"对当前工作流提交一组声明式修改","parameters":{"type":"object","properties":{"summary":{"type":"string","description":"一句话说明这次改了什么"},"ops":{"type":"array","items":{"type":"object","properties":{"op":{"type":"string"},"node":{"type":"integer"},"input":{"type":"string"},"enabled":{"type":"boolean"},"graphs":{"type":"array","items":{"type":"string"}},"path":{"type":"string"},"value":{}},"required":["op"]}}},"required":["summary","ops"]}}},
+ {"type":"function","function":{"name":"propose_edits","description":"对当前工作流提交一组声明式修改。op 支持 set_input / toggle_node / select_graphs / open_workflow；image 字段只能填 upload_image 返回的服务器文件名，不能填手机上的原文件名；用不到的参考图节点用 toggle_node(enabled:false) 关掉","parameters":{"type":"object","properties":{"summary":{"type":"string","description":"一句话说明这次改了什么"},"ops":{"type":"array","items":{"type":"object","properties":{"op":{"type":"string"},"node":{"type":"integer"},"input":{"type":"string"},"enabled":{"type":"boolean"},"graphs":{"type":"array","items":{"type":"string"}},"path":{"type":"string"},"value":{}},"required":["op"]}}},"required":["summary","ops"]}}},
  {"type":"function","function":{"name":"submit","description":"提交当前工作流","parameters":{"type":"object","properties":{}}}},
  {"type":"function","function":{"name":"task_status","description":"查看最近任务的状态/进度/产物；wait_seconds 可等待任务跑完（最多 120 秒）","parameters":{"type":"object","properties":{"wait_seconds":{"type":"integer"}}}}},
  {"type":"function","function":{"name":"open_workflow","description":"切换到另一个工作流","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}},

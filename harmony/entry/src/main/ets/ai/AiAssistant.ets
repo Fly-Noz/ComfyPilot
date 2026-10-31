@@ -864,6 +864,14 @@ export class AiAssistant {
     if (name === 'propose_edits') {
       const probe = JSON.parse(args) as Record<string, Object>;
       const summary = (probe.summary as string) ?? '';
+      // 硬拦：手机上的原文件名服务器没有，写进 image 字段提交必然失败。
+      const localNames: string[] = this.pendingImages.map((image: AiImage) => image.name);
+      const wroteLocal: string = this.localImageFieldInProposal(args, localNames);
+      if (wroteLocal.length > 0) {
+        return `{"ok":false,"error":${JSON.stringify(
+          `「${wroteLocal}」写的是手机上的原文件名，服务器上没有这张图；先调用 upload_image（index 或 name）拿到服务器文件名再写`,
+        )}}`;
+      }
       if (this.config.autoSubmit) {
         const outcome = host.applyProposal(args);
         if (!outcome.ok) {
@@ -959,6 +967,34 @@ export class AiAssistant {
       return await this.uploadImageTool(args);
     }
     return `{"ok":false,"error":"未知工具 ${name}"}`;
+  }
+
+  /** 提案里是否把手机上的原文件名写进了字段；返回字段名，没有则空串。 */
+  private localImageFieldInProposal(proposalJson: string, localNames: string[]): string {
+    if (localNames.length === 0) {
+      return '';
+    }
+    try {
+      const proposal = JSON.parse(proposalJson) as ProposalProbe;
+      const ops: ProposalOpProbe[] = proposal.ops ?? [];
+      for (let i = 0; i < ops.length; i++) {
+        const op: ProposalOpProbe = ops[i];
+        if (op.op !== 'set_input') {
+          continue;
+        }
+        const value: Object | undefined = op.value;
+        if (value === undefined || typeof value !== 'string') {
+          continue;
+        }
+        const text: string = value as string;
+        if (localNames.indexOf(text.trim()) >= 0) {
+          return op.input !== undefined ? op.input : 'image';
+        }
+      }
+    } catch (err) {
+      return '';
+    }
+    return '';
   }
 
   /**
@@ -1086,6 +1122,17 @@ export class AiAssistant {
 interface AskProbe {
   question?: string;
   options?: string[];
+}
+
+/** 提案结构的只读探针：只用来检查 image 字段是不是本地文件名。 */
+interface ProposalOpProbe {
+  op?: string;
+  input?: string;
+  value?: Object;
+}
+
+interface ProposalProbe {
+  ops?: ProposalOpProbe[];
 }
 
 interface AiToolFunction {
