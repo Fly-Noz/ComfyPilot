@@ -47,6 +47,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -77,6 +79,7 @@ import com.comfypilot.app.ai.AiRuntime
 import com.comfypilot.app.ai.AiSessionInfo
 import com.comfypilot.app.ai.AiSnapshot
 import com.comfypilot.app.ui.theme.Spectrum
+import com.comfypilot.app.ui.theme.SpectrumDialog
 import com.comfypilot.app.ui.theme.SpectrumMono
 import com.comfypilot.core.api.ImageUpload
 import com.comfypilot.core.api.ImageUploadResult
@@ -257,10 +260,34 @@ fun AiChatDialog(onDismiss: () -> Unit) {
             delay(200)
         }
     }
-    LaunchedEffect(snapshot.messages.size) {
-        if (snapshot.messages.isNotEmpty()) {
-            listState.animateScrollToItem(snapshot.messages.size - 1)
+    // 是否跟随到底：用户一上手就交出控制权，滑回底部再交回来。
+    var autoFollow by remember { mutableStateOf(true) }
+
+    // 只有用户的手指能产生 DragInteraction，程序化滚动不会，所以这个信号是干净的。
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is androidx.compose.foundation.interaction.DragInteraction.Start) {
+                autoFollow = false
+            }
         }
+    }
+    // 内容只会变长，所以「滚不动了」只可能是用户自己滑到了底——这时把跟随交还回来。
+    LaunchedEffect(listState) {
+        snapshotFlow { !listState.canScrollForward }.collect { atBottom ->
+            if (atBottom) autoFollow = true
+        }
+    }
+    LaunchedEffect(snapshot.messages.size, snapshot.actions.size, snapshot.busy) {
+        if (!autoFollow) return@LaunchedEffect
+        // 可见条目不是 messages 的下标：工具结果被过滤掉了，「思考与操作」是另外一项。
+        // 以前直接用 messages.size - 1 当下标，越界之后滚动就落空，看起来像不回到底部。
+        val last = snapshot.messages.count { !isAiToolResult(it.content) } +
+            (if (snapshot.busy) 1 else 0) +
+            (if (snapshot.actions.isNotEmpty()) 1 else 0) - 1
+        if (last < 0) return@LaunchedEffect
+        // 等一帧：新气泡还没参与布局时滚动会停在上一次的高度。
+        withFrameNanos { }
+        listState.animateScrollToItem(last)
     }
 
     Dialog(
@@ -658,6 +685,8 @@ private fun AiSessionsDialog(onDismiss: () -> Unit) {
     val c = Spectrum.colors
     var version by remember { mutableStateOf(0) }
     val infos = remember(version) { AiRuntime.sessionInfos() }
+    // 删除不可撤销，问一句再动手。
+    var confirmDelete by remember { mutableStateOf<AiSessionInfo?>(null) }
     val timeFormat = remember { java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()) }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
@@ -733,15 +762,34 @@ private fun AiSessionsDialog(onDismiss: () -> Unit) {
                             color = c.err,
                             fontSize = 10.sp,
                             modifier = Modifier
-                                .clickableNoRipple {
-                                    AiRuntime.deleteSession(info.id)
-                                    version++
-                                }
+                                .clickableNoRipple { confirmDelete = info }
                                 .padding(6.dp),
                         )
                     }
                 }
             }
+        }
+    }
+
+    // 删除不可撤销：先问一句，确认后才真的删，删完重算列表。
+    confirmDelete?.let { target ->
+        SpectrumDialog(
+            title = "删除这条会话？",
+            onDismiss = { confirmDelete = null },
+            confirmText = "删除",
+            onConfirm = {
+                AiRuntime.deleteSession(target.id)
+                version++
+                confirmDelete = null
+            },
+            dismissText = "取消",
+        ) {
+            Text(
+                text = "「${target.title.ifBlank { "新会话" }}」及其中的对话记录会被删除，无法恢复。",
+                color = c.textMuted,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+            )
         }
     }
 }

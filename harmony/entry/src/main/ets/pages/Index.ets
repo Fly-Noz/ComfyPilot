@@ -471,6 +471,18 @@ struct Index {
   @State aiQuestion: AiQuestion | null = null;
   /** 「思考与操作」折叠卡的展开状态；忙碌时自动展开，不看这个值。 */
   @State aiStepsOpen: boolean = false;
+  /** 消息区滚动控制器。 */
+  private aiScroll: Scroller = new Scroller();
+  /** true：有新内容就滚到底；用户一上滑就暂停，滑回底部再恢复。 */
+  @State aiStickBottom: boolean = true;
+  /** 自己触发的滚动：别把它当成用户上滑。 */
+  private aiScrollingSelf: boolean = false;
+  /** 上一次的内容指纹：只有内容真的变了才滚，轮询不触发。 */
+  private aiContentSig: string = '';
+  /** 会话列表快照。ForEach 里直接调方法不会重绘，必须存成 @State。 */
+  @State aiSessions: AiSessionInfo[] = [];
+  /** 待确认删除的会话 id；空串表示没有。 */
+  @State aiConfirmDeleteId: string = '';
   /** 提问浮层的内容。单独存一份非空值，builder 里不用碰可空对象。 */
   @State aiQuestionText: string = '';
   @State aiQuestionOptions: string[] = [];
@@ -7141,7 +7153,36 @@ struct Index {
     this.aiCanUndo = this.ai.canUndo;
     this.aiQuestionText = this.ai.question !== null ? this.ai.question.question : '';
     this.aiQuestionOptions = this.ai.question !== null ? this.ai.question.options : [];
+    this.aiSessions = this.ai.sessionInfos();
     this.syncDotTimer();
+    this.keepBottom();
+  }
+
+  /**
+   * 有新内容就把视图跟到底；用户上滑过就不打扰他。
+   *
+   * 用 setTimeout 等一帧：新气泡还没参与布局时 scrollEdge 会停在上一次的高度，
+   * 看起来就像"没滚"。同时标记这次是自己滚的，别让 onScrollStart 把跟随关掉。
+   */
+  private keepBottom(): void {
+    const sig = `${this.aiMessages.length}:${this.aiActions.length}:${this.aiBusy ? 1 : 0}`;
+    if (sig === this.aiContentSig) {
+      return;
+    }
+    this.aiContentSig = sig;
+    if (!this.aiStickBottom) {
+      return;
+    }
+    setTimeout(() => {
+      if (!this.aiStickBottom) {
+        return;
+      }
+      this.aiScrollingSelf = true;
+      this.aiScroll.scrollEdge(Edge.Bottom);
+      setTimeout(() => {
+        this.aiScrollingSelf = false;
+      }, 120);
+    }, 30);
   }
 
   /** 只在忙碌时跑：三个点每 220ms 换一次高亮，停下就释放定时器。 */
@@ -7447,7 +7488,10 @@ struct Index {
             .fontSize(10)
             .fontColor(this.c().textMuted)
             .padding(6)
-            .onClick(() => { this.aiChatsOpen = true; })
+            .onClick(() => {
+              this.syncAi();
+              this.aiChatsOpen = true;
+            })
           Text('✕')
             .fontSize(13)
             .fontColor(this.c().textDim)
@@ -7459,7 +7503,7 @@ struct Index {
 
         Divider().strokeWidth(1).color(this.c().border)
 
-        Scroll() {
+        Scroll(this.aiScroll) {
           Column({ space: 8 }) {
             if (this.aiVisibleMessages().length === 0) {
               Text('想改哪里？').fontSize(13).fontColor(this.c().textMuted).width('100%').textAlign(TextAlign.Center).margin({ top: 24 })
@@ -7612,6 +7656,18 @@ struct Index {
         .layoutWeight(1)
         .width('100%')
         .scrollBar(BarState.Off)
+        // 手指一碰就把控制权交出去；自己滚的时候不算（否则跟一次就再也不跟了）。
+        .onScrollStart(() => {
+          if (!this.aiScrollingSelf) {
+            this.aiStickBottom = false;
+          }
+        })
+        // 滑到底就把跟随交还回来。
+        .onScrollEdge((side: Edge) => {
+          if (side === Edge.Bottom) {
+            this.aiStickBottom = true;
+          }
+        })
 
         // 输入区整体包一层：提问时用浮层盖住它，而不是把面板挤小。
         Stack({ alignContent: Alignment.Bottom }) {
@@ -8532,6 +8588,59 @@ struct Index {
     return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
 
+  /** 删除会话的确认：删掉就找不回来，先问一句。 */
+  @Builder
+  AiDeleteConfirm() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#66000000')
+        .onClick(() => { this.aiConfirmDeleteId = ''; })
+
+      Column({ space: 10 }) {
+        Text('删除这条会话？')
+          .fontSize(15)
+          .fontColor(this.c().text)
+        Text('会话里的对话记录会被一起删除，无法恢复。')
+          .fontSize(11.5)
+          .lineHeight(17)
+          .fontColor(this.c().textMuted)
+          .width('100%')
+        Row({ space: 8 }) {
+          Blank()
+          Text('取消')
+            .fontSize(12)
+            .fontColor(this.c().textDim)
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .borderRadius(10)
+            .border({ width: 1, color: this.c().border })
+            .onClick(() => { this.aiConfirmDeleteId = ''; })
+          Text('删除')
+            .fontSize(12)
+            .fontColor('#FFFFFF')
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .borderRadius(10)
+            .backgroundColor(this.c().err)
+            .onClick(() => {
+              this.ai.deleteSession(this.aiConfirmDeleteId);
+              this.aiConfirmDeleteId = '';
+              this.syncAi();
+            })
+        }
+        .width('100%')
+      }
+      .width('78%')
+      .alignItems(HorizontalAlign.Start)
+      .padding(16)
+      .backgroundColor(this.c().dialog)
+      .borderRadius(18)
+      .border({ width: 1, color: this.c().borderStrong })
+    }
+    .width('100%')
+    .height('100%')
+  }
+
   /** 历史会话：新建 / 切换 / 删除；会话之间的消息与操作记录互不影响。 */
   @Builder
   AiSessionsPanel() {
@@ -8564,7 +8673,7 @@ struct Index {
 
         Scroll() {
           Column({ space: 6 }) {
-            ForEach(this.ai.sessionInfos(), (item: AiSessionInfo) => {
+            ForEach(this.aiSessions, (item: AiSessionInfo) => {
               Row({ space: 8 }) {
                 Column({ space: 2 }) {
                   Text(item.title)
@@ -8584,8 +8693,7 @@ struct Index {
                   .fontColor(this.c().err)
                   .padding(6)
                   .onClick(() => {
-                    this.ai.deleteSession(item.id);
-                    this.syncAi();
+                    this.aiConfirmDeleteId = item.id;
                   })
               }
               .width('100%')
@@ -8613,6 +8721,10 @@ struct Index {
       .backdropBlur(24)
       .borderRadius(20)
       .border({ width: 1, color: this.c().borderStrong })
+
+      if (this.aiConfirmDeleteId.length > 0) {
+        this.AiDeleteConfirm()
+      }
     }
     .width('100%')
     .height('100%')
