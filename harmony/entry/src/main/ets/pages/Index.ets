@@ -8652,11 +8652,11 @@ struct Index {
       }
 
       Column({ space: 4 }) {
-        Text('鸿蒙版需自行签名后安装')
+        Text('鸿蒙版需自行签名安装')
           .fontSize(11.5)
           .fontWeight(FontWeight.Medium)
           .fontColor(this.c().warn)
-        Text('下载后请在电脑上用 DevEco Studio 或 hdc install 安装；手机上直接点 HAP 不会有反应。')
+        Text('下载后请自行签名安装；手机上直接点 HAP 不会有反应。')
           .fontSize(10.5)
           .lineHeight(16)
           .fontColor(this.c().textDim)
