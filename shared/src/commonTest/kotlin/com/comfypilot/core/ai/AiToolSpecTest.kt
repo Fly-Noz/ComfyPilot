@@ -33,6 +33,8 @@ class AiToolSpecTest {
                 "get_node",
                 "lookup_prompt_guide",
                 "fetch_doc",
+                "host_status",
+                "list_models",
             ),
             names.toSet(),
         )

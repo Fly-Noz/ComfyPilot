@@ -896,6 +896,15 @@ export class AiAssistant {
       }
       return await fetchDoc(url);
     }
+    // 只读端点：原样把 ComfyUI 的返回交给共享层，归一化（GB、只留下拉候选）在 Kotlin 里做。
+    if (name === 'host_status') {
+      return await this.getComfy('/system_stats');
+    }
+    if (name === 'list_models') {
+      const probe = JSON.parse(args) as Record<string, Object>;
+      const cls = (probe.class as string) ?? '';
+      return await this.getComfy(cls.length > 0 ? `/object_info/${cls}` : '/embeddings');
+    }
     if (name === 'ask_user') {
       const probe = JSON.parse(args) as AskProbe;
       const options = probe.options ?? [];
@@ -935,6 +944,37 @@ export class AiAssistant {
       store.flush();
     } catch (err) {
       // 存不下只影响下次是否重试
+    }
+  }
+
+  /**
+   * GET 一个 ComfyUI 的只读端点。
+   *
+   * host_status / list_models 打的是 ComfyUI 自己的路由，不走模型接口，所以不带
+   * Authorization。失败时返回 ok:false 而不是抛：模型拿到错误还能自己换个参数再试。
+   */
+  private async getComfy(path: string): Promise<string> {
+    const base = this.config.baseUrl.trim().replace(/\/+$/, '');
+    if (base.length === 0) {
+      return '{"ok":false,"error":"还没配置 ComfyUI 地址"}';
+    }
+    const client = http.createHttp();
+    try {
+      const response = await client.request(`${base}${path}`, {
+        method: http.RequestMethod.GET,
+        expectDataType: http.HttpDataType.STRING,
+        connectTimeout: 8000,
+        readTimeout: 20000,
+      });
+      if (response.responseCode < 200 || response.responseCode >= 300) {
+        return `{"ok":false,"error":"HTTP ${response.responseCode}"}`;
+      }
+      return typeof response.result === 'string' ? response.result : JSON.stringify(response.result);
+    } catch (err) {
+      const message = ((err as Error).message ?? '').substring(0, 60);
+      return `{"ok":false,"error":"请求失败：${message}"}`;
+    } finally {
+      client.destroy();
     }
   }
 

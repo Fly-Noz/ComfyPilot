@@ -851,7 +851,40 @@ object AiRuntime {
 
             override fun fetchDoc(url: String): AiToolOutcome =
                 AiToolOutcome.Value(AiLookup.fetchDoc(url))
+
+            override fun hostStatus(): AiToolOutcome = AiToolOutcome.Value(
+                runCatching { getComfy("/system_stats") }.getOrElse {
+                    """{"ok":false,"error":"读不到主机状态：${it.message?.take(80)}"}"""
+                },
+            )
+
+            override fun modelOptions(loaderClass: String): AiToolOutcome {
+                val path = if (loaderClass.isEmpty()) "/embeddings" else "/object_info/$loaderClass"
+                return AiToolOutcome.Value(
+                    runCatching { getComfy(path) }.getOrElse {
+                        """{"ok":false,"error":"读不到模型列表：${it.message?.take(80)}"}"""
+                    },
+                )
+            }
         }
+
+    /**
+     * GET 一个 ComfyUI 的只读端点。
+     *
+     * host_status / list_models 打的是 ComfyUI 自己的路由，不走模型接口，所以不带
+     * Authorization——ComfyUI 默认没有鉴权，真加了反向代理认证也不是这个 key 管用。
+     */
+    private fun getComfy(path: String): String {
+        val request = Request.Builder()
+            .url(config.baseUrl.trimEnd('/') + path)
+            .get()
+            .build()
+        return http.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) error("HTTP ${response.code}")
+            text
+        }
+    }
 
     private fun executeTool(name: String, argsJson: String, currentHost: AiWorkflowHost): String {
         if (host !== currentHost) {

@@ -194,7 +194,7 @@ class AiLoopStateTest {
 
         assertEquals("deepseek-chat", root["model"]?.toString()?.trim('"'))
         assertEquals("auto", root["tool_choice"]?.toString()?.trim('"'))
-        assertEquals(10, (root["tools"] as JsonArray).size)
+        assertEquals(12, (root["tools"] as JsonArray).size)
 
         val messages = root["messages"] as JsonArray
         assertEquals(3, messages.size)

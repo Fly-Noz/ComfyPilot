@@ -2,6 +2,7 @@ package com.comfypilot.core.ai
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -60,6 +61,20 @@ class AiToolRouterTest {
 
         override fun fetchDoc(url: String): AiToolOutcome =
             if (defer) AiToolOutcome.Fetch(url) else AiToolOutcome.Value("""{"ok":true}""")
+
+        var modelClassSeen = ""
+
+        override fun hostStatus(): AiToolOutcome =
+            if (defer) AiToolOutcome.CallHost("host_status") else AiToolOutcome.Value("""{"devices":[]}""")
+
+        override fun modelOptions(loaderClass: String): AiToolOutcome {
+            modelClassSeen = loaderClass
+            return if (defer) {
+                AiToolOutcome.CallHost("list_models", """{"class":"$loaderClass"}""")
+            } else {
+                AiToolOutcome.Value("""{"ok":true}""")
+            }
+        }
     }
 
     @Test
@@ -152,4 +167,63 @@ class AiToolRouterTest {
         assertEquals("""{"nodes":[1,2]}""", AiToolRouter.formatResult("list_nodes", """{"nodes":[1,2]}"""))
         assertEquals("[]", AiToolRouter.formatResult("task_status", "[]"))
     }
+    @Test
+    fun `list_models maps the kind to the loader class`() {
+        val env = FakeEnv()
+        AiToolRouter.execute("list_models", """{"kind":"lora"}""", env)
+        assertEquals("LoraLoader", env.modelClassSeen)
+
+        AiToolRouter.execute("list_models", """{"kind":"checkpoint"}""", env)
+        assertEquals("CheckpointLoaderSimple", env.modelClassSeen)
+
+        // embedding 走 /embeddings，没有对应的 loader 类，用空串表示。
+        AiToolRouter.execute("list_models", """{"kind":"embedding"}""", env)
+        assertEquals("", env.modelClassSeen)
+    }
+
+    @Test
+    fun `unknown model kind is rejected and lists what is accepted`() {
+        val env = FakeEnv()
+        val outcome = AiToolRouter.execute("list_models", """{"kind":"sdxl"}""", env)
+        assertIs<AiToolOutcome.Value>(outcome)
+        assertTrue(outcome.json.contains("\"ok\":false"))
+        assertTrue(outcome.json.contains("checkpoint"), outcome.json)
+        // 参数被拦下时不该惊动宿主。
+        assertEquals("", env.modelClassSeen)
+    }
+
+    @Test
+    fun `host status is turned into gigabytes with a readable summary`() {
+        val raw = """{"system":{"os":"nt","ram_total":68719476736,"ram_free":22858956800,"comfyui_version":"0.3.40","python_version":"3.11.9","pytorch_version":"2.4.1"},"devices":[{"name":"cuda:0 NVIDIA GeForce RTX 4090","type":"cuda","index":0,"vram_total":25769803776,"vram_free":8589934592}]}"""
+        val formatted = AiToolRouter.formatResult("host_status", raw)
+        assertTrue(formatted.contains("RTX 4090"), formatted)
+        // 字节数换成 GB：模型读 25769803776 既费 token 又容易算错。
+        assertTrue(formatted.contains("24.0"), formatted)
+        assertTrue(formatted.contains("8.0"), formatted)
+        assertTrue(formatted.contains("0.3.40"), formatted)
+    }
+
+    @Test
+    fun `host status pass-through keeps the host error`() {
+        val raw = """{"ok":false,"error":"读不到主机状态：timeout"}"""
+        assertEquals(raw, AiToolRouter.formatResult("host_status", raw))
+    }
+
+    @Test
+    fun `model options are extracted from object_info`() {
+        val raw = """{"CheckpointLoaderSimple":{"input":{"required":{"ckpt_name":[["a.safetensors","b.safetensors"],{"tooltip":"x"}]}},"output":[]}}"""
+        val formatted = AiToolRouter.formatResult("list_models", raw)
+        assertTrue(formatted.contains("a.safetensors"), formatted)
+        assertTrue(formatted.contains("\"count\":2"), formatted)
+        // 只留候选，不要把整份节点定义塞给模型。
+        assertFalse(formatted.contains("tooltip"))
+    }
+
+    @Test
+    fun `embeddings list becomes the same options shape`() {
+        val formatted = AiToolRouter.formatResult("list_models", """["easynegative","badhandv4"]""")
+        assertTrue(formatted.contains("easynegative"), formatted)
+        assertTrue(formatted.contains("embedding"), formatted)
+    }
+
 }

@@ -204,6 +204,15 @@ class AiLoopProtocol {
             AiToolOutcome.CallHost("lookup_prompt_guide")
 
         override fun fetchDoc(url: String): AiToolOutcome = AiToolOutcome.CallHost("fetch_doc")
+
+        override fun hostStatus(): AiToolOutcome = AiToolOutcome.CallHost("host_status")
+
+        override fun modelOptions(loaderClass: String): AiToolOutcome =
+            AiToolOutcome.CallHost(
+                "list_models",
+                // 只把类名交给 ArkTS：kind→类的映射在 Kotlin 里，那边不用懂 ComfyUI 的节点名。
+                buildJsonObject { put("class", loaderClass) }.toString(),
+            )
     }
 }
 

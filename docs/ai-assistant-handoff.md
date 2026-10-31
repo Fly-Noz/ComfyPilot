@@ -48,8 +48,13 @@ Android `app/src/main/kotlin/com/comfypilot/app/`
 ## 三、工具协议
 
 `propose_edits` / `submit` / `open_workflow` / `ask_user` / `list_graphs` / `list_nodes` / `get_node`
+/ `host_status` / `list_models` / `task_status` / `lookup_prompt_guide` / `fetch_doc`
 
 op 支持 `set_input`、`toggle_node`、`select_graphs`、`open_workflow`。
+
+`host_status` 读 `/system_stats`（显卡、显存、内存、ComfyUI/PyTorch 版本），`list_models`
+按 kind 读 `/object_info/<loader类>`（embedding 走 `/embeddings`）——都只请求 ComfyUI 自己的
+只读路由，归一化（字节转 GB、只留下拉候选）在共享层的 `formatResult` 里做，两端只负责发 GET。
 
 系统提示词位置：
 
