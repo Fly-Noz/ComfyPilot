@@ -8,8 +8,8 @@ import { fetchDoc, lookupPromptGuide } from './AiLookup';
 
 const STORE_NAME: string = 'ai_assistant';
 
-/** AI 助手还没打磨完：这次发布先整体关掉，设置页保留但开不了。 */
-export const AI_AVAILABLE: boolean = false;
+/** AI 开关：0.2.1 关过一版，现在打开。要关回去只改这里。 */
+export const AI_AVAILABLE: boolean = true;
 export const AI_NOTICE: string = '该功能尚在开发中，尚不可用，敬请期待';
 
 /** 把「不可用」压到配置上：老库里存的 enabled=true 也不生效。 */

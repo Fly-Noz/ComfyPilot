@@ -6,6 +6,15 @@ import android.provider.OpenableColumns
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -52,6 +61,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -60,7 +70,9 @@ import com.comfypilot.android.transport.OkHttpHttpTransport
 import com.comfypilot.app.SessionHost
 import com.comfypilot.app.ai.AiConfig
 import com.comfypilot.app.ai.AiFeature
+import com.comfypilot.app.ai.AiChatMessage
 import com.comfypilot.app.ai.AiImage
+import com.comfypilot.app.ai.AiQuestion
 import com.comfypilot.app.ai.AiRuntime
 import com.comfypilot.app.ai.AiSessionInfo
 import com.comfypilot.app.ai.AiSnapshot
@@ -170,6 +182,7 @@ fun AiChatDialog(onDismiss: () -> Unit) {
     var input by remember { mutableStateOf("") }
     var scopeOpen by remember { mutableStateOf(false) }
     var sessionsOpen by remember { mutableStateOf(false) }
+    var stepsOpen by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     // 附图：AI 自己打不开相册，由这里选图上传，再把服务器文件名交给模型。
@@ -302,16 +315,6 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                         .background(c.card)
                         .padding(horizontal = 7.dp, vertical = 3.dp),
                 )
-                if (snapshot.busy) {
-                    Text(
-                        "停止",
-                        color = c.err,
-                        fontSize = 10.sp,
-                        modifier = Modifier
-                            .clickableNoRipple { AiRuntime.stop() }
-                            .padding(horizontal = 6.dp, vertical = 4.dp),
-                    )
-                }
                 Text(
                     "会话",
                     color = c.textMuted,
@@ -347,16 +350,7 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 12.dp),
             ) {
-                items(snapshot.actions.takeLast(20)) { action ->
-                    Text(
-                        "· $action",
-                        color = c.textDim,
-                        fontSize = 9.5.sp,
-                        fontFamily = SpectrumMono,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                if (snapshot.messages.isEmpty()) {
+                if (snapshot.messages.isEmpty() && !snapshot.busy) {
                     item {
                         Column(
                             modifier = Modifier
@@ -375,56 +369,21 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                     }
                 }
                 items(snapshot.messages.filterNot { isAiToolResult(it.content) }) { message ->
-                    val mine = message.role == "user"
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
-                    ) {
-                        Text(
-                            text = (if (mine) message.content else aiPlainText(message.content)).ifBlank { "…" },
-                            color = if (mine) c.text else c.textMuted,
-                            fontSize = 12.sp,
-                            lineHeight = 17.sp,
-                            modifier = Modifier
-                                .fillMaxWidth(0.84f)
-                                .clip(
-                                    RoundedCornerShape(
-                                        topStart = 14.dp,
-                                        topEnd = 14.dp,
-                                        bottomStart = if (mine) 14.dp else 4.dp,
-                                        bottomEnd = if (mine) 4.dp else 14.dp,
-                                    ),
-                                )
-                                .background(if (mine) c.accentSoft else c.card)
-                                .border(
-                                    1.dp,
-                                    if (mine) c.accentBorder else c.border,
-                                    RoundedCornerShape(14.dp),
-                                )
-                                .padding(horizontal = 11.dp, vertical = 8.dp),
-                        )
-                    }
+                    AiMessageBubble(message = message, modifier = Modifier.animateItem())
                 }
-            }
-
-            snapshot.question?.let { question ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(c.card)
-                        .border(1.dp, c.accentBorder, RoundedCornerShape(14.dp))
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Text(aiPlainText(question.question), color = c.text, fontSize = 12.sp, lineHeight = 17.sp)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        question.options.forEach { option ->
-                            PendingAction(option, c.accent, c.accentSoft) {
-                                AiRuntime.answerQuestion(option)
-                            }
-                        }
+                if (snapshot.busy) {
+                    item { AiTypingBubble(modifier = Modifier.animateItem()) }
+                }
+                // 模型没有流式输出，「思考过程」能看见的只有工具往返；收成一张折叠卡，
+                // 忙碌时自动展开，平时不占地方。
+                if (snapshot.actions.isNotEmpty()) {
+                    item {
+                        AiStepLog(
+                            actions = snapshot.actions,
+                            expanded = stepsOpen || snapshot.busy,
+                            onToggle = { stepsOpen = !stepsOpen },
+                            modifier = Modifier.animateItem(),
+                        )
                     }
                 }
             }
@@ -472,200 +431,214 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                         .padding(horizontal = 14.dp, vertical = 6.dp),
                 )
             }
-            if (snapshot.busy) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    androidx.compose.material3.CircularProgressIndicator(
-                        modifier = Modifier.size(10.dp),
-                        strokeWidth = 1.5.dp,
-                        color = c.accent,
-                    )
-                    androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
-                    Text("正在请求模型…", color = c.textDim, fontSize = 10.sp)
+            // 输入区整体包一层：提问时用浮层盖住它，而不是把面板挤小。
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                if (snapshot.canUndo) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        Text(
+                            text = "撤销这次修改",
+                            color = c.textMuted,
+                            fontSize = 10.sp,
+                            modifier = Modifier
+                                .clickableNoRipple {
+                                    AiRuntime.undoLast()
+                                    snapshot = AiRuntime.snapshot()
+                                }
+                                .padding(6.dp),
+                        )
+                    }
                 }
-            }
 
-            if (snapshot.canUndo) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "撤销这次修改",
+                        text = "工作区 · " + if (AiRuntime.scopeAll) "全部工作流" else "${AiRuntime.scopePaths.size.coerceAtLeast(1)} 个",
                         color = c.textMuted,
                         fontSize = 10.sp,
                         modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(c.card)
+                            .border(1.dp, c.border, RoundedCornerShape(10.dp))
+                            .clickableNoRipple { scopeOpen = true }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    )
+                    val auto = snapshot.config.autoSubmit
+                    Text(
+                        text = if (auto) "自动执行" else "每次确认",
+                        color = if (auto) c.accent else c.textMuted,
+                        fontSize = 10.sp,
+                        modifier = Modifier
+                            .padding(start = 8.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (auto) c.accentSoft else c.card)
+                            .border(1.dp, if (auto) c.accentBorder else c.border, RoundedCornerShape(10.dp))
                             .clickableNoRipple {
-                                AiRuntime.undoLast()
+                                AiRuntime.toggleAutoSubmit()
                                 snapshot = AiRuntime.snapshot()
                             }
-                            .padding(6.dp),
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
                     )
                 }
-            }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "工作区 · " + if (AiRuntime.scopeAll) "全部工作流" else "${AiRuntime.scopePaths.size.coerceAtLeast(1)} 个",
-                    color = c.textMuted,
-                    fontSize = 10.sp,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(c.card)
-                        .border(1.dp, c.border, RoundedCornerShape(10.dp))
-                        .clickableNoRipple { scopeOpen = true }
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                )
-                val auto = snapshot.config.autoSubmit
-                Text(
-                    text = if (auto) "自动执行" else "每次确认",
-                    color = if (auto) c.accent else c.textMuted,
-                    fontSize = 10.sp,
-                    modifier = Modifier
-                        .padding(start = 8.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(if (auto) c.accentSoft else c.card)
-                        .border(1.dp, if (auto) c.accentBorder else c.border, RoundedCornerShape(10.dp))
-                        .clickableNoRipple {
-                            AiRuntime.toggleAutoSubmit()
-                            snapshot = AiRuntime.snapshot()
-                        }
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                )
-            }
-
-            if (attachments.isNotEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    attachments.forEachIndexed { index, ref ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "图片${index + 1}：${ref.reference}",
-                                color = c.textMuted,
-                                fontSize = 10.sp,
-                                fontFamily = SpectrumMono,
-                                maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f),
-                            )
-                            Text(
-                                text = "移除",
-                                color = c.textDim,
-                                fontSize = 10.sp,
-                                modifier = Modifier
-                                    .clickableNoRipple {
-                                        attachments = attachments.filterIndexed { i, _ -> i != index }
-                                    }
-                                    .padding(horizontal = 6.dp),
-                            )
+                if (attachments.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 12.dp, end = 12.dp, bottom = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        attachments.forEachIndexed { index, ref ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "图片${index + 1}：${ref.reference}",
+                                    color = c.textMuted,
+                                    fontSize = 10.sp,
+                                    fontFamily = SpectrumMono,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                Text(
+                                    text = "移除",
+                                    color = c.textDim,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier
+                                        .clickableNoRipple {
+                                            attachments = attachments.filterIndexed { i, _ -> i != index }
+                                        }
+                                        .padding(horizontal = 6.dp),
+                                )
+                            }
                         }
                     }
                 }
-            }
-            if (attachError != null) {
-                Text(
-                    text = attachError.orEmpty(),
-                    color = c.err,
-                    fontSize = 10.sp,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-                )
-            }
-
-            // 输入区
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(c.card)
-                        .border(1.dp, c.border, CircleShape)
-                        .clickableNoRipple {
-                            if (!attaching && !snapshot.busy) picker.launch("image/*")
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("图", color = if (attaching) c.textDim else c.textMuted, fontSize = 11.sp)
-                }
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(start = 8.dp)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(c.card)
-                        .border(1.dp, c.border, RoundedCornerShape(18.dp))
-                        .padding(horizontal = 12.dp, vertical = 2.dp),
-                ) {
-                    androidx.compose.foundation.text.BasicTextField(
-                        value = input,
-                        onValueChange = { input = it },
-                        textStyle = androidx.compose.ui.text.TextStyle(
-                            color = c.text,
-                            fontSize = 12.sp,
-                        ),
-                        cursorBrush = androidx.compose.ui.graphics.SolidColor(c.accent),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 9.dp),
-                        decorationBox = { inner ->
-                            if (input.isEmpty()) {
-                                Text(
-                                    "让 AI 改参数、开关节点…",
-                                    color = c.textDim,
-                                    fontSize = 12.sp,
-                                )
-                            }
-                            inner()
-                        },
+                if (attachError != null) {
+                    Text(
+                        text = attachError.orEmpty(),
+                        color = c.err,
+                        fontSize = 10.sp,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                     )
                 }
-                Box(
+
+                // 输入区
+                Row(
                     modifier = Modifier
-                        .padding(start = 8.dp)
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(if (snapshot.busy) SolidColor(c.cardStrong) else c.gradientBrush())
-                        .clickableNoRipple {
-                            if (!snapshot.busy && (input.isNotBlank() || attachments.isNotEmpty())) {
-                                val text = input
-                                val refs = attachments
-                                input = ""
-                                attachments = emptyList()
-                                AiRuntime.send(
-                                    if (refs.isEmpty()) {
-                                        text
-                                    } else {
-                                        val lead = text.ifBlank { "用这些图" }
-                                        "$lead\n（图片已上传到服务器，文件名：${refs.joinToString("、") { it.reference }}；要放进节点就用 set_input 写这些文件名）"
-                                    },
-                                    refs.mapNotNull { ref ->
-                                        if (ref.dataUrl.isEmpty()) null else AiImage(ref.reference, ref.dataUrl)
-                                    },
-                                )
-                            }
-                        },
-                    contentAlignment = Alignment.Center,
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("↑", color = Color.White, fontSize = 17.sp)
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(c.card)
+                            .border(1.dp, c.border, CircleShape)
+                            .clickableNoRipple {
+                                if (!attaching && !snapshot.busy) picker.launch("image/*")
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("图", color = if (attaching) c.textDim else c.textMuted, fontSize = 11.sp)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 8.dp)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(c.card)
+                            .border(1.dp, c.border, RoundedCornerShape(18.dp))
+                            .padding(horizontal = 12.dp, vertical = 2.dp),
+                    ) {
+                        androidx.compose.foundation.text.BasicTextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            textStyle = androidx.compose.ui.text.TextStyle(
+                                color = c.text,
+                                fontSize = 12.sp,
+                            ),
+                            cursorBrush = androidx.compose.ui.graphics.SolidColor(c.accent),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 9.dp),
+                            decorationBox = { inner ->
+                                if (input.isEmpty()) {
+                                    Text(
+                                        "让 AI 改参数、开关节点…",
+                                        color = c.textDim,
+                                        fontSize = 12.sp,
+                                    )
+                                }
+                                inner()
+                            },
+                        )
+                    }
+                    // 同一个按钮：空闲是「发送」，请求中是「停止」——不再让用户去头部找停止。
+                    if (snapshot.busy) {
+                        Box(
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(c.cardStrong)
+                                .border(1.dp, c.err.copy(alpha = 0.55f), CircleShape)
+                                .clickableNoRipple { AiRuntime.stop() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(RoundedCornerShape(2.dp))
+                                    .background(c.err),
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .padding(start = 8.dp)
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(c.gradientBrush())
+                                .clickableNoRipple {
+                                    if (input.isNotBlank() || attachments.isNotEmpty()) {
+                                        val text = input
+                                        val refs = attachments
+                                        input = ""
+                                        attachments = emptyList()
+                                        AiRuntime.send(
+                                            if (refs.isEmpty()) {
+                                                text
+                                            } else {
+                                                val lead = text.ifBlank { "用这些图" }
+                                                "$lead\n（图片已上传到服务器，文件名：${refs.joinToString("、") { it.reference }}；要放进节点就用 set_input 写这些文件名）"
+                                            },
+                                            refs.mapNotNull { ref ->
+                                                if (ref.dataUrl.isEmpty()) null else AiImage(ref.reference, ref.dataUrl)
+                                            },
+                                        )
+                                    }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("↑", color = Color.White, fontSize = 17.sp)
+                        }
+                    }
+                }
+                }
+                snapshot.question?.let { question ->
+                    AiQuestionOverlay(question = question) { option ->
+                        AiRuntime.answerQuestion(option)
+                    }
                 }
             }
         }
@@ -859,6 +832,231 @@ private fun AiScopeDialog(onDismiss: () -> Unit) {
                     }
                     .padding(vertical = 9.dp),
             )
+        }
+    }
+}
+
+/** 助手头像：一条渐变圆点，比自己发的消息多一个"谁在说话"的锚点。 */
+@Composable
+private fun AiAvatar(size: Dp = 20.dp) {
+    val c = Spectrum.colors
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(c.gradientBrush()),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text("AI", color = Color.White, fontSize = 7.5.sp, fontFamily = SpectrumMono)
+    }
+}
+
+/**
+ * 一条消息：自己靠右、不带头像；助手靠左、带头像。
+ *
+ * 气泡宽度用 wrapContentWidth 收在 86% 以内——短句不再被拉成一整条横条，
+ * 长句仍然会换行占满可用宽度。
+ */
+@Composable
+private fun AiMessageBubble(message: AiChatMessage, modifier: Modifier = Modifier) {
+    val c = Spectrum.colors
+    val mine = message.role == "user"
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Bottom,
+    ) {
+        if (!mine) {
+            AiAvatar()
+            androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
+        }
+        Text(
+            text = (if (mine) message.content else aiPlainText(message.content)).ifBlank { "…" },
+            color = if (mine) c.text else c.textMuted,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+            modifier = Modifier
+                .fillMaxWidth(0.86f)
+                .wrapContentWidth(if (mine) Alignment.End else Alignment.Start)
+                .clip(
+                    RoundedCornerShape(
+                        topStart = 14.dp,
+                        topEnd = 14.dp,
+                        bottomStart = if (mine) 14.dp else 4.dp,
+                        bottomEnd = if (mine) 4.dp else 14.dp,
+                    ),
+                )
+                .background(if (mine) c.accentSoft else c.card)
+                .border(1.dp, if (mine) c.accentBorder else c.border, RoundedCornerShape(14.dp))
+                .padding(horizontal = 11.dp, vertical = 8.dp),
+        )
+    }
+}
+
+/** 等待模型时的三个呼吸点：比转圈更轻，和"正在说话"的语义对得上。 */
+@Composable
+private fun AiTypingBubble(modifier: Modifier = Modifier) {
+    val c = Spectrum.colors
+    val transition = rememberInfiniteTransition(label = "typing")
+    Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+        AiAvatar()
+        androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(14.dp))
+                .background(c.card)
+                .border(1.dp, c.border, RoundedCornerShape(14.dp))
+                .padding(horizontal = 13.dp, vertical = 11.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            repeat(3) { index ->
+                val alpha by transition.animateFloat(
+                    initialValue = 0.2f,
+                    targetValue = 1f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(durationMillis = 520, delayMillis = index * 140),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
+                    label = "dot-$index",
+                )
+                Box(
+                    modifier = Modifier
+                        .size(4.dp)
+                        .clip(CircleShape)
+                        .background(c.textDim.copy(alpha = alpha)),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 思考与操作记录。
+ *
+ * 模型这里是整段返回、没有流式输出，能看见的"过程"只有工具往返。
+ * 所以把它收成一张折叠卡：忙碌时自动展开看进度，平时折叠只留步数。
+ */
+@Composable
+private fun AiStepLog(
+    actions: List<String>,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = Spectrum.colors
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(c.card.copy(alpha = 0.55f))
+            .border(1.dp, c.border, RoundedCornerShape(12.dp))
+            .clickableNoRipple(onToggle)
+            .animateContentSize()
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(if (expanded) "▾" else "▸", color = c.textDim, fontSize = 9.sp)
+            androidx.compose.foundation.layout.Spacer(Modifier.width(5.dp))
+            Text(
+                text = "思考与操作 · ${actions.size} 步",
+                color = c.textDim,
+                fontSize = 9.5.sp,
+                fontFamily = SpectrumMono,
+            )
+        }
+        if (expanded) {
+            actions.takeLast(12).forEach { action ->
+                Row(verticalAlignment = Alignment.Top) {
+                    Box(
+                        modifier = Modifier
+                            .padding(top = 5.dp)
+                            .size(3.dp)
+                            .clip(CircleShape)
+                            .background(c.accent.copy(alpha = 0.55f)),
+                    )
+                    androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
+                    Text(action, color = c.textMuted, fontSize = 9.5.sp, lineHeight = 14.sp)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 提问浮层：盖住输入区，而不是把面板挤小。
+ *
+ * 选项竖排整行（和常见 Agent 客户端一致），选项多时浮层内部滚动；
+ * 上面压一层半透明底，提示"先把这个答了再输入"。
+ */
+@Composable
+private fun AiQuestionOverlay(question: AiQuestion, onPick: (String) -> Unit) {
+    val c = Spectrum.colors
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(c.dialog.copy(alpha = 0.92f)),
+        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
+                .background(c.cardStrong)
+                .border(1.dp, c.accentBorder, RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp))
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "需要你确认",
+                    color = c.accent,
+                    fontSize = 9.5.sp,
+                    fontFamily = SpectrumMono,
+                    letterSpacing = 0.6.sp,
+                )
+                androidx.compose.foundation.layout.Spacer(Modifier.weight(1f))
+                Text("选一个继续", color = c.textDim, fontSize = 9.5.sp)
+            }
+            Text(
+                text = aiPlainText(question.question),
+                color = c.text,
+                fontSize = 12.5.sp,
+                lineHeight = 18.sp,
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 190.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                question.options.forEachIndexed { index, option ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(c.dialog)
+                            .border(1.dp, c.border, RoundedCornerShape(10.dp))
+                            .clickableNoRipple { onPick(option) }
+                            .padding(horizontal = 11.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = ('A' + index).toString(),
+                            color = c.accent,
+                            fontSize = 10.sp,
+                            fontFamily = SpectrumMono,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(c.accentSoft)
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                        androidx.compose.foundation.layout.Spacer(Modifier.width(9.dp))
+                        Text(option, color = c.text, fontSize = 11.5.sp, lineHeight = 16.sp)
+                    }
+                }
+            }
         }
     }
 }

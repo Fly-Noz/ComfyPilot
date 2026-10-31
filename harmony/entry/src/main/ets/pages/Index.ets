@@ -449,6 +449,14 @@ struct Index {
   @State aiTokens: number = 0;
   @State aiPending: AiPending | null = null;
   @State aiQuestion: AiQuestion | null = null;
+  /** 「思考与操作」折叠卡的展开状态；忙碌时自动展开，不看这个值。 */
+  @State aiStepsOpen: boolean = false;
+  /** 提问浮层的内容。单独存一份非空值，builder 里不用碰可空对象。 */
+  @State aiQuestionText: string = '';
+  @State aiQuestionOptions: string[] = [];
+  /** 「正在输入」三个点的相位。 */
+  @State aiDotPhase: number = 0;
+  private aiDotTimer: number = -1;
   @State aiCanUndo: boolean = false;
   @State aiEnabled: boolean = false;
   @State aiPageOpen: boolean = false;
@@ -562,6 +570,10 @@ struct Index {
   }
 
   aboutToDisappear(): void {
+    if (this.aiDotTimer !== -1) {
+      clearInterval(this.aiDotTimer);
+      this.aiDotTimer = -1;
+    }
     if (this.clockTimer !== -1) {
       clearInterval(this.clockTimer);
       this.clockTimer = -1;
@@ -7107,6 +7119,22 @@ struct Index {
     this.aiPending = this.ai.pending;
     this.aiQuestion = this.ai.question;
     this.aiCanUndo = this.ai.canUndo;
+    this.aiQuestionText = this.ai.question !== null ? this.ai.question.question : '';
+    this.aiQuestionOptions = this.ai.question !== null ? this.ai.question.options : [];
+    this.syncDotTimer();
+  }
+
+  /** 只在忙碌时跑：三个点每 220ms 换一次高亮，停下就释放定时器。 */
+  private syncDotTimer(): void {
+    if (this.aiBusy && this.aiDotTimer === -1) {
+      this.aiDotTimer = setInterval(() => {
+        this.aiDotPhase = (this.aiDotPhase + 1) % 3;
+      }, 220);
+    } else if (!this.aiBusy && this.aiDotTimer !== -1) {
+      clearInterval(this.aiDotTimer);
+      this.aiDotTimer = -1;
+      this.aiDotPhase = 0;
+    }
   }
 
   private openAiSettings(): void {
@@ -7173,6 +7201,103 @@ struct Index {
       )
   }
 
+  /** 三个呼吸点：比一行「正在请求模型…」更像在说话。 */
+  @Builder
+  AiTypingDots() {
+    Row({ space: 4 }) {
+      ForEach([0, 1, 2], (index: number) => {
+        Column()
+          .width(4)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.c().textDim)
+          .opacity(this.aiDotPhase === index ? 1 : 0.3)
+      }, (index: number) => `${index}`)
+    }
+    .padding({ left: 13, right: 13, top: 11, bottom: 11 })
+    .backgroundColor(this.c().card)
+    .borderRadius(14)
+    .border({ width: 1, color: this.c().border })
+  }
+
+  /**
+   * 提问浮层：盖住输入区，而不是把面板挤小。
+   *
+   * 选项竖排整行（和常见 Agent 客户端一致），选项多时浮层内部滚动；
+   * 底下一层压暗的遮罩，提示"先把这个答了再输入"。
+   */
+  @Builder
+  AiQuestionSheet() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor(this.c().dialog)
+        .opacity(0.94)
+
+      Column({ space: 9 }) {
+        Row() {
+          Text('需要你确认')
+            .fontSize(9.5)
+            .fontFamily('monospace')
+            .fontColor(this.c().accent)
+            .layoutWeight(1)
+          Text('选一个继续')
+            .fontSize(9.5)
+            .fontColor(this.c().textDim)
+        }
+        .width('100%')
+
+        Text(aiPlainText(this.aiQuestionText))
+          .fontSize(12.5)
+          .lineHeight(18)
+          .fontColor(this.c().text)
+          .width('100%')
+
+        Scroll() {
+          Column({ space: 6 }) {
+            ForEach(this.aiQuestionOptions, (option: string, index: number) => {
+              Row({ space: 9 }) {
+                Text(String.fromCharCode(65 + index))
+                  .fontSize(10)
+                  .fontFamily('monospace')
+                  .fontColor(this.c().accent)
+                  .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                  .backgroundColor(this.c().accentSoft)
+                  .borderRadius(6)
+                Text(option)
+                  .fontSize(11.5)
+                  .lineHeight(16)
+                  .fontColor(this.c().text)
+                  .layoutWeight(1)
+              }
+              .width('100%')
+              .padding({ left: 11, right: 11, top: 10, bottom: 10 })
+              .backgroundColor(this.c().dialog)
+              .borderRadius(10)
+              .border({ width: 1, color: this.c().border })
+              .onClick(() => {
+                this.ai.answerQuestion(option).then(() => { this.syncAi(); });
+                this.syncAi();
+              })
+            }, (option: string, index: number) => `${index}:${option}`)
+          }
+          .width('100%')
+        }
+        .constraintSize({ maxHeight: 190 })
+        .width('100%')
+        .scrollBar(BarState.Off)
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+      .padding(14)
+      .backgroundColor(this.c().cardStrong)
+      .borderRadius({ topLeft: 18, topRight: 18 })
+      .border({ width: 1, color: this.c().accentBorder })
+    }
+    .width('100%')
+  }
+
   @Builder
   AiPanel() {
     Stack() {
@@ -7221,13 +7346,6 @@ struct Index {
             .fontColor(this.c().textMuted)
             .padding(6)
             .onClick(() => { this.aiChatsOpen = true; })
-          if (this.aiBusy) {
-            Text('停止')
-              .fontSize(10)
-              .fontColor(this.c().err)
-              .padding(6)
-              .onClick(() => { this.ai.stop(); this.syncAi(); })
-          }
           Text('✕')
             .fontSize(13)
             .fontColor(this.c().textDim)
@@ -7241,21 +7359,23 @@ struct Index {
 
         Scroll() {
           Column({ space: 8 }) {
-            ForEach(this.aiActions.slice(-20), (action: string, index: number) => {
-              Text(`· ${action}`)
-                .fontSize(9.5)
-                .fontFamily('monospace')
-                .fontColor(this.c().textDim)
-                .width('100%')
-            }, (action: string, index: number) => `${index}:${action}`)
-
             if (this.aiVisibleMessages().length === 0) {
               Text('想改哪里？').fontSize(13).fontColor(this.c().textMuted).width('100%').textAlign(TextAlign.Center).margin({ top: 24 })
               Text('试试「把步数改成 8」或「关闭 Save Video」')
                 .fontSize(10.5).fontColor(this.c().textDim).width('100%').textAlign(TextAlign.Center)
             }
             ForEach(this.aiVisibleMessages(), (message: AiChatMessage, index: number) => {
-              Row() {
+              Row({ space: 6 }) {
+                // 助手消息带头像：一眼能分清"谁在说"，自己的消息不需要。
+                if (message.role !== 'user') {
+                  Stack() {
+                    Text('AI').fontSize(7.5).fontColor('#FFFFFF').fontFamily('monospace')
+                  }
+                  .width(20)
+                  .height(20)
+                  .borderRadius(10)
+                  .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+                }
                 Text(message.content.length > 0
                   ? (message.role === 'user' ? message.content : aiPlainText(message.content))
                   : '…')
@@ -7266,41 +7386,18 @@ struct Index {
                     left: 11, right: 11, top: 8, bottom: 8,
                   })
                   .backgroundColor(message.role === 'user' ? this.c().accentSoft : this.c().card)
-                  .borderRadius(12)
+                  .borderRadius({
+                    topLeft: 14, topRight: 14,
+                    bottomLeft: message.role === 'user' ? 14 : 4,
+                    bottomRight: message.role === 'user' ? 4 : 14,
+                  })
                   .border({ width: 1, color: message.role === 'user' ? this.c().accentBorder : this.c().border })
-                  .constraintSize({ maxWidth: '84%' })
+                  .constraintSize({ maxWidth: '80%' })
               }
               .width('100%')
+              .alignItems(VerticalAlign.Bottom)
               .justifyContent(message.role === 'user' ? FlexAlign.End : FlexAlign.Start)
             }, (message: AiChatMessage, index: number) => `${index}:${message.content.substring(0, 24)}`)
-
-            if (this.aiQuestion !== null) {
-              Column({ space: 6 }) {
-                Text(aiPlainText(this.aiQuestion.question)).fontSize(12).fontColor(this.c().text)
-                Flex({ wrap: FlexWrap.Wrap }) {
-                  ForEach(this.aiQuestion.options, (option: string, index: number) => {
-                    Text(option)
-                      .fontSize(11)
-                      .fontColor(this.c().accent)
-                      .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-                      .margin({ right: 8, top: 4 })
-                      .backgroundColor(this.c().card)
-                      .borderRadius(9)
-                      .border({ width: 1, color: this.c().accentBorder })
-                      .onClick(() => {
-                        this.ai.answerQuestion(option).then(() => { this.syncAi(); });
-                        this.syncAi();
-                      })
-                  }, (option: string, index: number) => `${index}:${option}`)
-                }
-              }
-              .width('100%')
-              .alignItems(HorizontalAlign.Start)
-              .padding(11)
-              .backgroundColor(this.c().card)
-              .borderRadius(12)
-              .border({ width: 1, color: this.c().accentBorder })
-            }
 
             if (this.aiPending !== null) {
               Column({ space: 5 }) {
@@ -7343,8 +7440,66 @@ struct Index {
             if (this.aiError.length > 0) {
               Text(this.aiError).fontSize(10.5).fontColor(this.c().err).width('100%')
             }
+            // 等待模型时的三个呼吸点，比一行"正在请求"更像在说话。
             if (this.aiBusy) {
-              Text('正在请求模型…').fontSize(10).fontColor(this.c().textDim).width('100%')
+              Row({ space: 6 }) {
+                Stack() {
+                  Text('AI').fontSize(7.5).fontColor('#FFFFFF').fontFamily('monospace')
+                }
+                .width(20)
+                .height(20)
+                .borderRadius(10)
+                .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+
+                this.AiTypingDots()
+              }
+              .width('100%')
+              .alignItems(VerticalAlign.Bottom)
+              .justifyContent(FlexAlign.Start)
+            }
+
+            // 「思考过程」：模型整段返回、没有流式输出，能看见的只有工具往返，
+            // 收成折叠卡，忙碌时自动展开。
+            if (this.aiActions.length > 0) {
+              Column({ space: 4 }) {
+                Row({ space: 5 }) {
+                  Text(this.aiStepsOpen || this.aiBusy ? '▾' : '▸')
+                    .fontSize(9)
+                    .fontColor(this.c().textDim)
+                  Text(`思考与操作 · ${this.aiActions.length} 步`)
+                    .fontSize(9.5)
+                    .fontFamily('monospace')
+                    .fontColor(this.c().textDim)
+                }
+                .width('100%')
+
+                if (this.aiStepsOpen || this.aiBusy) {
+                  ForEach(this.aiActions.slice(-12), (action: string, index: number) => {
+                    Row({ space: 6 }) {
+                      Column()
+                        .width(3)
+                        .height(3)
+                        .borderRadius(2)
+                        .backgroundColor(this.c().accent)
+                        .margin({ top: 6 })
+                      Text(action)
+                        .fontSize(9.5)
+                        .lineHeight(14)
+                        .fontColor(this.c().textMuted)
+                        .layoutWeight(1)
+                    }
+                    .width('100%')
+                    .alignItems(VerticalAlign.Top)
+                  }, (action: string, index: number) => `${index}:${action}`)
+                }
+              }
+              .width('100%')
+              .alignItems(HorizontalAlign.Start)
+              .padding(10)
+              .backgroundColor(this.c().card)
+              .borderRadius(12)
+              .border({ width: 1, color: this.c().border })
+              .onClick(() => { this.aiStepsOpen = !this.aiStepsOpen; })
             }
           }
           .width('100%')
@@ -7355,124 +7510,154 @@ struct Index {
         .width('100%')
         .scrollBar(BarState.Off)
 
-        // 撤销入口：只有刚应用过 AI 修改时才出现。
-        if (this.aiCanUndo) {
-          Row() {
-            Text('撤销这次修改')
-              .fontSize(10.5)
-              .fontColor(this.c().textMuted)
-              .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-              .backgroundColor(this.c().card)
-              .borderRadius(10)
-              .border({ width: 1, color: this.c().border })
-              .onClick(() => {
-                this.ai.undoLast();
-                this.syncAi();
-              })
-          }
-          .width('100%')
-          .justifyContent(FlexAlign.End)
-          .padding({ left: 12, right: 12, bottom: 6 })
-        }
-
-        // 工具栏：工作区 + 权限
-        Row({ space: 8 }) {
-          Text(`工作区 · ${this.aiScopeLabel()}`)
-            .fontSize(10.5)
-            .fontColor(this.c().textMuted)
-            .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-            .backgroundColor(this.c().card)
-            .borderRadius(10)
-            .border({ width: 1, color: this.c().border })
-            .onClick(() => { this.aiScopeOpen = true; })
-
-          Text(this.aiAutoSubmit ? '自动执行' : '每次确认')
-            .fontSize(10.5)
-            .fontColor(this.aiAutoSubmit ? this.c().accent : this.c().textMuted)
-            .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-            .backgroundColor(this.aiAutoSubmit ? this.c().accentSoft : this.c().card)
-            .borderRadius(10)
-            .border({ width: 1, color: this.aiAutoSubmit ? this.c().accentBorder : this.c().border })
-            .onClick(() => { this.toggleAiAutoSubmit(); })
-        }
-        .width('100%')
-        .padding({ left: 12, right: 12 })
-
-        // 输入区
-        if (this.aiAttachments.length > 0) {
-          Column({ space: 4 }) {
-            ForEach(this.aiAttachments, (ref: AiImage, index: number) => {
-              Row({ space: 6 }) {
-                Text(`图片${index + 1}：${ref.name}`)
-                  .fontSize(10)
-                  .fontFamily('monospace')
+        // 输入区整体包一层：提问时用浮层盖住它，而不是把面板挤小。
+        Stack({ alignContent: Alignment.Bottom }) {
+          Column() {
+            // 撤销入口：只有刚应用过 AI 修改时才出现。
+            if (this.aiCanUndo) {
+              Row() {
+                Text('撤销这次修改')
+                  .fontSize(10.5)
                   .fontColor(this.c().textMuted)
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .layoutWeight(1)
-                Text('移除')
-                  .fontSize(10)
-                  .fontColor(this.c().textDim)
-                  .padding({ left: 6, right: 6 })
+                  .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                  .backgroundColor(this.c().card)
+                  .borderRadius(10)
+                  .border({ width: 1, color: this.c().border })
                   .onClick(() => {
-                    this.aiAttachments = this.aiAttachments.filter((item: AiImage) => item.name !== ref.name);
+                    this.ai.undoLast();
+                    this.syncAi();
                   })
               }
               .width('100%')
-            }, (ref: AiImage, index: number) => `${index}:${ref.name}`)
+              .justifyContent(FlexAlign.End)
+              .padding({ left: 12, right: 12, bottom: 6 })
+            }
+
+            // 工具栏：工作区 + 权限
+            Row({ space: 8 }) {
+              Text(`工作区 · ${this.aiScopeLabel()}`)
+                .fontSize(10.5)
+                .fontColor(this.c().textMuted)
+                .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                .backgroundColor(this.c().card)
+                .borderRadius(10)
+                .border({ width: 1, color: this.c().border })
+                .onClick(() => { this.aiScopeOpen = true; })
+
+              Text(this.aiAutoSubmit ? '自动执行' : '每次确认')
+                .fontSize(10.5)
+                .fontColor(this.aiAutoSubmit ? this.c().accent : this.c().textMuted)
+                .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+                .backgroundColor(this.aiAutoSubmit ? this.c().accentSoft : this.c().card)
+                .borderRadius(10)
+                .border({ width: 1, color: this.aiAutoSubmit ? this.c().accentBorder : this.c().border })
+                .onClick(() => { this.toggleAiAutoSubmit(); })
+            }
+            .width('100%')
+            .padding({ left: 12, right: 12 })
+
+            // 输入区
+            if (this.aiAttachments.length > 0) {
+              Column({ space: 4 }) {
+                ForEach(this.aiAttachments, (ref: AiImage, index: number) => {
+                  Row({ space: 6 }) {
+                    Text(`图片${index + 1}：${ref.name}`)
+                      .fontSize(10)
+                      .fontFamily('monospace')
+                      .fontColor(this.c().textMuted)
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .layoutWeight(1)
+                    Text('移除')
+                      .fontSize(10)
+                      .fontColor(this.c().textDim)
+                      .padding({ left: 6, right: 6 })
+                      .onClick(() => {
+                        this.aiAttachments = this.aiAttachments.filter((item: AiImage) => item.name !== ref.name);
+                      })
+                  }
+                  .width('100%')
+                }, (ref: AiImage, index: number) => `${index}:${ref.name}`)
+              }
+              .width('100%')
+              .padding({ left: 12, right: 12, bottom: 6 })
+            }
+            Row({ space: 8 }) {
+              Text('图')
+                .fontSize(11)
+                .fontColor(this.aiAttachBusy ? this.c().textDim : this.c().textMuted)
+                .width(34)
+                .height(34)
+                .textAlign(TextAlign.Center)
+                .backgroundColor(this.c().card)
+                .borderRadius(17)
+                .border({ width: 1, color: this.c().border })
+                .onClick(() => { this.aiAttachImage(); })
+              TextInput({ text: this.aiInput, placeholder: '让 AI 改参数、开关节点…' })
+                .layoutWeight(1)
+                .height(40)
+                .fontSize(12)
+                .fontColor(this.c().text)
+                .placeholderColor(this.c().textDim)
+                .backgroundColor(this.c().card)
+                .borderRadius(18)
+                .border({ width: 1, color: this.c().border })
+                .onChange((value: string) => { this.aiInput = value; })
+
+              // 同一个按钮：空闲发送、请求中停止——不用再去头部找停止。
+              if (this.aiBusy) {
+                Stack() {
+                  Column()
+                    .width(10)
+                    .height(10)
+                    .borderRadius(2)
+                    .backgroundColor(this.c().err)
+                }
+                .width(38)
+                .height(38)
+                .borderRadius(19)
+                .backgroundColor(this.c().cardStrong)
+                .border({ width: 1, color: this.c().err })
+                .onClick(() => {
+                  this.ai.stop();
+                  this.syncAi();
+                })
+              } else {
+                Text('↑')
+                  .fontSize(17)
+                  .fontColor('#FFFFFF')
+                  .width(38)
+                  .height(38)
+                  .textAlign(TextAlign.Center)
+                  .borderRadius(19)
+                  .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+                  .onClick(() => {
+                    if (this.aiInput.trim().length === 0 && this.aiAttachments.length === 0) {
+                      return;
+                    }
+                    const text = this.aiInput;
+                    const attach = this.aiAttachments;
+                    this.aiInput = '';
+                    this.aiAttachments = [];
+                    const payload = attach.length > 0
+                      ? `${text.length > 0 ? text : '用这些图'}\n（图片已上传到服务器，文件名：${attach.map((item: AiImage) => item.name).join('、')}；要放进节点就用 set_input 写这些文件名）`
+                      : text;
+                    this.ai.send(payload, attach).then(() => { this.syncAi(); });
+                    // send() 在第一个 await 之前就把 busy 置真，这里同步一次能立刻切成停止。
+                    this.syncAi();
+                  })
+              }
+            }
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 8, bottom: 12 })
           }
           .width('100%')
-          .padding({ left: 12, right: 12, bottom: 6 })
-        }
-        Row({ space: 8 }) {
-          Text('图')
-            .fontSize(11)
-            .fontColor(this.aiAttachBusy ? this.c().textDim : this.c().textMuted)
-            .width(34)
-            .height(34)
-            .textAlign(TextAlign.Center)
-            .backgroundColor(this.c().card)
-            .borderRadius(17)
-            .border({ width: 1, color: this.c().border })
-            .onClick(() => { this.aiAttachImage(); })
-          TextInput({ text: this.aiInput, placeholder: '让 AI 改参数、开关节点…' })
-            .layoutWeight(1)
-            .height(40)
-            .fontSize(12)
-            .fontColor(this.c().text)
-            .placeholderColor(this.c().textDim)
-            .backgroundColor(this.c().card)
-            .borderRadius(18)
-            .border({ width: 1, color: this.c().border })
-            .onChange((value: string) => { this.aiInput = value; })
 
-          Text('↑')
-            .fontSize(17)
-            .fontColor('#FFFFFF')
-            .width(38)
-            .height(38)
-            .textAlign(TextAlign.Center)
-            .borderRadius(19)
-            .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
-            .opacity(this.aiBusy ? 0.5 : 1)
-            .onClick(() => {
-              if (this.aiBusy || (this.aiInput.trim().length === 0 && this.aiAttachments.length === 0)) {
-                return;
-              }
-              const text = this.aiInput;
-              const attach = this.aiAttachments;
-              this.aiInput = '';
-              this.aiAttachments = [];
-              const payload = attach.length > 0
-                ? `${text.length > 0 ? text : '用这些图'}\n（图片已上传到服务器，文件名：${attach.map((item: AiImage) => item.name).join('、')}；要放进节点就用 set_input 写这些文件名）`
-                : text;
-              this.ai.send(payload, attach).then(() => { this.syncAi(); });
-              // send() 在第一个 await 之前就把 busy 置真，这里同步一次能立刻出「停止」。
-              this.syncAi();
-            })
+          if (this.aiQuestion !== null) {
+            this.AiQuestionSheet()
+          }
         }
         .width('100%')
-        .padding({ left: 12, right: 12, top: 8, bottom: 12 })
       }
       .width('92%')
       .height('66%')
