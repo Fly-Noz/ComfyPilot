@@ -280,6 +280,14 @@ object AiRuntime {
     private val sessions = mutableListOf<AiSession>()
     private var activeSessionId: String = ""
 
+    /**
+     * 草稿会话：每次启动都开一个新对话，但用户真正发第一条消息之前不写进 [sessions]。
+     *
+     * 之前的做法是启动就把「新会话」建出来落盘，反复打开又不用，历史里会堆一串空会话。
+     * 现在草稿只活在内存里：发消息时 [materializeDraft] 才把它转正并参与持久化。
+     */
+    private var draftSessionId: String = ""
+
     fun attach(context: Context) {
         if (secretStore == null) {
             secretStore = AiSecretStore(context.applicationContext)
@@ -334,9 +342,35 @@ object AiRuntime {
             }.getOrNull().orEmpty()
             sessions += AiSession(newSessionId(), titleFor(legacyChat), legacyChat.toMutableList(), legacyLog.toMutableList(), System.currentTimeMillis())
         }
-        activeSessionId = sessions.first().id
-        messages = sessions.first().messages.toList()
-        actions = sessions.first().actions.toList()
+        // 不再把上一轮会话顶到前台：每次打开应用都是新的一轮，历史留在列表里。
+        startDraft()
+    }
+
+    /** 开一个新对话，先不落盘；用户发第一条消息时才加入历史。 */
+    private fun startDraft() {
+        draftSessionId = newSessionId()
+        activeSessionId = draftSessionId
+        messages = emptyList()
+        actions = emptyList()
+        pending = null
+        question = null
+        error = null
+    }
+
+    /** 用户真的用了这轮对话：把它转正，之后才会被持久化。 */
+    private fun materializeDraft() {
+        if (draftSessionId.isEmpty()) return
+        sessions += AiSession(
+            draftSessionId,
+            titleFor(messages),
+            messages.takeLast(40).toMutableList(),
+            actions.takeLast(50).toMutableList(),
+            System.currentTimeMillis(),
+        )
+        while (sessions.size > 20) sessions.removeAt(0)
+        draftSessionId = ""
+        // 转正这一刻就落盘：否则进程在下一轮请求前被杀，这条刚开头的记录会丢。
+        persistConversation()
     }
 
     private fun newSessionId(): String = "s" + System.currentTimeMillis().toString(36)
@@ -362,22 +396,18 @@ object AiRuntime {
 
     fun sessionInfos(): List<AiSessionInfo> {
         syncActiveSession()
-        return sessions.sortedByDescending { it.updatedAt }.map {
+        val saved = sessions.sortedByDescending { it.updatedAt }.map {
             AiSessionInfo(it.id, it.title, it.updatedAt, it.id == activeSessionId)
         }
+        // 草稿虽然还没落盘，但它就是「当前这一轮」，列表里不出现的话看起来一个都没选中。
+        if (draftSessionId.isEmpty()) return saved
+        return listOf(AiSessionInfo(draftSessionId, "新会话", System.currentTimeMillis(), true)) + saved
     }
 
+    /** 新对话同样先当草稿：没聊就走，历史里不会多出一条空的。 */
     fun newSession() {
         syncActiveSession()
-        val session = AiSession(newSessionId(), "新会话", mutableListOf(), mutableListOf(), System.currentTimeMillis())
-        sessions += session
-        while (sessions.size > 20) sessions.removeAt(0)
-        activeSessionId = session.id
-        messages = emptyList()
-        actions = emptyList()
-        pending = null
-        question = null
-        error = null
+        startDraft()
         persistConversation()
     }
 
@@ -385,6 +415,8 @@ object AiRuntime {
         val target = sessions.firstOrNull { it.id == id } ?: return
         if (id == activeSessionId) return
         syncActiveSession()
+        // 离开草稿就丢掉它：它本来就没落盘，也没有内容可留。
+        draftSessionId = ""
         activeSessionId = id
         messages = target.messages.toList()
         actions = target.actions.toList()
@@ -395,6 +427,11 @@ object AiRuntime {
     }
 
     fun deleteSession(id: String) {
+        if (id == draftSessionId) {
+            // 删的是还没用过的新对话：重新开一个草稿就行，历史不用动。
+            startDraft()
+            return
+        }
         val remaining = sessions.filterNot { it.id == id }
         if (remaining.isEmpty()) {
             sessions.clear()
@@ -494,6 +531,8 @@ object AiRuntime {
         }
         aiLog("send: $text images=${images.size}")
         messages = messages + AiChatMessage("user", text)
+        // 第一条用户消息落地，这轮对话才算真的用过，转正并参与持久化。
+        materializeDraft()
         pending = null
         error = null
         busy = true

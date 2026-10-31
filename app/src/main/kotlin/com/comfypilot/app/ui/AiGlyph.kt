@@ -4,8 +4,14 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 
 /**
@@ -57,5 +63,42 @@ private fun glyphPath(scale: Float, single: Boolean): Path = Path().apply {
         quadraticTo(18.6f * scale, 5.8f * scale, 16.4f * scale, 4.6f * scale)
         quadraticTo(18.6f * scale, 3.4f * scale, 19.8f * scale, 1.2f * scale)
         close()
+    }
+}
+
+/**
+ * 附图按钮的图标：一张画（外框 + 太阳 + 山）。
+ *
+ * 原来这里是个「图」字，和旁边「↑」的图形按钮并排时，一个是字一个是图，视觉上不齐；
+ * 而且中文单字在圆形按钮里要么偏上要么偏右，得靠 padding 硬调。
+ *
+ * 全部用描边画（不填充），和 Feather 那类图标的粗细接近，16dp 下也不糊。
+ */
+@Composable
+fun AiImageGlyph(
+    size: Dp,
+    tint: Color,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier.size(size)) {
+        val s = this.size.minDimension / 24f
+        val stroke = Stroke(width = 1.7f * s, cap = StrokeCap.Round, join = StrokeJoin.Round)
+
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(3.2f * s, 5.2f * s),
+            size = Size(17.6f * s, 13.6f * s),
+            cornerRadius = CornerRadius(3f * s, 3f * s),
+            style = stroke,
+        )
+        drawCircle(tint, radius = 1.5f * s, center = Offset(8.5f * s, 9.3f * s))
+        val hill = Path().apply {
+            moveTo(4.8f * s, 17.2f * s)
+            lineTo(9.6f * s, 11.8f * s)
+            lineTo(13.3f * s, 15.6f * s)
+            lineTo(15.7f * s, 13.2f * s)
+            lineTo(19.2f * s, 16.9f * s)
+        }
+        drawPath(hill, tint, style = stroke)
     }
 }

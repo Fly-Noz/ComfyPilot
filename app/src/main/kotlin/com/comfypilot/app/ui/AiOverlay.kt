@@ -141,8 +141,9 @@ fun AiFloatingOverlay(visible: Boolean) {
                 .clickableNoRipple { open = true },
             contentAlignment = Alignment.Center,
         ) {
-            // 玻璃球里用强调色而不是白字：浅色主题下白字压在浅色玻璃上几乎看不见。
-            AiGlyph(size = 28.dp, tint = c.accent)
+            // 球是半透明渐变：深色主题下用白（强调色压在紫红上几乎看不见），
+            // 浅色主题下玻璃发白，改用强调色的深紫。
+            AiGlyph(size = 28.dp, tint = if (c.isDark) Color.White else c.accent)
             if (!open && (AiRuntime.pending != null || AiRuntime.question != null)) {
                 Box(
                     modifier = Modifier
@@ -545,7 +546,10 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                             },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("图", color = if (attaching) c.textDim else c.textMuted, fontSize = 11.sp)
+                        AiImageGlyph(
+                            size = 17.dp,
+                            tint = if (attaching) c.textDim else c.textMuted,
+                        )
                     }
                     Box(
                         modifier = Modifier

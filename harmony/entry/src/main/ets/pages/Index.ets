@@ -7168,8 +7168,9 @@ struct Index {
   @Builder
   AiBall() {
     Stack() {
-      // 玻璃球里用强调色：浅色主题下白色图压在浅色玻璃上几乎看不见。
-      this.AiGlyph(28, this.c().accent, false)
+      // 球是半透明渐变：深色主题下用白（强调色压在紫红上几乎看不见），
+      // 浅色主题下玻璃发白，改用强调色的深紫。
+      this.AiGlyph(28, this.c().isDark ? '#FFFFFF' : this.c().accent, false)
       // 待处理红点：有未确认的改动、待回答的问题或报错时提示用户进去看。
       if (this.aiPending !== null || this.aiQuestion !== null || this.aiError.length > 0) {
         Circle()
@@ -7182,9 +7183,11 @@ struct Index {
     .width(46)
     .height(46)
     .borderRadius(23)
-    .backgroundColor(this.c().isDark ? '#33FFFFFF' : '#59FFFFFF')
-    .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
-    .border({ width: 1, color: '#4DFFFFFF' })
+    // 和 Android 一样的半透明渐变玻璃。原来用的是 backgroundBlurStyle 材质，
+    // 那个材质跟的是**系统**深浅色而不是应用主题：系统浅色 + 应用深色时，
+    // 整颗球会渲染成一块灰白色，和页面完全对不上。
+    .linearGradient({ angle: 135, colors: this.glassColors() })
+    .border({ width: 1, color: '#40FFFFFF' })
     .shadow({ radius: 14, color: 'rgba(0,0,0,0.35)', offsetY: 4 })
     .position({
       x: this.aiBallPX >= 0 ? this.aiBallPX : (this.aiSide === 1 ? this.aiWidth - 58 : 12),
@@ -7255,6 +7258,52 @@ struct Index {
         + ` ${(nums[i + 2] * k).toFixed(2)} ${(nums[i + 3] * k).toFixed(2)}`;
     }
     return out + ' Z ';
+  }
+
+  /** 悬浮球的玻璃色：渐变三段各取 0.55 透明度（0x8C），和 Android 那边一致。 */
+  private glassColors(): Array<[string, number]> {
+    const c = this.c();
+    return [
+      [this.glassTint(c.gradientStart), 0.0],
+      [this.glassTint(c.gradientMid), 0.55],
+      [this.glassTint(c.gradientEnd), 1.0],
+    ];
+  }
+
+  private glassTint(hex: string): string {
+    return '#8C' + hex.substring(1);
+  }
+
+  /**
+   * 附图按钮的图标：一张画（外框 + 太阳 + 山）。
+   *
+   * 原来是个「图」字，和旁边「↑」的图形按钮并排时一文字一图形，视觉上不齐，
+   * 单字在圆形按钮里也总要靠 padding 硬调。
+   *
+   * 全部描边、不填充，和 Android 的 AiImageGlyph 同一组 24 视口坐标。
+   */
+  @Builder
+  AiImageGlyph(size: number, tint: string) {
+    Path({ width: size, height: size, commands: this.imageCommands(size) })
+      .fill('#00000000')
+      .stroke(tint)
+      .strokeWidth(size / 16)
+      .strokeLineJoin(LineJoinStyle.Round)
+      .strokeLineCap(LineCapStyle.Round)
+  }
+
+  /** 圆角矩形 + 太阳 + 山，坐标同样按 px 换算。 */
+  private imageCommands(size: number): string {
+    const k: number = vp2px(size) / 24;
+    const f = (v: number): string => (v * k).toFixed(2);
+    return `M${f(6.2)} ${f(5.2)} L${f(17.8)} ${f(5.2)} Q${f(20.8)} ${f(5.2)} ${f(20.8)} ${f(8.2)}`
+      + ` L${f(20.8)} ${f(15.8)} Q${f(20.8)} ${f(18.8)} ${f(17.8)} ${f(18.8)}`
+      + ` L${f(6.2)} ${f(18.8)} Q${f(3.2)} ${f(18.8)} ${f(3.2)} ${f(15.8)}`
+      + ` L${f(3.2)} ${f(8.2)} Q${f(3.2)} ${f(5.2)} ${f(6.2)} ${f(5.2)} Z`
+      + ` M${f(10)} ${f(9.3)} A${f(1.5)} ${f(1.5)} 0 1 0 ${f(7)} ${f(9.3)}`
+      + ` A${f(1.5)} ${f(1.5)} 0 1 0 ${f(10)} ${f(9.3)} Z`
+      + ` M${f(4.8)} ${f(17.2)} L${f(9.6)} ${f(11.8)} L${f(13.3)} ${f(15.6)}`
+      + ` L${f(15.7)} ${f(13.2)} L${f(19.2)} ${f(16.9)}`;
   }
 
   /** 三个呼吸点：比一行「正在请求模型…」更像在说话。 */
@@ -7637,16 +7686,15 @@ struct Index {
               .padding({ left: 12, right: 12, bottom: 6 })
             }
             Row({ space: 8 }) {
-              Text('图')
-                .fontSize(11)
-                .fontColor(this.aiAttachBusy ? this.c().textDim : this.c().textMuted)
-                .width(34)
-                .height(34)
-                .textAlign(TextAlign.Center)
-                .backgroundColor(this.c().card)
-                .borderRadius(17)
-                .border({ width: 1, color: this.c().border })
-                .onClick(() => { this.aiAttachImage(); })
+              Stack() {
+                this.AiImageGlyph(17, this.aiAttachBusy ? this.c().textDim : this.c().textMuted)
+              }
+              .width(34)
+              .height(34)
+              .backgroundColor(this.c().card)
+              .borderRadius(17)
+              .border({ width: 1, color: this.c().border })
+              .onClick(() => { this.aiAttachImage(); })
               TextInput({ text: this.aiInput, placeholder: '让 AI 改参数、开关节点…' })
                 .layoutWeight(1)
                 .height(40)

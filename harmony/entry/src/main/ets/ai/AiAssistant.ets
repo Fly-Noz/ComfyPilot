@@ -193,6 +193,13 @@ export class AiAssistant {
   /** 全部会话；当前会话的 messages/actions 在 persist 时同步进来。 */
   private sessions: AiSession[] = [];
   private activeId: string = '';
+  /**
+   * 草稿会话：每次启动都开一个新对话，但用户真正发第一条消息之前不写进 sessions。
+   *
+   * 之前启动就把「新会话」建出来落盘，反复打开又不用，历史里会堆一串空会话。
+   * 现在草稿只活在内存里：发消息时 materializeDraft() 才转正并参与持久化。
+   */
+  private draftId: string = '';
 
   async open(context: common.Context): Promise<void> {
     try {
@@ -248,9 +255,35 @@ export class AiAssistant {
         updatedAt: Date.now(),
       }];
     }
-    this.activeId = this.sessions[0].id;
-    this.messages = [...this.sessions[0].messages];
-    this.actions = [...this.sessions[0].actions];
+    // 不再把上一轮会话顶到前台：每次打开应用都是新的一轮，历史留在列表里。
+    this.startDraft();
+  }
+
+  /** 开一个新对话，先不落盘；用户发第一条消息时才加入历史。 */
+  private startDraft(): void {
+    this.draftId = this.newSessionId();
+    this.activeId = this.draftId;
+    this.messages = [];
+    this.actions = [];
+    this.pending = null;
+    this.question = null;
+    this.error = '';
+  }
+
+  /** 用户真的用了这轮对话：把它转正，之后才会被持久化。 */
+  private materializeDraft(): void {
+    if (this.draftId.length === 0) {
+      return;
+    }
+    const session: AiSession = {
+      id: this.draftId,
+      title: this.titleFor(this.messages),
+      messages: this.messages.slice(-40),
+      actions: this.actions.slice(-50),
+      updatedAt: Date.now(),
+    };
+    this.sessions = [...this.sessions, session].slice(-20);
+    this.draftId = '';
   }
 
   private newSessionId(): string {
@@ -283,7 +316,7 @@ export class AiAssistant {
 
   sessionInfos(): AiSessionInfo[] {
     this.syncActiveSession();
-    return this.sessions
+    const saved: AiSessionInfo[] = this.sessions
       .slice()
       .sort((a: AiSession, b: AiSession) => b.updatedAt - a.updatedAt)
       .map((item: AiSession): AiSessionInfo => {
@@ -295,24 +328,23 @@ export class AiAssistant {
         };
         return info;
       });
+    // 草稿虽然还没落盘，但它就是「当前这一轮」，列表里不出现的话看起来一个都没选中。
+    if (this.draftId.length === 0) {
+      return saved;
+    }
+    const draftInfo: AiSessionInfo = {
+      id: this.draftId,
+      title: '新会话',
+      updatedAt: Date.now(),
+      active: true,
+    };
+    return [draftInfo, ...saved];
   }
 
+  /** 新对话同样先当草稿：没聊就走，历史里不会多出一条空的。 */
   newSession(): void {
     this.syncActiveSession();
-    const session: AiSession = {
-      id: this.newSessionId(),
-      title: '新会话',
-      messages: [],
-      actions: [],
-      updatedAt: Date.now(),
-    };
-    this.sessions = [...this.sessions, session].slice(-20);
-    this.activeId = session.id;
-    this.messages = [];
-    this.actions = [];
-    this.pending = null;
-    this.question = null;
-    this.error = '';
+    this.startDraft();
     this.bump();
   }
 
@@ -322,6 +354,8 @@ export class AiAssistant {
       return;
     }
     this.syncActiveSession();
+    // 离开草稿就丢掉它：本来就没落盘，也没有内容可留。
+    this.draftId = '';
     this.activeId = id;
     this.messages = [...target.messages];
     this.actions = [...target.actions];
@@ -332,6 +366,12 @@ export class AiAssistant {
   }
 
   deleteSession(id: string): void {
+    if (id === this.draftId) {
+      // 删的是还没用过的新对话：重新开一个草稿就行，历史不用动。
+      this.startDraft();
+      this.bump();
+      return;
+    }
     const remaining = this.sessions.filter((item: AiSession) => item.id !== id);
     if (remaining.length === 0) {
       this.sessions = [];
@@ -429,6 +469,8 @@ export class AiAssistant {
     // 上次这个模型明确拒绝过图片，就不再重复撞墙，只发文件名。
     this.pendingImages = this.visionOffModel === this.config.model ? [] : images;
     this.messages = [...this.messages, { role: 'user', content: prompt }];
+    // 第一条用户消息落地，这轮对话才算真的用过；bump 会顺带落盘。
+    this.materializeDraft();
     this.bump();
     const history = this.messages.slice(0, this.messages.length - 1);
     const first = this.startAction(host, history, this.buildTurn(prompt));
