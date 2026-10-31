@@ -93,19 +93,4 @@ class UpdateManifestTest {
         assertNull(UpdateCheck.parse("""{"versionCode":4}"""))
         assertIs<UpdateVerdict.Unavailable>(UpdateCheck.evaluate("{}", UpdateCheck.PLATFORM_ANDROID, 3))
     }
-
-    @Test
-    fun `dialog is suppressed only for versions the user already skipped`() {
-        val verdict = UpdateCheck.evaluate(manifest, UpdateCheck.PLATFORM_ANDROID, 3)
-        assertTrue(UpdateCheck.shouldPrompt(verdict, skippedVersionCode = 0))
-        assertTrue(UpdateCheck.shouldPrompt(verdict, skippedVersionCode = 3))
-        // 用户点过「稍后」的正是 4，就不再弹。
-        assertFalse(UpdateCheck.shouldPrompt(verdict, skippedVersionCode = 4))
-    }
-
-    @Test
-    fun `up to date never prompts`() {
-        val verdict = UpdateCheck.evaluate(manifest, UpdateCheck.PLATFORM_ANDROID, 4)
-        assertFalse(UpdateCheck.shouldPrompt(verdict, skippedVersionCode = 0))
-    }
 }

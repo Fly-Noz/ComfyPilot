@@ -22,14 +22,14 @@ import java.util.concurrent.TimeUnit
  * **源站是 Gitee**：GitHub 在国内时通时不通，更新检查跟着一起失效的话，
  * 用户永远看不到新版本。GitHub 只做第二条源，Gitee 拿不到时才试。
  *
- * 判定口径在共享层 `UpdateCheck`，这里只负责发请求、存「用户跳过的版本」、开浏览器。
+ * 判定口径在共享层 `UpdateCheck`，这里只负责发请求、开浏览器。
+ *
+ * 不记「用户已经跳过哪个版本」：每次冷启动都重新查，有新版就弹，没有就一声不响。
+ * 点「稍后」只是关掉这一次，下次打开还会提——这是有意的，免得用户错过版本。
  */
 object UpdateCenter {
     private const val GITEE = "https://gitee.com/Fly-Noz/ComfyPilot/raw/main/update.json"
     private const val GITHUB = "https://raw.githubusercontent.com/Fly-Noz/ComfyPilot/main/update.json"
-
-    private const val PREFS = "update_state"
-    private const val KEY_SKIPPED = "skipped_version"
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
@@ -68,12 +68,9 @@ object UpdateCenter {
                     notes = verdict.manifest.notes,
                     links = verdict.links,
                 )
-                if (manual) {
-                    pending = prompt
-                    manualNote = "发现新版本 ${prompt.versionName}"
-                } else if (UpdateCheck.shouldPrompt(verdict, skippedVersion(app))) {
-                    pending = prompt
-                }
+                // 启动检查和手动检查都直接弹：不记住「说过稍后」，下次打开照提。
+                pending = prompt
+                if (manual) manualNote = "发现新版本 ${prompt.versionName}"
             }
 
             is UpdateVerdict.UpToDate -> if (manual) manualNote = "已是最新版本 ${verdict.versionName}"
@@ -83,16 +80,6 @@ object UpdateCenter {
 
     /** 关掉弹窗但不记住版本：下次冷启动还会提。 */
     fun dismiss() {
-        pending = null
-    }
-
-    /** 「稍后」：记下这个版本，下个版本发布前不再弹。 */
-    fun skip(context: Context, versionCode: Int) {
-        context.applicationContext
-            .getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putInt(KEY_SKIPPED, versionCode)
-            .apply()
         pending = null
     }
 
@@ -115,9 +102,6 @@ object UpdateCenter {
     fun currentVersionName(context: Context): String = runCatching {
         context.packageManager.getPackageInfo(context.packageName, 0).versionName
     }.getOrNull().orEmpty().ifBlank { "?" }
-
-    private fun skippedVersion(context: Context): Int =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_SKIPPED, 0)
 
     private fun fetch(currentCode: Int): UpdateVerdict {
         for (url in listOf(GITEE, GITHUB)) {

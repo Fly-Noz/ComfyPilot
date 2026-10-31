@@ -249,7 +249,7 @@ fun ComfyPilotApp(
                 UpdateDialog(
                     prompt = prompt,
                     onDismiss = { UpdateCenter.dismiss() },
-                    onSkip = { UpdateCenter.skip(context, prompt.versionCode) },
+                    onLater = { UpdateCenter.dismiss() },
                     onOpen = { UpdateCenter.open(context, it) },
                 )
             }

@@ -34,13 +34,13 @@ import com.comfypilot.app.update.UpdatePrompt
  * 发现新版本。
  *
  * 两个下载入口都给出来，让用户自己选：Gitee 国内直连快，GitHub 是原始发布页。
- * 「稍后」记下这个版本号，下一次发版前不再打扰。
+ * 「稍后」只关掉这一次，不记录：下次打开应用还会提醒。
  */
 @Composable
 fun UpdateDialog(
     prompt: UpdatePrompt,
     onDismiss: () -> Unit,
-    onSkip: () -> Unit,
+    onLater: () -> Unit,
     onOpen: (String) -> Unit,
 ) {
     val c = Spectrum.colors
@@ -99,7 +99,7 @@ fun UpdateDialog(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                GhostButton(text = "稍后", onClick = onSkip, height = 40.dp)
+                GhostButton(text = "稍后", onClick = onLater, height = 40.dp)
                 Spacer(Modifier.weight(1f))
                 if (!github.isNullOrBlank()) {
                     GhostButton(

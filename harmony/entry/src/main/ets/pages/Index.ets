@@ -520,8 +520,7 @@ struct Index {
   aboutToAppear(): void {
     // 从相册选择器或后台回来时页面重新可见：恢复性能轮询（此时连接可能还活着）。 
     this.statsPaused = false;
-    // 启动时静默查一次更新：有新版才弹，网络失败不打扰。
-    PersistentStorage.persistProp('updateSkippedVersion', 0);
+    // 每次打开都查一次：有新版才弹，没新版或网络失败一声不响。
     this.checkUpdateSilently();
     if (this.running) {
       this.startStatsPolling();
@@ -3058,7 +3057,7 @@ struct Index {
     promptAction.showToast({ message: result.message, duration: 1800 });
   }
 
-  /** 启动静默检查：只在真有新版、且用户没对这个版本点过「稍后」时才弹。 */
+  /** 启动检查：有新版就弹，没有就完全安静（不 toast、不写状态）。 */
   private async checkUpdateSilently(): Promise<void> {
     if (this.updateChecking) {
       return;
@@ -3069,17 +3068,13 @@ struct Index {
     if (!result.available) {
       return;
     }
-    const skipped: number = AppStorage.get<number>('updateSkippedVersion') ?? 0;
-    if (result.versionCode <= skipped) {
-      return;
-    }
+    this.updateNote = result.message;
     this.update = result;
     this.updateOpen = true;
   }
 
-  /** 「稍后」：记住这个版本号，下次发版前不再打扰。 */
-  private skipUpdate(): void {
-    AppStorage.setOrCreate('updateSkippedVersion', this.update.versionCode);
+  /** 「稍后」：只关掉这一次，不记录——下次打开还会提醒。 */
+  private dismissUpdate(): void {
     this.updateOpen = false;
   }
 
@@ -8681,7 +8676,7 @@ struct Index {
           .borderRadius(10)
           .border({ width: 1, color: this.c().border })
           .onClick(() => {
-            this.skipUpdate();
+            this.dismissUpdate();
           })
         Blank()
         if (this.update.github.length > 0) {

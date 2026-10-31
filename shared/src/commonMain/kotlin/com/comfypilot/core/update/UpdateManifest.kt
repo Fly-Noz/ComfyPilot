@@ -108,13 +108,6 @@ object UpdateCheck {
         }
         return UpdateVerdict.Available(manifest, manifest.linksFor(platform))
     }
-
-    /**
-     * 启动时的静默检查要不要弹窗。
-     * 用户点过「稍后」的版本不再提，直到下一次发版——否则每次冷启动都弹一遍。
-     */
-    fun shouldPrompt(verdict: UpdateVerdict, skippedVersionCode: Int): Boolean =
-        verdict is UpdateVerdict.Available && verdict.manifest.versionCode > skippedVersionCode
 }
 
 private fun JsonObject.str(key: String): String? =
