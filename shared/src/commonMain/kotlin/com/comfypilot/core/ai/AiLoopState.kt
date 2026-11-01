@@ -160,7 +160,9 @@ class AiLoopState(
         if (finished) return AiLoopStep.Done(AiDoneReason.STOPPED, answer)
         if (!awaiting) return AiLoopStep.Done(AiDoneReason.ERROR, "还没有发出请求，收到了意外的回复")
         awaiting = false
-        turns += message
+        // 兼容层：宿主给的 message 可能漏字段（流式拼装时 role/type 最容易漏），
+        // 原样回填会让下一轮请求被服务端拒（missing field `role` / `type`）。
+        turns += normalizedReply(message)
 
         val calls = parseCalls(message)
         if (calls.isEmpty()) {
@@ -301,6 +303,26 @@ class AiLoopState(
         val tools: JsonArray by lazy {
             Json.parseToJsonElement(AiToolSpec.json) as JsonArray
         }
+    }
+    /** 补齐会原样回填进下一轮请求的字段：assistant 的 role、tool_calls 的 type。 */
+    private fun normalizedReply(message: JsonObject): JsonObject {
+        val withRole = if (message["role"] == null) {
+            JsonObject(message + ("role" to JsonPrimitive("assistant")))
+        } else {
+            message
+        }
+        val calls = withRole["tool_calls"] as? JsonArray ?: return withRole
+        val fixed = JsonArray(
+            calls.map { element ->
+                val obj = element as? JsonObject
+                if (obj == null || obj["type"] != null) {
+                    element
+                } else {
+                    JsonObject(obj + ("type" to JsonPrimitive("function")))
+                }
+            },
+        )
+        return JsonObject(withRole + ("tool_calls" to fixed))
     }
 }
 

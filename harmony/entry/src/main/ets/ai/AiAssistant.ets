@@ -1312,9 +1312,10 @@ export class AiAssistant {
       }
       const toolCalls: AiToolCall[] = [];
       state.calls.forEach((call: StreamToolCall) => {
-        toolCalls.push({ id: call.id, function: { name: call.name, arguments: call.args } });
+        toolCalls.push({ id: call.id, type: 'function', function: { name: call.name, arguments: call.args } });
       });
-      return { content: state.content, tool_calls: toolCalls };
+      // 必须带 role：工具往返后这条会原样进入下一轮请求，缺 role 会被服务端 422 拒绝。
+      return { role: 'assistant', content: state.content, tool_calls: toolCalls };
     } catch (err) {
       this.log(`stream fallback: ${(err as Error).message}`);
       return null;
@@ -1437,10 +1438,12 @@ interface AiToolFunction {
 
 interface AiToolCall {
   id?: string;
+  type?: string;
   function: AiToolFunction;
 }
 
 interface AiResponseMessage {
+  role?: string;
   content?: string;
   tool_calls?: AiToolCall[];
 }
