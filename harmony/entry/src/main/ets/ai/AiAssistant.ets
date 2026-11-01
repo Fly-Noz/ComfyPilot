@@ -1081,6 +1081,17 @@ export class AiAssistant {
           `「${wroteLocal}」写的是手机上的原文件名，服务器上没有这张图；先调用 upload_image（index 或 name）拿到服务器文件名再写`,
         )}}`;
       }
+      // 切图组/切工作流是导航：立即执行，不进「应用 / 应用并提交」确认框。
+      if (this.navigationOnlyProposal(args)) {
+        const nav = host.applyProposal(args);
+        if (!nav.ok) {
+          return `{"ok":false,"errors":${JSON.stringify(nav.errors.join('；'))}}`;
+        }
+        this.actions = [...this.actions, ...nav.changes].slice(-50);
+        this.messages = [...this.messages, { role: 'assistant', content: `已切换：${summary}` }];
+        this.bump();
+        return '{"ok":true,"applied":true,"navigated":true,"hint":"已切换；继续改参数/提示词，改完再单独 submit"}';
+      }
       if (this.config.autoSubmit) {
         const outcome = host.applyProposal(args);
         if (!outcome.ok) {
@@ -1209,6 +1220,26 @@ export class AiAssistant {
       if (name.length > 0 && this.knownLocalImages.indexOf(name) < 0) {
         this.knownLocalImages.push(name);
       }
+    }
+  }
+
+  /** 提案是否只包含导航操作（select_graphs / open_workflow）。 */
+  private navigationOnlyProposal(proposalJson: string): boolean {
+    try {
+      const proposal = JSON.parse(proposalJson) as Record<string, Object>;
+      const ops = (proposal.ops as Record<string, Object>[]) ?? [];
+      if (ops.length === 0) {
+        return false;
+      }
+      for (let i = 0; i < ops.length; i++) {
+        const op = ops[i].op as string;
+        if (op !== 'select_graphs' && op !== 'open_workflow') {
+          return false;
+        }
+      }
+      return true;
+    } catch (err) {
+      return false;
     }
   }
 

@@ -41,6 +41,16 @@ data class AiApplyResult(
 
 object AiEdits {
 
+    /**
+     * 导航类提案：只切图组/切工作流，不改数据。
+     *
+     * 这类提案不能走「应用 / 应用并提交」确认框：用户点「应用并提交」会把切换和提交
+     * 绑在一起，结果常常是什么都没改就提交了一张旧图。导航应当立即执行。
+     */
+    fun isNavigationOnly(proposal: AiProposal): Boolean =
+        proposal.ops.isNotEmpty() &&
+            proposal.ops.all { it is AiOp.SelectGraphs || it is AiOp.OpenWorkflow }
+
     /** 解析模型输出的 JSON；结构不合法时返回 null，交给上层提示重试。 */
     fun parse(raw: String): AiProposal? = runCatching {
         val root = Json.parseToJsonElement(raw).jsonObject

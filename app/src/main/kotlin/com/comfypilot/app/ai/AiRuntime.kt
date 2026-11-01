@@ -1119,6 +1119,25 @@ object AiRuntime {
                                 put("ok", false)
                                 put("errors", result.errors.joinToString("；"))
                             }.toString()
+                        } else if (AiEdits.isNavigationOnly(proposal)) {
+                            // 切图组/切工作流是导航，不进确认框：立即执行，也不带提交。
+                            val applied = currentHost.applyEdit(result.state)
+                            if (!applied.ok) {
+                                buildJsonObject {
+                                    put("ok", false)
+                                    put("errors", applied.errors.joinToString("；"))
+                                }.toString()
+                            } else {
+                                result.openWorkflow?.let { currentHost.openWorkflow(it) }
+                                actions = actions + result.changes.map { it.label }
+                                messages = messages + AiChatMessage("assistant", "已切换：${proposal.summary}")
+                                buildJsonObject {
+                                    put("ok", true)
+                                    put("applied", true)
+                                    put("navigated", true)
+                                    put("hint", "已切换；继续改参数/提示词，改完再单独 submit")
+                                }.toString()
+                            }
                         } else if (config.autoSubmit) {
                             val applied = currentHost.applyEdit(result.state)
                             if (!applied.ok) {

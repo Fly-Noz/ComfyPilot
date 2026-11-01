@@ -5,6 +5,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -104,6 +105,18 @@ class AiEditsTest {
         // 连线驱动的字段被拒时，错误信息要指向上游节点，模型才知道去哪改。
         val error = AiEdits.apply(view(), AiEditState(), linked).errors.single()
         assertTrue(error.contains("由 #7 提供"), error)
+    }
+
+    @Test
+    fun `navigation only proposals are detected`() {
+        val nav = AiEdits.parse("""{"summary":"切图","ops":[{"op":"select_graphs","graphs":["c13"]}]}""")
+        assertTrue(AiEdits.isNavigationOnly(assertNotNull(nav)))
+
+        val mixed = AiEdits.parse(
+            """{"summary":"切图并改步数","ops":[{"op":"select_graphs","graphs":["c13"]},{"op":"set_input","node":195,"input":"steps","value":8}]}""",
+        )
+        // 一旦混入真实修改，就必须走确认框（否则「应用并提交」会连切换一起提交）。
+        assertFalse(AiEdits.isNavigationOnly(assertNotNull(mixed)))
     }
 
     @Test
