@@ -179,6 +179,12 @@ private fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier =
 fun AiChatDialog(onDismiss: () -> Unit) {
     val c = Spectrum.colors
     var snapshot by remember { mutableStateOf(AiRuntime.snapshot()) }
+    // 运行时在协程里改状态（工具步骤、等任务结果）时不会自己触发重组；
+    // 挂一个回调把最新快照推进来，否则界面会一直停在「等待任务结果…」。
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        AiRuntime.onChange = { snapshot = AiRuntime.snapshot() }
+        onDispose { AiRuntime.onChange = null }
+    }
     var input by remember { mutableStateOf("") }
     var scopeOpen by remember { mutableStateOf(false) }
     var sessionsOpen by remember { mutableStateOf(false) }

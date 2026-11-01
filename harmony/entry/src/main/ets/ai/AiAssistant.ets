@@ -429,9 +429,23 @@ export class AiAssistant {
     store.flush();
   }
 
+  /** 页面订阅：异步完成（等任务结果、循环结束）后把状态推给界面。 */
+  changeSink: (() => void) | null = null;
+  private notifying: boolean = false;
+
   bump(): number {
     this.version++;
     this.persist();
+    const sink = this.changeSink;
+    if (sink !== null && !this.notifying) {
+      // 页面回调里会再调 bump（syncAi 开头就调），用标志位挡住递归。
+      this.notifying = true;
+      try {
+        sink();
+      } finally {
+        this.notifying = false;
+      }
+    }
     return this.version;
   }
 

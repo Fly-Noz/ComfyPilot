@@ -971,6 +971,8 @@ struct Index {
     // AI 循环、消息拼装、工具分派都在共享层；ArkTS 只执行 HTTP 与宿主动作。
     this.ai.stepFn = (request: string) => this.bridge.aiStep(request);
     this.ai.sendFn = (request: string) => this.bridge.aiSend(request);
+    // 异步完成（等任务结果、循环结束）后推进界面；syncAi 里会再调 bump，靠标志位防递归。
+    this.ai.changeSink = () => { this.syncAi(); };
     // 真正把一张图 POST 到 ComfyUI /upload/image；只有 AI 调 upload_image 时才会走到。
     this.ai.uploadImageFn = async (bytes: Uint8Array, filename: string): Promise<string> => {
       const base: string = this.normalizedBaseUrl();
@@ -7152,7 +7154,7 @@ struct Index {
 
   /** 把 AI 会话里会被界面读到的字段搬进 @State；见 aiMessages 处的说明。 */
   private syncAi(): void {
-    this.ai.bump();
+    // 不再在这里 bump：bump 会回调 changeSink，而 sink 就是本方法，nest 两层没意义。
     this.aiMessages = [...this.ai.messages];
     this.aiActions = [...this.ai.actions];
     this.aiBusy = this.ai.busy;

@@ -310,6 +310,13 @@ object AiRuntime {
     /** 当前步骤（给界面替代三个点）：请求模型 / 执行某个工具。 */
     private var activity: String = ""
 
+    /** 界面订阅：运行时在协程里改了状态就推一份新快照过去。 */
+    var onChange: (() -> Unit)? = null
+
+    private fun notifyUi() {
+        onChange?.invoke()
+    }
+
     /** 上一次 AI 修改前的编辑状态；用于「撤销这次修改」。 */
     private var undoState: AiEditState? = null
     private var canUndo: Boolean = false
@@ -682,6 +689,7 @@ object AiRuntime {
                 job = scope.launch {
                     busy = true
                     activity = "等待任务结果…"
+                    notifyUi()
                     val task = runCatching { currentHost.taskSummary(60) }.getOrDefault("[]")
                     busy = false
                     activity = ""
@@ -692,6 +700,7 @@ object AiRuntime {
                         aiLog("task failed: ${report.detail.take(200)}")
                     }
                     persistConversation()
+                    notifyUi()
                 }
             }
         } else {
@@ -791,6 +800,7 @@ object AiRuntime {
         job = null
         busy = false
         activity = ""
+        notifyUi()
         error = "已停止"
     }
 
@@ -806,6 +816,7 @@ object AiRuntime {
             when (step) {
                 is AiLoopStep.Http -> {
                     activity = "第 ${loop.round} 轮 · 请求模型…"
+                    notifyUi()
                     val message = try {
                         postModel(step.body)
                     } catch (err: Throwable) {
@@ -832,6 +843,7 @@ object AiRuntime {
 
                 is AiLoopStep.CallTool -> {
                     activity = "执行 ${step.name}…"
+                    notifyUi()
                     val result = executeTool(step.name, step.args, currentHost)
                     // 工具执行会改 pending / question；循环靠这两个标志决定停不停。
                     if (pending != null) loop.markPending()
@@ -849,6 +861,7 @@ object AiRuntime {
 
     private fun finishLoop(step: AiLoopStep.Done) {
         activity = ""
+        notifyUi()
         when (step.reason) {
             AiDoneReason.ANSWER ->
                 messages = messages + AiChatMessage("assistant", step.text.orEmpty().ifBlank { "（空响应）" })
