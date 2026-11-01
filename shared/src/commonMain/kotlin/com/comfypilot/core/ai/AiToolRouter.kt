@@ -10,6 +10,7 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
@@ -183,11 +184,39 @@ object AiToolRouter {
      * 鸿蒙在 `cp_ai_send` 之后调用它，不需要在 ArkTS 里抄文案。
      */
     fun formatResult(name: String, rawJson: String): String = when (name) {
-        "submit" -> if (ok(rawJson)) SUBMITTED else SUBMIT_REJECTED
+        "submit" -> formatSubmit(rawJson)
         "host_status" -> formatHostStatus(rawJson)
         "list_models" -> formatModels(rawJson)
         "upload_image" -> formatUpload(rawJson)
         else -> rawJson
+    }
+
+    /**
+     * 提交结果 → 连同刚等到的那次任务结果一起给模型。
+     *
+     * 只回「已排队」时，模型要么反复调 task_status，要么直接说「已完成」。带上 state/error，
+     * 成功就能收尾，失败能当场看到原因（例如某个节点的值不在候选里）并去修。
+     */
+    private fun formatSubmit(rawJson: String): String {
+        if (!ok(rawJson)) return SUBMIT_REJECTED
+        val root = runCatching { Json.parseToJsonElement(rawJson) as? JsonObject }.getOrNull()
+            ?: return SUBMITTED
+        val task = root["task"]?.let { runCatching { it.jsonArray.lastOrNull() }.getOrNull() } ?: return SUBMITTED
+        val obj = task as? JsonObject ?: return SUBMITTED
+        val state = (obj["state"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+        val error = (obj["error"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+        val done = state.lowercase() in setOf("completed", "success", "succeeded", "finished")
+        return buildJsonObject {
+            put("ok", true)
+            put("queued", true)
+            if (state.isNotBlank()) put("taskState", state)
+            if (error.isNotBlank()) put("error", error)
+            put(
+                "hint",
+                if (done) "任务已成功：把产物文件名报给用户，不要继续改"
+                else "看 state/error 定位问题：能修就改完再 submit；修不了就把原因告诉用户，别反复重试",
+            )
+        }.toString()
     }
 
     /**

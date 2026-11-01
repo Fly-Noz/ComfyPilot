@@ -152,6 +152,8 @@ data class AiSnapshot(
     val config: AiConfig,
     /** 有可撤销的 AI 修改。 */
     val canUndo: Boolean = false,
+    /** 当前正在做什么（"请求模型" / "执行 get_node"），替代三个点。 */
+    val activity: String = "",
 )
 
 data class AiPendingEdit(
@@ -295,6 +297,9 @@ object AiRuntime {
     private val uploadedRefs = mutableMapOf<String, String>()
     /** 明确拒绝过图片的模型名；下次直接跳过图片，省一次失败请求。 */
     private var visionOffModel: String = ""
+
+    /** 当前步骤（给界面替代三个点）：请求模型 / 执行某个工具。 */
+    private var activity: String = ""
 
     /** 上一次 AI 修改前的编辑状态；用于「撤销这次修改」。 */
     private var undoState: AiEditState? = null
@@ -537,7 +542,7 @@ object AiRuntime {
     }
 
     fun snapshot(): AiSnapshot =
-        AiSnapshot(actions, messages, pending, question, busy, error, tokenEstimate, config, canUndo)
+        AiSnapshot(actions, messages, pending, question, busy, error, tokenEstimate, config, canUndo, activity)
 
     /**
      * 发一轮对话。
@@ -725,6 +730,7 @@ object AiRuntime {
         job?.cancel()
         job = null
         busy = false
+        activity = ""
         error = "已停止"
     }
 
@@ -739,6 +745,7 @@ object AiRuntime {
         while (true) {
             when (step) {
                 is AiLoopStep.Http -> {
+                    activity = "第 ${loop.round} 轮 · 请求模型…"
                     val message = try {
                         postModel(step.body)
                     } catch (err: Throwable) {
@@ -764,6 +771,7 @@ object AiRuntime {
                 }
 
                 is AiLoopStep.CallTool -> {
+                    activity = "执行 ${step.name}…"
                     val result = executeTool(step.name, step.args, currentHost)
                     // 工具执行会改 pending / question；循环靠这两个标志决定停不停。
                     if (pending != null) loop.markPending()
@@ -780,6 +788,7 @@ object AiRuntime {
     }
 
     private fun finishLoop(step: AiLoopStep.Done) {
+        activity = ""
         when (step.reason) {
             AiDoneReason.ANSWER ->
                 messages = messages + AiChatMessage("assistant", step.text.orEmpty().ifBlank { "（空响应）" })
@@ -839,9 +848,12 @@ object AiRuntime {
 
             override fun submit(): AiToolOutcome {
                 val ok = currentHost.submitCurrent()
+                if (!ok) return AiToolOutcome.Value("""{"ok":false}""")
                 // 操作记录跟着提交走：路由器的 submit 分支只拿结果，记一笔得在这里。
-                if (ok) actions = actions + "提交任务"
-                return AiToolOutcome.Value("""{"ok":$ok}""")
+                actions = actions + "提交任务"
+                // 提交后等一会儿结果：成功模型就能收尾，失败能拿着 error 去修，不必再猜。
+                val task = runCatching { currentHost.taskSummary(45) }.getOrDefault("[]")
+                return AiToolOutcome.Value("""{"ok":true,"task":$task}""")
             }
 
             override fun openWorkflow(path: String): AiToolOutcome {

@@ -378,7 +378,7 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                     AiMessageBubble(message = message, modifier = Modifier.animateItem())
                 }
                 if (snapshot.busy) {
-                    item { AiTypingBubble(modifier = Modifier.animateItem()) }
+                    item { AiTypingBubble(activity = snapshot.activity, modifier = Modifier.animateItem()) }
                 }
                 // 模型没有流式输出，「思考过程」能看见的只有工具往返；收成一张折叠卡，
                 // 忙碌时自动展开，平时不占地方。
@@ -983,7 +983,7 @@ private fun AiMessageBubble(message: AiChatMessage, modifier: Modifier = Modifie
 
 /** 等待模型时的三个呼吸点：比转圈更轻，和"正在说话"的语义对得上。 */
 @Composable
-private fun AiTypingBubble(modifier: Modifier = Modifier) {
+private fun AiTypingBubble(activity: String = "", modifier: Modifier = Modifier) {
     val c = Spectrum.colors
     val transition = rememberInfiniteTransition(label = "typing")
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
@@ -997,22 +997,27 @@ private fun AiTypingBubble(modifier: Modifier = Modifier) {
                 .padding(horizontal = 13.dp, vertical = 11.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            repeat(3) { index ->
-                val alpha by transition.animateFloat(
-                    initialValue = 0.2f,
-                    targetValue = 1f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(durationMillis = 520, delayMillis = index * 140),
-                        repeatMode = RepeatMode.Reverse,
-                    ),
-                    label = "dot-$index",
-                )
-                Box(
-                    modifier = Modifier
-                        .size(4.dp)
-                        .clip(CircleShape)
-                        .background(c.textDim.copy(alpha = alpha)),
-                )
+            if (activity.isNotBlank()) {
+                // 能说清在干什么时就不晃三个点了：模型没有流式输出，这行字就是"过程"。
+                Text(text = activity, color = c.textMuted, fontSize = 11.5.sp)
+            } else {
+                repeat(3) { index ->
+                    val alpha by transition.animateFloat(
+                        initialValue = 0.2f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(durationMillis = 520, delayMillis = index * 140),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                        label = "dot-$index",
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(4.dp)
+                            .clip(CircleShape)
+                            .background(c.textDim.copy(alpha = alpha)),
+                    )
+                }
             }
         }
     }

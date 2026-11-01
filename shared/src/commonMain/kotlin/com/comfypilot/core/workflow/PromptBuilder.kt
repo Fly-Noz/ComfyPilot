@@ -301,6 +301,17 @@ object PromptBuilder {
                 problems += BuildProblem(node.id, node.type, "字段 ${declared.name} 由连线提供，不能覆盖")
                 continue
             }
+            // 会话里存下来的旧值可能已经不在候选里（换模型/换节点版本），直接拒绝比提交后被
+            // 服务端整批打回更好定位。
+            val text = (value as? JsonPrimitive)?.contentOrNull
+            if (declared.options.isNotEmpty() && text != null && text !in declared.options) {
+                problems += BuildProblem(
+                    node.id,
+                    node.type,
+                    "字段 ${declared.name} 的值「$text」不在候选列表里（候选：${declared.options.take(6).joinToString("、")}）",
+                )
+                continue
+            }
             inputs[declared.name] = value
             // 控件值原本缺失时，上面的读取会记一条问题；覆盖之后这条问题不再成立。
             problems.removeAll {
@@ -473,11 +484,53 @@ internal object WidgetValueReader {
         warnings: MutableList<String>,
     ): Map<String, JsonElement> {
         if (defs.isEmpty()) return emptyMap()
-        return if (node.hasWidgetValuesNamed) {
+        val raw = if (node.hasWidgetValuesNamed) {
             readNamed(node, defs, problems)
         } else {
             readPositional(node, defs, problems, warnings)
         }
+        return sanitizeOptions(node, defs, raw, problems, warnings)
+    }
+
+    /**
+     * 下拉框的值必须落在候选里。
+     *
+     * 选项会随自定义节点版本、模型文件或语言变化（例如 `16:9 (Landscape Widescreen)` →
+     * `16:9 (Widescreen)`）。旧工作流或旧会话存下的值提交时会被服务端整批拒绝
+     * （Value not in list），这里提前换回默认值并留一条告警。
+     */
+    private fun sanitizeOptions(
+        node: UiNode,
+        defs: List<NodeInputDef>,
+        values: Map<String, JsonElement>,
+        problems: MutableList<BuildProblem>,
+        warnings: MutableList<String>,
+    ): Map<String, JsonElement> {
+        val defByName = defs.associateBy { it.name }
+        val out = LinkedHashMap<String, JsonElement>()
+        for ((name, value) in values) {
+            val def = defByName[name]
+            val text = (value as? JsonPrimitive)?.contentOrNull
+            // imageUpload 的候选是服务器当前的文件列表，本来就会超出定义里的快照；
+            // dynamic 附加控件的候选也随当前选项变化，两者都不能拿旧候选去卡。
+            if (
+                def == null || def.options.isEmpty() || def.imageUpload || def.dynamic ||
+                text == null || text in def.options
+            ) {
+                out[name] = value
+                continue
+            }
+            val fallback = def.defaultValue?.takeIf { it !is JsonNull }
+                ?: def.options.firstOrNull()?.let { JsonPrimitive(it) }
+            if (fallback == null) {
+                problems += BuildProblem(node.id, node.type, "字段 $name 的值「$text」不在候选列表里")
+            } else {
+                out[name] = fallback
+                val shown = (fallback as? JsonPrimitive)?.contentOrNull ?: fallback.toString()
+                warnings += "节点 ${node.title}（#${node.id}）的 $name 旧值「$text」已不在候选里，改用了「$shown」"
+            }
+        }
+        return out
     }
 
     private fun readNamed(

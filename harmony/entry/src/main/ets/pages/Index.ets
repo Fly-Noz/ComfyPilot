@@ -465,6 +465,7 @@ struct Index {
   @State aiMessages: AiChatMessage[] = [];
   @State aiActions: string[] = [];
   @State aiBusy: boolean = false;
+  @State aiActivity: string = '';
   @State aiError: string = '';
   @State aiTokens: number = 0;
   @State aiPending: AiPending | null = null;
@@ -7155,6 +7156,7 @@ struct Index {
     this.aiMessages = [...this.ai.messages];
     this.aiActions = [...this.ai.actions];
     this.aiBusy = this.ai.busy;
+    this.aiActivity = this.ai.activity;
     this.aiError = this.ai.error;
     this.aiTokens = this.ai.tokens;
     this.aiPending = this.ai.pending;
@@ -7600,7 +7602,17 @@ struct Index {
                 .borderRadius(10)
                 .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
 
-                this.AiTypingDots()
+                if (this.aiActivity.length > 0) {
+                  // 能说清在干什么时就不晃三个点了：模型没有流式输出，这行字就是"过程"。
+                  Text(this.aiActivity)
+                    .fontSize(11.5)
+                    .fontColor(this.c().textMuted)
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .layoutWeight(1)
+                } else {
+                  this.AiTypingDots()
+                }
               }
               .width('100%')
               .alignItems(VerticalAlign.Bottom)

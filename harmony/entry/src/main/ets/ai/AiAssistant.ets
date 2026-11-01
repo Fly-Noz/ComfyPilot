@@ -188,6 +188,9 @@ export class AiAssistant {
   /** 当前连接的 ComfyUI 服务器地址（连的是哪台）；由 Index 在连接变化时注入。 */
   comfyBase: string = '';
 
+  /** 当前步骤（给界面替代三个点）：请求模型 / 执行某个工具。 */
+  activity: string = '';
+
   private store: preferences.Preferences | null = null;
   private client: http.HttpRequest | null = null;
   private cancelled: boolean = false;
@@ -493,6 +496,7 @@ export class AiAssistant {
       this.error = (err as Error).message;
     } finally {
       this.busy = false;
+      this.activity = '';
       this.log(`loop done msgs=${this.messages.length} error=${this.error.substring(0, 120)}`);
       this.bump();
     }
@@ -654,6 +658,7 @@ export class AiAssistant {
       this.client = null;
     }
     this.busy = false;
+    this.activity = '';
     this.error = '已停止';
     this.bump();
   }
@@ -703,6 +708,7 @@ export class AiAssistant {
         return;
       }
       if (action.action === 'http') {
+        this.activity = `第 ${httpSeen + 1} 轮 · 请求模型…`;
         this.log(`request ${httpSeen + 1} images=${this.pendingImages.length} tokens≈${this.tokens}`);
         let message: AiResponseMessage;
         try {
@@ -732,6 +738,7 @@ export class AiAssistant {
         continue;
       }
       if (action.action === 'call_host') {
+        this.activity = `执行 ${action.name ?? '工具'}…`;
         const result = await this.executeTool(action.name ?? '', action.args ?? '{}', host);
         const ask = this.question;
         let pause = '';
@@ -949,8 +956,13 @@ export class AiAssistant {
     }
     if (name === 'submit') {
       this.actions = [...this.actions, '提交任务'].slice(-50);
-      // 只回原始结果：核实提示由共享层的 formatResult 统一加，两端不再各写一份。
-      return `{"ok":${host.submit()}}`;
+      const ok: boolean = host.submit();
+      if (!ok) {
+        return '{"ok":false}';
+      }
+      // 提交后等一会儿结果：成功模型就能收尾，失败能拿着 error 去修，不必再猜。
+      const task: string = await host.taskSummary(45);
+      return `{"ok":true,"task":${task}}`;
     }
     if (name === 'task_status') {
       const probe = JSON.parse(args) as Record<string, Object>;
