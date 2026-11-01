@@ -7307,6 +7307,28 @@ struct Index {
     }
   }
 
+  /** 服务商菜单：自绘，颜色跟主题走（Select 的弹层底色不可控）。 */
+  @Builder
+  AiProviderMenu() {
+    Column({ space: 2 }) {
+      ForEach(AI_PROVIDER_PRESETS, (item: AiProviderPreset, index: number) => {
+        Text(item.name)
+          .fontSize(12)
+          .fontColor(index === this.aiProviderIndex ? this.c().accent : this.c().text)
+          .width('100%')
+          .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+          .backgroundColor(index === this.aiProviderIndex ? this.c().accentSoft : Color.Transparent)
+          .borderRadius(8)
+          .onClick(() => { this.applyAiProvider(index); })
+      }, (item: AiProviderPreset, index: number) => `${index}:${item.name}`)
+    }
+    .padding(6)
+    .width(230)
+    .backgroundColor(this.c().dialog)
+    .borderRadius(12)
+    .border({ width: 1, color: this.c().border })
+  }
+
   private openAiSettings(): void {
     this.aiBaseUrl = this.ai.config.baseUrl;
     this.aiModel = this.ai.config.model;
@@ -9098,23 +9120,18 @@ struct Index {
               Column({ space: 8 }) {
                 Row({ space: 8 }) {
                   Text('服务商').fontSize(10.5).fontColor(this.c().textMuted)
-                  Select(this.aiProviderOptions())
-                    .selected(this.aiProviderIndex)
-                    .value(this.aiProviderName())
-                    .font({ size: 11 })
+                  // 不用 Select：它的弹层底色跟系统主题走，深色下会整块发白。
+                  Text(`${this.aiProviderName()}  ▾`)
+                    .fontSize(11)
                     .fontColor(this.c().text)
+                    .layoutWeight(1)
+                    .height(34)
+                    .padding({ left: 10, right: 10 })
                     .backgroundColor(this.c().cardStrong)
                     .borderRadius(10)
                     .border({ width: 1, color: this.c().border })
-                    // 下拉弹层默认是白底：深色主题下会整块发白，这里跟主题走。
-                    .optionBgColor(this.c().dialog)
-                    .optionFont({ size: 12 })
-                    .optionFontColor(this.c().text)
-                    .selectedOptionBgColor(this.c().accentSoft)
-                    .selectedOptionFontColor(this.c().accent)
-                    .height(34)
-                    .layoutWeight(1)
-                    .onSelect((index: number) => { this.applyAiProvider(index); })
+                    .textAlign(TextAlign.Start)
+                    .bindMenu(this.AiProviderMenu())
                 }
                 .width('100%')
                 TextInput({ text: this.aiBaseUrl, placeholder: '接口地址（OpenAI 兼容）' })
