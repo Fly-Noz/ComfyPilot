@@ -381,7 +381,14 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                     }
                 }
                 items(snapshot.messages.filterNot { isAiToolResult(it.content) }) { message ->
-                    AiMessageBubble(message = message, modifier = Modifier.animateItem())
+                    AiMessageBubble(
+                        message = message,
+                        modifier = Modifier.animateItem(),
+                        onLocate = { id ->
+                            AiRuntime.requestLocate(id)
+                            onDismiss()
+                        },
+                    )
                 }
                 if (snapshot.busy) {
                     item {
@@ -956,7 +963,11 @@ private fun AiAvatar(size: Dp = 20.dp) {
  * 长句仍然会换行占满可用宽度。
  */
 @Composable
-private fun AiMessageBubble(message: AiChatMessage, modifier: Modifier = Modifier) {
+private fun AiMessageBubble(
+    message: AiChatMessage,
+    modifier: Modifier = Modifier,
+    onLocate: ((Int) -> Unit)? = null,
+) {
     val c = Spectrum.colors
     val mine = message.role == "user"
     Row(
@@ -968,6 +979,10 @@ private fun AiMessageBubble(message: AiChatMessage, modifier: Modifier = Modifie
             AiAvatar()
             androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
         }
+        androidx.compose.foundation.layout.Column(
+            horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
         Text(
             // 气泡只看 display：附图时发给模型的「附了 N 张图…」属于内部说明，不上屏。
             text = (if (mine) message.display ?: message.content else aiPlainText(message.content))
@@ -990,7 +1005,37 @@ private fun AiMessageBubble(message: AiChatMessage, modifier: Modifier = Modifie
                 .border(1.dp, if (mine) c.accentBorder else c.border, RoundedCornerShape(14.dp))
                 .padding(horizontal = 11.dp, vertical = 8.dp),
         )
+        if (!mine && onLocate != null) {
+            val ids = aiNodeRefs(message.content)
+            if (ids.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ids.forEach { id ->
+                        Text(
+                            text = "定位 #$id",
+                            color = c.accent,
+                            fontSize = 10.sp,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(c.accentSoft)
+                                .clickableNoRipple { onLocate.invoke(id) }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                }
+            }
+        }
+        }
     }
+}
+
+/** 从回复里挑出 `#节点号`（去重、最多 4 个），渲染成定位按钮。 */
+private fun aiNodeRefs(text: String): List<Int> {
+    val ids = LinkedHashSet<Int>()
+    Regex("#(\\d+)").findAll(text).forEach { match ->
+        val id = match.groupValues[1].toIntOrNull() ?: return@forEach
+        if (id > 0 && ids.size < 4) ids += id
+    }
+    return ids.toList()
 }
 
 /** 等待模型时的三个呼吸点：比转圈更轻，和"正在说话"的语义对得上。 */

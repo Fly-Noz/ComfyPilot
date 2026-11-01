@@ -66,6 +66,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -457,6 +458,16 @@ private fun DetailBody(
     val expanded = expandedOverride ?: autoExpanded
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+
+    // AI 聊天里点「定位 #id」：展开那张卡片并滚过去；浮窗已经在点击时关掉。
+    val locateTarget by AiRuntime.locateRequests.collectAsState()
+    LaunchedEffect(locateTarget) {
+        val id = locateTarget ?: return@LaunchedEffect
+        AiRuntime.locateRequests.value = null
+        val current = expandedOverride ?: autoExpanded
+        if (id !in current) expandedOverride = current + id
+        jumpNodeId = id
+    }
 
     // 图启停会改变可达节点和置顶顺序；沿用旧滚动位置会让列表停在已被挤到
     // 末尾的节点上，看起来像置顶仍然生效。切图后回到输入区顶部。

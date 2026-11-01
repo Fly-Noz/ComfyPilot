@@ -327,6 +327,17 @@ object AiRuntime {
     /** 没打开工作流时的宿主（只负责切流）；由应用根组件注册，详情页关闭时回落。 */
     var fallbackHost: AiWorkflowHost? = null
 
+    /**
+     * 聊天里点「定位 #id」时置位；工作流详情页订阅后展开并滚动到该节点，然后清空。
+     *
+     * 用 Flow 而不是普通字段：详情页是 Compose，需要可观察的信号。
+     */
+    val locateRequests = kotlinx.coroutines.flow.MutableStateFlow<Int?>(null)
+
+    fun requestLocate(nodeId: Int) {
+        locateRequests.value = nodeId
+    }
+
     private fun notifyUi() {
         onChange?.invoke()
     }
