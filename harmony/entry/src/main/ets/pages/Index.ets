@@ -2258,6 +2258,8 @@ struct Index {
     }
     stale.forEach((key: string) => this.edits.delete(key));
     this.editTick++;
+    // 让用户知道草稿里有东西被丢了，而不是参数莫名其妙回到默认值。
+    promptAction.showToast({ message: `已忽略 ${stale.length} 条失效的本地修改`, duration: 1800 });
   }
 
   /** 编辑后稍等一会儿再重算 canSubmit/problems，避免每个按键都重建整张字段视图。 */

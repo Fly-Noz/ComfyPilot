@@ -1,6 +1,7 @@
 package com.comfypilot.app.ui
 
 import android.provider.OpenableColumns
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -383,6 +384,28 @@ private fun DetailBody(
     val selectedGraphIds = analysis.selectedGraphIds
     val fields = analysis.fields
     val disabledNodeIds = analysis.disabledNodeIds
+
+    // 打开工作流时清掉失效的草稿覆盖：字段已删除，或已变成连线/非控件输入。
+    // 不清理的话，旧草稿会一直把提交挡在“字段由连线提供，不能覆盖”上。
+    LaunchedEffect(fields, analysis.pendingNodeClasses) {
+        if (analysis.pendingNodeClasses.isNotEmpty() || fields.nodes.isEmpty() || overrides.isEmpty()) {
+            return@LaunchedEffect
+        }
+        val editable = fields.nodes.associate { node ->
+            node.id to node.fields.filter { it.widget && !it.linked }.map { it.inputName }.toSet()
+        }
+        var dropped = 0
+        val kept = overrides.mapNotNull { (nodeId, values) ->
+            val allowed = editable[nodeId] ?: emptySet()
+            val filtered = values.filterKeys { it in allowed }
+            dropped += values.size - filtered.size
+            if (filtered.isEmpty()) null else nodeId to filtered
+        }.toMap()
+        if (dropped > 0) {
+            overrides = kept
+            Toast.makeText(context, "已忽略 $dropped 条失效的本地修改", Toast.LENGTH_SHORT).show()
+        }
+    }
     val showGraphPicker = graphs.size > 1 || (graphs.size == 1 && !graphs[0].enabled)
     // 置顶且会提交的节点最前；其余节点按工作流原文顺序排列。
     // 单节点开关不参与排序：关掉一个节点不会让它跳到列表底部。
