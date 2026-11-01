@@ -1229,6 +1229,7 @@ fun AiConfigEditor(
     var model by remember { mutableStateOf(initial.model) }
     var apiKey by remember { mutableStateOf(initial.apiKey) }
     var autoSubmit by remember { mutableStateOf(initial.autoSubmit) }
+    var maxRounds by remember { mutableStateOf(initial.maxRounds.coerceIn(2, 20)) }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1264,6 +1265,15 @@ fun AiConfigEditor(
                 color = c.textDim,
                 fontSize = 9.5.sp,
             )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("单轮工具轮数上限", color = c.textMuted, fontSize = 11.sp)
+                    Text("默认 8；切流 + 查节点 + 改 + 提交通常够用", color = c.textDim, fontSize = 9.5.sp)
+                }
+                RoundStep("−") { maxRounds = (maxRounds - 1).coerceAtLeast(2) }
+                Text("$maxRounds", color = c.text, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 10.dp))
+                RoundStep("+") { maxRounds = (maxRounds + 1).coerceAtMost(20) }
+            }
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
@@ -1276,6 +1286,7 @@ fun AiConfigEditor(
                                 apiKey = apiKey.trim(),
                                 enabled = enabled,
                                 autoSubmit = autoSubmit,
+                                maxRounds = maxRounds,
                             ),
                         )
                     }
@@ -1284,6 +1295,22 @@ fun AiConfigEditor(
                 Text("保存", color = Color.White, fontSize = 12.5.sp)
             }
         }
+    }
+}
+
+@Composable
+private fun RoundStep(label: String, onClick: () -> Unit) {
+    val c = Spectrum.colors
+    Box(
+        modifier = Modifier
+            .size(26.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(c.card)
+            .border(1.dp, c.border, RoundedCornerShape(8.dp))
+            .clickableNoRipple(onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = c.textMuted, fontSize = 13.sp)
     }
 }
 

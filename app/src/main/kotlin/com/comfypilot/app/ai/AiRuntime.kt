@@ -66,6 +66,8 @@ data class AiConfig(
     val enabled: Boolean = false,
     /** true：AI 改完直接应用并提交；false：先展示 diff 等用户确认。 */
     val autoSubmit: Boolean = false,
+    /** 单轮最多几次模型往返；设置页可调，默认 8。 */
+    val maxRounds: Int = 8,
 ) {
     val ready: Boolean get() = baseUrl.isNotBlank() && model.isNotBlank() && apiKey.isNotBlank()
 }
@@ -182,6 +184,7 @@ class AiSecretStore(context: Context) {
         apiKey = decrypt(prefs.getString("api_key", null).orEmpty()),
         enabled = prefs.getBoolean("enabled", false),
         autoSubmit = prefs.getBoolean("auto_submit", false),
+        maxRounds = prefs.getInt("max_rounds", 8),
     )
 
     fun save(config: AiConfig) {
@@ -191,6 +194,7 @@ class AiSecretStore(context: Context) {
             .putString("api_key", encrypt(config.apiKey.trim()))
             .putBoolean("enabled", config.enabled)
             .putBoolean("auto_submit", config.autoSubmit)
+            .putInt("max_rounds", config.maxRounds.coerceIn(2, 20))
             .apply()
     }
 
@@ -818,7 +822,7 @@ object AiRuntime {
      * 发请求、执行工具、把结果交回去。
      */
     private suspend fun runLoop(currentHost: AiWorkflowHost) {
-        val loop = AiLoopState()
+        val loop = AiLoopState(maxRounds = config.maxRounds.coerceIn(2, 20))
         loop.start(userTurn(pendingUserText, pendingImages))
         var step: AiLoopStep = loop.nextRequest(contextFor(currentHost))
         while (true) {

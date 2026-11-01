@@ -49,7 +49,9 @@ class AiLoopProtocol {
                     val userTurn = root["userTurn"] as? JsonObject
                         ?: return@runCatching errorAction("userTurn 为空")
                     val history = (root["history"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
-                    val state = AiLoopState()
+                    // 轮数上限由宿主配置（设置页可调），缺省 8；夹在 2..20，防止手滑。
+                    val maxRounds = (root["maxRounds"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 8
+                    val state = AiLoopState(maxRounds = maxRounds.coerceIn(2, 20))
                     state.start(userTurn, history)
                     loop = state
                     currentTool = ""

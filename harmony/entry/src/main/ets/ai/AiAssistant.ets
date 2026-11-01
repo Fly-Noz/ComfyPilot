@@ -28,6 +28,8 @@ export interface AiConfig {
   apiKey: string;
   enabled: boolean;
   autoSubmit: boolean;
+  /** 单轮工具轮数上限；缺省 8，设置页可调（2–20）。 */
+  maxRounds?: number;
 }
 
 export interface AiChatMessage {
@@ -96,6 +98,8 @@ interface AiStartRequest {
   context: AiLoopContextRequest;
   history: AiChatMessage[];
   userTurn: AiPayloadMessage;
+  /** 单轮工具轮数上限；共享层夹在 2..20。 */
+  maxRounds?: number;
 }
 
 /** 推进循环：reply（模型响应）/ tool（工具结果）/ resume（用户回答了提问）。 */
@@ -240,6 +244,7 @@ export class AiAssistant {
         apiKey: this.secrets.load(),
         enabled: this.store.getSync('enabled', false) as boolean,
         autoSubmit: this.store.getSync('auto_submit', false) as boolean,
+        maxRounds: this.store.getSync('max_rounds', 8) as number,
       });
       this.visionOffModel = this.store.getSync('vision_off_model', '') as string;
       this.loadSessions();
@@ -433,6 +438,7 @@ export class AiAssistant {
     store.putSync('model', gated.model);
     store.putSync('enabled', gated.enabled);
     store.putSync('auto_submit', gated.autoSubmit);
+    store.putSync('max_rounds', gated.maxRounds ?? 8);
     this.secrets.save(gated.apiKey);
     store.flush();
   }
@@ -934,8 +940,15 @@ export class AiAssistant {
       context: this.context(host),
       history: history,
       userTurn: turn,
+      maxRounds: this.roundLimit(),
     };
     return this.callNative(false, JSON.stringify(request));
+  }
+
+  /** 轮数上限：设置页可调，取值夹在 2..20。 */
+  roundLimit(): number {
+    const raw: number = this.config.maxRounds ?? 8;
+    return Math.max(2, Math.min(20, Math.floor(raw)));
   }
 
   private sendAction(request: AiSendRequest): AiLoopAction {

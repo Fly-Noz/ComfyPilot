@@ -519,6 +519,7 @@ struct Index {
   @State aiModel: string = '';
   @State aiKey: string = '';
   @State aiAutoSubmit: boolean = false;
+  @State aiMaxRounds: number = 8;
   private draftSaveTimer: number = -1;
   /** 性能条复用一个 HttpRequest 句柄，页面离场时 destroy()。 */
   private statsRequest: http.HttpRequest | null = null;
@@ -7066,6 +7067,7 @@ struct Index {
     this.aiModel = this.ai.config.model;
     this.aiKey = this.ai.config.apiKey;
     this.aiAutoSubmit = this.ai.config.autoSubmit;
+    this.aiMaxRounds = this.ai.roundLimit();
     this.syncAi();
   }
 
@@ -7121,6 +7123,7 @@ struct Index {
       apiKey: current.apiKey,
       enabled: current.enabled,
       autoSubmit: !current.autoSubmit,
+      maxRounds: current.maxRounds ?? 8,
     };
     this.ai.saveConfig(next);
     this.aiAutoSubmit = next.autoSubmit;
@@ -8051,6 +8054,22 @@ struct Index {
           .onChange((value: boolean) => { this.aiAutoSubmit = value; })
       }
       .width('100%')
+      Row({ space: 8 }) {
+        Text('单轮工具轮数上限').fontSize(10.5).fontColor(this.c().textMuted).layoutWeight(1)
+        Text('−')
+          .fontSize(14).fontColor(this.c().accent)
+          .width(28).height(28).textAlign(TextAlign.Center)
+          .backgroundColor(this.c().card).borderRadius(8)
+          .onClick(() => { this.aiMaxRounds = Math.max(2, this.aiMaxRounds - 1); })
+        Text(`${this.aiMaxRounds}`).fontSize(11.5).fontColor(this.c().text).width(24).textAlign(TextAlign.Center)
+        Text('+')
+          .fontSize(14).fontColor(this.c().accent)
+          .width(28).height(28).textAlign(TextAlign.Center)
+          .backgroundColor(this.c().card).borderRadius(8)
+          .onClick(() => { this.aiMaxRounds = Math.min(20, this.aiMaxRounds + 1); })
+      }
+      .width('100%')
+      Text('默认 8；切流 + 查节点 + 改 + 提交通常够用。').fontSize(9).fontColor(this.c().textDim)
       Text('保存').fontSize(11.5).fontColor(this.c().accent)
         .onClick(() => {
           const next: AiConfig = {
@@ -8059,6 +8078,7 @@ struct Index {
             apiKey: this.aiKey.trim(),
             enabled: this.ai.config.enabled,
             autoSubmit: this.aiAutoSubmit,
+            maxRounds: this.aiMaxRounds,
           };
           this.ai.saveConfig(next);
           this.aiSettingsOpen = false;
@@ -8961,6 +8981,7 @@ struct Index {
                     apiKey: this.ai.config.apiKey,
                     enabled: value,
                     autoSubmit: this.ai.config.autoSubmit,
+                    maxRounds: this.ai.config.maxRounds ?? 8,
                   };
                   this.ai.saveConfig(next);
                   this.aiEnabled = value;
@@ -8998,6 +9019,7 @@ struct Index {
                       apiKey: this.aiKey.trim(),
                       enabled: true,
                       autoSubmit: this.aiAutoSubmit,
+                      maxRounds: this.aiMaxRounds,
                     };
                     this.ai.saveConfig(next);
                     this.aiEnabled = true;
