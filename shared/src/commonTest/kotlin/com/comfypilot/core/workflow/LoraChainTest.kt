@@ -52,6 +52,31 @@ class LoraChainTest {
         assertEquals(2 to 1, ready.link("5", "clip"))
     }
 
+    @Test
+    fun `rgthree power lora loader expands into real lora nodes`() {
+        // object_info 里这个虚拟节点只有 model/clip，LoRA 与权重都在 widgets_values 里；
+        // 不展开就变成直通节点——用户看到的就是「权重不生效」。
+        val ready = ready(PromptBuilder.build(document(POWER), DEFINITIONS))
+
+        assertEquals(setOf("1", "4", "5", "6", "7", "8", "9", "10"), ready.prompt.keys)
+        assertEquals(1 to 0, ready.link("9", "model"))
+        assertEquals(1 to 1, ready.link("9", "clip"))
+        assertEquals("lora-c.safetensors", ready.text("9", "lora_name"))
+        assertEquals(0.8, ready.inputs("9")["strength_model"]!!.jsonPrimitive.content.toDouble())
+        assertEquals(0.8, ready.inputs("9")["strength_clip"]!!.jsonPrimitive.content.toDouble())
+
+        assertEquals(9 to 0, ready.link("10", "model"))
+        assertEquals(9 to 1, ready.link("10", "clip"))
+        assertEquals("lora-d.safetensors", ready.text("10", "lora_name"))
+        assertEquals(0.6, ready.inputs("10")["strength_model"]!!.jsonPrimitive.content.toDouble())
+        // strengthTwo 为空时 clip 沿用同一个值
+        assertEquals(0.6, ready.inputs("10")["strength_clip"]!!.jsonPrimitive.content.toDouble())
+
+        assertEquals(10 to 0, ready.link("7", "model"))
+        assertEquals(10 to 1, ready.link("4", "clip"))
+        assertEquals(10 to 1, ready.link("5", "clip"))
+    }
+
     // ------------------------------------------------------------ 夹具
 
     private fun ready(build: PromptBuild): PromptBuild.Ready =
@@ -135,6 +160,14 @@ class LoraChainTest {
             ),
             outputs = listOf("LATENT"),
         ),
+        "Power Lora Loader (rgthree)" to NodeDefinition(
+            className = "Power Lora Loader (rgthree)",
+            inputs = listOf(
+                NodeInputDef(name = "model", type = "MODEL", isWidget = false, required = false),
+                NodeInputDef(name = "clip", type = "CLIP", isWidget = false, required = false),
+            ),
+            outputs = listOf("MODEL", "CLIP"),
+        ),
         "SaveImage" to NodeDefinition(
             className = "SaveImage",
             inputs = listOf(
@@ -145,6 +178,86 @@ class LoraChainTest {
             isOutputNode = true,
         ),
     )
+
+    private val POWER = """
+        {
+          "nodes": [
+            {"id": 1, "type": "CheckpointLoaderSimple", "pos": [0, 0], "size": [300, 98],
+             "widgets_values": ["sdxl.safetensors"],
+             "inputs": [{"name": "ckpt_name", "type": "COMBO", "widget": {"name": "ckpt_name"}, "link": null}],
+             "outputs": [{"name": "MODEL", "type": "MODEL"}, {"name": "CLIP", "type": "CLIP"}, {"name": "VAE", "type": "VAE"}]},
+            {"id": 2, "type": "Power Lora Loader (rgthree)", "pos": [320, 0], "size": [340, 200],
+             "widgets_values": [
+               {},
+               {"type": "PowerLoraLoaderHeaderWidget"},
+               {"on": true, "lora": "lora-c.safetensors", "strength": 0.8, "strengthTwo": null},
+               {"on": true, "lora": "lora-d.safetensors", "strength": 0.6, "strengthTwo": null}
+             ],
+             "inputs": [
+               {"name": "model", "type": "MODEL", "link": 1},
+               {"name": "clip", "type": "CLIP", "link": 2}
+             ],
+             "outputs": [{"name": "MODEL", "type": "MODEL"}, {"name": "CLIP", "type": "CLIP"}]},
+            {"id": 4, "type": "CLIPTextEncode", "pos": [700, 0], "size": [300, 100],
+             "widgets_values": ["a cat"],
+             "inputs": [
+               {"name": "text", "type": "STRING", "widget": {"name": "text"}, "link": null},
+               {"name": "clip", "type": "CLIP", "link": 3}
+             ],
+             "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING"}]},
+            {"id": 5, "type": "CLIPTextEncode", "pos": [700, 140], "size": [300, 100],
+             "widgets_values": ["blurry"],
+             "inputs": [
+               {"name": "text", "type": "STRING", "widget": {"name": "text"}, "link": null},
+               {"name": "clip", "type": "CLIP", "link": 4}
+             ],
+             "outputs": [{"name": "CONDITIONING", "type": "CONDITIONING"}]},
+            {"id": 6, "type": "EmptyLatentImage", "pos": [700, 280], "size": [300, 106],
+             "widgets_values": [1024, 1024, 1],
+             "inputs": [
+               {"name": "width", "type": "INT", "widget": {"name": "width"}, "link": null},
+               {"name": "height", "type": "INT", "widget": {"name": "height"}, "link": null},
+               {"name": "batch_size", "type": "INT", "widget": {"name": "batch_size"}, "link": null}
+             ],
+             "outputs": [{"name": "LATENT", "type": "LATENT"}]},
+            {"id": 7, "type": "KSampler", "pos": [1040, 0], "size": [300, 262],
+             "widgets_values": [1, 8, 7.0, "euler", "normal", 1.0],
+             "inputs": [
+               {"name": "seed", "type": "INT", "widget": {"name": "seed"}, "link": null},
+               {"name": "steps", "type": "INT", "widget": {"name": "steps"}, "link": null},
+               {"name": "cfg", "type": "FLOAT", "widget": {"name": "cfg"}, "link": null},
+               {"name": "sampler_name", "type": "COMBO", "widget": {"name": "sampler_name"}, "link": null},
+               {"name": "scheduler", "type": "COMBO", "widget": {"name": "scheduler"}, "link": null},
+               {"name": "denoise", "type": "FLOAT", "widget": {"name": "denoise"}, "link": null},
+               {"name": "model", "type": "MODEL", "link": 5},
+               {"name": "positive", "type": "CONDITIONING", "link": 6},
+               {"name": "negative", "type": "CONDITIONING", "link": 7},
+               {"name": "latent_image", "type": "LATENT", "link": 8}
+             ],
+             "outputs": [{"name": "LATENT", "type": "LATENT"}]},
+            {"id": 8, "type": "SaveImage", "pos": [1380, 0], "size": [300, 300],
+             "widgets_values": ["ComfyPilot"],
+             "inputs": [
+               {"name": "filename_prefix", "type": "STRING", "widget": {"name": "filename_prefix"}, "link": null},
+               {"name": "images", "type": "IMAGE", "link": 9}
+             ],
+             "outputs": []}
+          ],
+          "links": [
+            [1, 1, 0, 2, 0, "MODEL"],
+            [2, 1, 1, 2, 1, "CLIP"],
+            [3, 2, 1, 4, 1, "CLIP"],
+            [4, 2, 1, 5, 1, "CLIP"],
+            [5, 2, 0, 7, 6, "MODEL"],
+            [6, 4, 0, 7, 7, "CONDITIONING"],
+            [7, 5, 0, 7, 8, "CONDITIONING"],
+            [8, 6, 0, 7, 9, "LATENT"],
+            [9, 7, 0, 8, 1, "IMAGE"]
+          ],
+          "groups": [],
+          "version": 0.4
+        }
+    """.trimIndent()
 
     private val CHAIN = """
         {

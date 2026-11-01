@@ -113,10 +113,11 @@ object PromptBuilder {
             )
         }
 
-        val resolver = UiGraphResolver(graph)
         val warnings = mutableListOf<String>()
+        val expanded = expandPowerLoraNodes(graph, warnings)
+        val resolver = UiGraphResolver(expanded)
 
-        val ordered = graph.nodes
+        val ordered = expanded.nodes
             .filter { it.mode == UiWorkflowParser.MODE_NORMAL }
             .sortedWith(compareBy({ it.order }, { it.id }))
 
@@ -143,7 +144,7 @@ object PromptBuilder {
             val json = convertNode(
                 node,
                 definition,
-                graph,
+                expanded,
                 definitions,
                 resolver,
                 overrides[node.id].orEmpty(),
@@ -177,7 +178,7 @@ object PromptBuilder {
             )
         }
 
-        val reachable = reachableNodeIds(roots, graph, resolver)
+        val reachable = reachableNodeIds(roots, expanded, resolver)
         val included = converted.values.filter { it.node.id in reachable }
         val ignored = converted.size - included.size
         if (ignored > 0) {
@@ -481,6 +482,113 @@ internal class UiGraphResolver(private val graph: UiGraph) {
  * - `control_after_generate` 紧跟在种子控件后面；
  * - `image_upload` 紧跟在 LoadImage 的文件名后面。
  */
+/**
+ * rgthree 的 Power Lora Loader 是**前端虚拟节点**：`object_info` 里只声明 model/clip，
+ * LoRA 名与权重全都藏在 `widgets_values` 的对象数组里，由前端在 graphToPrompt 时
+ * 展开成一串 LoraLoader。我们直接把它当普通节点提交，服务端收到的就是一个
+ * 「不带任何 LoRA」的直通节点——用户看到的现象正是「权重不生效」。
+ *
+ * 这里在转换前把它展开成真正的 LoraLoader 链；没有启用的 LoRA 时按直通处理。
+ */
+private val RGTHREE_POWER_LORA_TYPES = setOf("Power Lora Loader (rgthree)")
+
+private data class LoraEntry(val name: String, val strength: Double, val clipStrength: Double)
+
+private fun parsePowerLoraEntries(node: UiNode): List<LoraEntry> {
+    val raw = node.widgets ?: return emptyList()
+    val result = mutableListOf<LoraEntry>()
+    for (element in raw) {
+        val obj = element as? JsonObject ?: continue
+        // 表头/表尾是前端组件描述，不是 LoRA 条目。
+        if (obj["type"] != null) continue
+        val lora = (obj["lora"] as? JsonPrimitive)?.contentOrNull ?: continue
+        if (lora.isBlank() || lora == "None") continue
+        val on = (obj["on"] as? JsonPrimitive)?.contentOrNull?.toBooleanStrictOrNull() ?: true
+        if (!on) continue
+        val strength = (obj["strength"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull() ?: 1.0
+        val second = (obj["strengthTwo"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
+        result += LoraEntry(lora, strength, second ?: strength)
+    }
+    return result
+}
+
+private fun expandPowerLoraNodes(graph: UiGraph, warnings: MutableList<String>): UiGraph {
+    val targets = graph.nodes.filter {
+        it.mode == UiWorkflowParser.MODE_NORMAL && it.type in RGTHREE_POWER_LORA_TYPES
+    }
+    if (targets.isEmpty()) return graph
+    val targetIds = targets.map { it.id }.toSet()
+    var nextNodeId = (graph.nodes.maxOfOrNull { it.id } ?: 0) + 1
+    var nextLinkId = (graph.links.keys.maxOrNull() ?: 0) + 1
+    val nodes = graph.nodes.filterNot { it.id in targetIds }.toMutableList()
+    val links = LinkedHashMap(graph.links)
+
+    for (target in targets) {
+        val entries = parsePowerLoraEntries(target)
+        val incomingModel = graph.links.values.firstOrNull { it.targetId == target.id && it.targetSlot == 0 }
+        val incomingClip = graph.links.values.firstOrNull { it.targetId == target.id && it.targetSlot == 1 }
+        val downstream = graph.links.values.filter { it.originId == target.id }
+        links.values.removeAll { it.originId == target.id || it.targetId == target.id }
+
+        var modelSource = incomingModel?.let { it.originId to it.originSlot }
+        var clipSource = incomingClip?.let { it.originId to it.originSlot }
+
+        if (entries.isEmpty()) {
+            warnings += "节点「${target.title ?: target.type}」没有启用的 LoRA，已按直通处理"
+        }
+        for (entry in entries) {
+            val id = nextNodeId++
+            var modelLinkId: Int? = null
+            var clipLinkId: Int? = null
+            modelSource?.let { (origin, slot) ->
+                val linkId = nextLinkId++
+                links[linkId] = UiLink(linkId, origin, slot, id, 0, "MODEL")
+                modelLinkId = linkId
+            }
+            clipSource?.let { (origin, slot) ->
+                val linkId = nextLinkId++
+                links[linkId] = UiLink(linkId, origin, slot, id, 1, "CLIP")
+                clipLinkId = linkId
+            }
+            nodes += UiNode(
+                id = id,
+                type = "LoraLoader",
+                title = "${target.title ?: "Power LoRA"} · ${entry.name}",
+                mode = UiWorkflowParser.MODE_NORMAL,
+                order = target.order,
+                inputs = listOf(
+                    UiInput("model", "MODEL", modelLinkId, null, null),
+                    UiInput("clip", "CLIP", clipLinkId, null, null),
+                ),
+                outputs = listOf(UiOutput("MODEL", "MODEL"), UiOutput("CLIP", "CLIP")),
+                widgets = JsonArray(
+                    listOf(
+                        JsonPrimitive(entry.name),
+                        JsonPrimitive(entry.strength),
+                        JsonPrimitive(entry.clipStrength),
+                    ),
+                ),
+                widgetsNamed = emptyMap(),
+                x = target.x,
+                y = target.y,
+            )
+            modelSource = id to 0
+            clipSource = id to 1
+        }
+
+        // 下游原来接虚拟节点的输出：改接链尾；一个 LoRA 都没有时接上游（直通）。
+        for (link in downstream) {
+            val source = if (link.originSlot == 0) modelSource else clipSource
+            if (source == null) continue
+            links[link.id] = link.copy(originId = source.first, originSlot = source.second)
+        }
+    }
+    return graph.copy(
+        nodes = nodes.sortedWith(compareBy({ it.order }, { it.id })),
+        links = links,
+    )
+}
+
 internal object WidgetValueReader {
 
     private val CONTROL_TOKENS = setOf("fixed", "increment", "decrement", "randomize")
