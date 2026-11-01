@@ -47,6 +47,35 @@ class SubgraphExpanderTest {
         val saveImage = nodes.first { it["type"]!!.jsonPrimitive.content == "SaveImage" }
         val widgets = saveImage["widgets_values"]!!.jsonArray
         assertEquals("QW21-prefix", widgets[0].jsonPrimitive.content)
+
+        // 展开簇和已有节点重叠时要挪开，并追加「子图 …」的合成图组。
+        val outer = nodes.first { it["id"]!!.jsonPrimitive.content == "1" }
+        val outerRect = rectOf(outer)
+        val saveRect = rectOf(saveImage)
+        assertTrue(
+            outerRect.right <= saveRect.left || saveRect.right <= outerRect.left ||
+                outerRect.bottom <= saveRect.top || saveRect.bottom <= outerRect.top,
+            "展开节点不能压住已有节点：outer=$outerRect save=$saveRect",
+        )
+        val groups = expanded["groups"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(groups.any { it["title"]!!.jsonPrimitive.content.startsWith("子图 ") }, "应当追加合成图组：$groups")
+        // 标题带子图名前缀，列表里能看出这节点是从哪个子图来的。
+        assertTrue(
+            saveImage["title"]!!.jsonPrimitive.content.startsWith("New Subgraph · "),
+            saveImage["title"]!!.jsonPrimitive.content,
+        )
+    }
+
+    private data class R(val left: Int, val top: Int, val right: Int, val bottom: Int)
+
+    private fun rectOf(node: JsonObject): R {
+        val pos = node["pos"]!!.jsonArray
+        val size = node["size"] as? JsonArray
+        val w = size?.getOrNull(0)?.jsonPrimitive?.content?.toDoubleOrNull()?.toInt() ?: 220
+        val h = size?.getOrNull(1)?.jsonPrimitive?.content?.toDoubleOrNull()?.toInt() ?: 140
+        val x = pos[0].jsonPrimitive.content.toDoubleOrNull()?.toInt() ?: 0
+        val y = pos[1].jsonPrimitive.content.toDoubleOrNull()?.toInt() ?: 0
+        return R(x, y, x + w, y + h)
     }
 
     private companion object {

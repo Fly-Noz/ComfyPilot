@@ -66,6 +66,13 @@ object SubgraphExpander {
             links.mapNotNull { parseLink(it)?.id }.maxOrNull() ?: 0,
         )
 
+        // 展开后的节点要占画布位置：原坐标可能已经压着别的节点/图组，
+        // 节点图预览上会叠成一团。先记下已有占位，冲突时把整簇挪到空处。
+        val obstacles = mutableListOf<Rect>()
+        nodes.forEach { node -> (node as? JsonObject)?.let { obstacles += nodeRect(it) } }
+        var nextGroupId = (root.array("groups").mapNotNull { (it as? JsonObject)?.int("id") }.maxOrNull() ?: 0) + 1
+        val syntheticGroups = mutableListOf<JsonObject>()
+
         // 同一实例的内部节点每次展开都要拿到稳定 id，草稿里的覆盖值才不会乱跳。
         val allocated = mutableMapOf<String, Int>()
         fun allocate(scope: String, innerId: Int): Int =
@@ -93,6 +100,28 @@ object SubgraphExpander {
             val idMap = innerNodes.mapNotNull { it as? JsonObject }
                 .mapNotNull { inner -> inner.int("id")?.let { it to allocate(instanceId.toString(), it) } }
                 .toMap()
+
+            // 展开簇占位：先按定义里的原坐标算包围盒，和已有节点/图组撞了就整体平移。
+            val cluster = clusterRect(innerNodes)
+            val placed = freeSpot(cluster, obstacles)
+            val shiftX = placed.x - cluster.x
+            val shiftY = placed.y - cluster.y
+            obstacles += placed
+            val subgraphName = definition.string("name")?.takeIf { it.isNotBlank() } ?: "子图"
+            val groupTitle = "子图 $subgraphName (#$instanceId)"
+            syntheticGroups += buildJsonObject {
+                put("id", JsonPrimitive(nextGroupId++))
+                put("title", JsonPrimitive(groupTitle))
+                put(
+                    "bounding",
+                    buildJsonArray {
+                        add(JsonPrimitive(placed.x - 24))
+                        add(JsonPrimitive(placed.y - 24))
+                        add(JsonPrimitive(placed.width + 48))
+                        add(JsonPrimitive(placed.height + 48))
+                    },
+                )
+            }
 
             // 控件注入：子图输入在实例上如果是控件值（没有连线），要写进内部节点的 widgets_values。
             val injected = mutableMapOf<Int, MutableMap<Int, JsonElement>>()
@@ -186,15 +215,18 @@ object SubgraphExpander {
                     widgets[index] = value
                 }
                 val pos = (inner["pos"] as? JsonArray).orEmpty()
+                val innerTitle = inner.string("title")
                 buildJsonObject {
-                    inner.forEach { (key, value) -> if (key !in setOf("id", "pos", "inputs", "outputs", "widgets_values")) put(key, value) }
+                    inner.forEach { (key, value) -> if (key !in setOf("id", "pos", "inputs", "outputs", "widgets_values", "title")) put(key, value) }
                     put("id", JsonPrimitive(newId))
+                    // 标题带子图前缀：列表和节点图里都能看出这节点是从哪个子图展开的。
+                    put("title", JsonPrimitive("$subgraphName · ${innerTitle ?: inner.string("type") ?: "节点"}"))
                     if (pos.isNotEmpty()) {
                         put(
                             "pos",
                             buildJsonArray {
-                                add(JsonPrimitive(pos.getOrNull(0).doubleOrZero()))
-                                add(JsonPrimitive(pos.getOrNull(1).doubleOrZero()))
+                                add(JsonPrimitive(pos.getOrNull(0).doubleOrZero() + shiftX))
+                                add(JsonPrimitive(pos.getOrNull(1).doubleOrZero() + shiftY))
                             },
                         )
                     }
@@ -235,9 +267,13 @@ object SubgraphExpander {
         }
 
         return buildJsonObject {
-            root.forEach { (key, value) -> if (key != "nodes" && key != "links" && key != "definitions") put(key, value) }
+            root.forEach { (key, value) -> if (key != "nodes" && key != "links" && key != "definitions" && key != "groups") put(key, value) }
             put("nodes", JsonArray(nodes))
             put("links", JsonArray(links))
+            put(
+                "groups",
+                JsonArray(root.array("groups") + syntheticGroups),
+            )
             put("last_node_id", JsonPrimitive(maxNodeId))
             put("last_link_id", JsonPrimitive(maxLinkId))
         }
@@ -320,6 +356,49 @@ object SubgraphExpander {
     }
 
     private fun JsonObject.array(key: String): JsonArray = this[key] as? JsonArray ?: JsonArray(emptyList())
+
+    /** 画布上的矩形；展开簇需要挪位置时用。 */
+    private data class Rect(val x: Double, val y: Double, val width: Double, val height: Double)
+
+    private fun nodeRect(node: JsonObject): Rect {
+        val pos = (node["pos"] as? JsonArray).orEmpty()
+        val size = (node["size"] as? JsonArray).orEmpty()
+        return Rect(
+            x = pos.getOrNull(0).doubleOrZero(),
+            y = pos.getOrNull(1).doubleOrZero(),
+            width = size.getOrNull(0).doubleOrZero().takeIf { it > 0 } ?: 220.0,
+            height = size.getOrNull(1).doubleOrZero().takeIf { it > 0 } ?: 140.0,
+        )
+    }
+
+    private fun clusterRect(nodes: JsonArray): Rect {
+        val rects = nodes.mapNotNull { (it as? JsonObject)?.let(::nodeRect) }
+        if (rects.isEmpty()) return Rect(0.0, 0.0, 0.0, 0.0)
+        val left = rects.minOf { it.x }
+        val top = rects.minOf { it.y }
+        val right = rects.maxOf { it.x + it.width }
+        val bottom = rects.maxOf { it.y + it.height }
+        return Rect(left, top, right - left, bottom - top)
+    }
+
+    private fun intersects(a: Rect, b: Rect): Boolean =
+        a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+
+    /**
+     * 找一个不和已有节点/图组重叠的位置。
+     *
+     * 原坐标通常还能用；撞上了就整簇挪到所有障碍物右侧。宁可排远一点，
+     * 也别让节点图预览上两簇叠在一起看不清。
+     */
+    private fun freeSpot(cluster: Rect, obstacles: List<Rect>): Rect {
+        var rect = cluster
+        var guard = 0
+        while (obstacles.any { intersects(it, rect) } && guard++ < 200) {
+            val right = obstacles.maxOf { it.x + it.width }
+            rect = Rect(right + 240.0, rect.y, rect.width, rect.height)
+        }
+        return rect
+    }
 
     private fun JsonObject.string(key: String): String? =
         (this[key] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotEmpty() }
