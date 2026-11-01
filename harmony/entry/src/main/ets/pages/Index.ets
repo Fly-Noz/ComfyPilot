@@ -540,6 +540,7 @@ struct Index {
   @State aiAutoSubmit: boolean = false;
   @State aiMaxRounds: number = 8;
   @State aiProviderIndex: number = AI_PROVIDER_PRESETS.length - 1;
+  @State aiProviderMenuOpen: boolean = false;
   private draftSaveTimer: number = -1;
   /** 性能条复用一个 HttpRequest 句柄，页面离场时 destroy()。 */
   private statsRequest: http.HttpRequest | null = null;
@@ -7310,20 +7311,28 @@ struct Index {
   /** 服务商菜单：自绘，颜色跟主题走（Select 的弹层底色不可控）。 */
   @Builder
   AiProviderMenu() {
-    Column({ space: 2 }) {
-      ForEach(AI_PROVIDER_PRESETS, (item: AiProviderPreset, index: number) => {
-        Text(item.name)
-          .fontSize(12)
-          .fontColor(index === this.aiProviderIndex ? this.c().accent : this.c().text)
-          .width('100%')
-          .padding({ left: 12, right: 12, top: 9, bottom: 9 })
-          .backgroundColor(index === this.aiProviderIndex ? this.c().accentSoft : Color.Transparent)
-          .borderRadius(8)
-          .onClick(() => { this.applyAiProvider(index); })
-      }, (item: AiProviderPreset, index: number) => `${index}:${item.name}`)
+    Scroll() {
+      Column({ space: 2 }) {
+        ForEach(AI_PROVIDER_PRESETS, (item: AiProviderPreset, index: number) => {
+          Text(item.name)
+            .fontSize(12)
+            .fontColor(index === this.aiProviderIndex ? this.c().accent : this.c().text)
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+            .backgroundColor(index === this.aiProviderIndex ? this.c().accentSoft : Color.Transparent)
+            .borderRadius(8)
+            .onClick(() => {
+              this.applyAiProvider(index);
+              this.aiProviderMenuOpen = false;
+            })
+        }, (item: AiProviderPreset, index: number) => `${index}:${item.name}`)
+      }
+      .padding(6)
+      .width('100%')
     }
-    .padding(6)
+    .constraintSize({ maxHeight: 420 })
     .width(230)
+    .scrollBar(BarState.Off)
     .backgroundColor(this.c().dialog)
     .borderRadius(12)
     .border({ width: 1, color: this.c().border })
@@ -9120,7 +9129,8 @@ struct Index {
               Column({ space: 8 }) {
                 Row({ space: 8 }) {
                   Text('服务商').fontSize(10.5).fontColor(this.c().textMuted)
-                  // 不用 Select：它的弹层底色跟系统主题走，深色下会整块发白。
+                  // 不用 Select、也不用 bindMenu：前者弹层底色跟系统走，后者外面套一圈
+                  // 系统描边（深色下是一圈白），这里用 bindPopup 自己控制容器颜色。
                   Text(`${this.aiProviderName()}  ▾`)
                     .fontSize(11)
                     .fontColor(this.c().text)
@@ -9131,7 +9141,20 @@ struct Index {
                     .borderRadius(10)
                     .border({ width: 1, color: this.c().border })
                     .textAlign(TextAlign.Start)
-                    .bindMenu(this.AiProviderMenu())
+                    .onClick(() => { this.aiProviderMenuOpen = true; })
+                    .bindPopup(this.aiProviderMenuOpen, {
+                      builder: this.AiProviderMenu(),
+                      placement: Placement.Bottom,
+                      popupColor: this.c().dialog,
+                      enableArrow: false,
+                      autoCancel: true,
+                      radius: 12,
+                      onStateChange: (event) => {
+                        if (!event.isVisible) {
+                          this.aiProviderMenuOpen = false;
+                        }
+                      },
+                    })
                 }
                 .width('100%')
                 TextInput({ text: this.aiBaseUrl, placeholder: '接口地址（OpenAI 兼容）' })
