@@ -384,7 +384,13 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                     AiMessageBubble(message = message, modifier = Modifier.animateItem())
                 }
                 if (snapshot.busy) {
-                    item { AiTypingBubble(activity = snapshot.activity, modifier = Modifier.animateItem()) }
+                    item {
+                        AiTypingBubble(
+                            activity = snapshot.activity,
+                            streaming = snapshot.streaming,
+                            modifier = Modifier.animateItem(),
+                        )
+                    }
                 }
                 // 模型没有流式输出，「思考过程」能看见的只有工具往返；收成一张折叠卡，
                 // 忙碌时自动展开，平时不占地方。
@@ -989,7 +995,7 @@ private fun AiMessageBubble(message: AiChatMessage, modifier: Modifier = Modifie
 
 /** 等待模型时的三个呼吸点：比转圈更轻，和"正在说话"的语义对得上。 */
 @Composable
-private fun AiTypingBubble(activity: String = "", modifier: Modifier = Modifier) {
+private fun AiTypingBubble(activity: String = "", streaming: String = "", modifier: Modifier = Modifier) {
     val c = Spectrum.colors
     val transition = rememberInfiniteTransition(label = "typing")
     Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
@@ -1003,11 +1009,19 @@ private fun AiTypingBubble(activity: String = "", modifier: Modifier = Modifier)
                 .padding(horizontal = 13.dp, vertical = 11.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            if (activity.isNotBlank()) {
-                // 能说清在干什么时就不晃三个点了：模型没有流式输出，这行字就是"过程"。
-                Text(text = activity, color = c.textMuted, fontSize = 11.5.sp)
-            } else {
-                repeat(3) { index ->
+            when {
+                // 流式正文优先：正在往外吐字的时候，这比「执行 get_node」更能说明在思考。
+                streaming.isNotBlank() -> Text(
+                    text = streaming,
+                    color = c.textMuted,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                )
+
+                // 能说清在干什么时就不晃三个点了。
+                activity.isNotBlank() -> Text(text = activity, color = c.textMuted, fontSize = 11.5.sp)
+
+                else -> repeat(3) { index ->
                     val alpha by transition.animateFloat(
                         initialValue = 0.2f,
                         targetValue = 1f,

@@ -7427,6 +7427,15 @@ struct Index {
                   .lineHeight(16)
                   .fontColor(this.c().text)
                   .layoutWeight(1)
+                if (index === 0) {
+                  // 提示词要求选项按推荐程度排序，第一个就是最推荐的。
+                  Text('推荐')
+                    .fontSize(9)
+                    .fontColor(this.c().accent)
+                    .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                    .backgroundColor(this.c().accentSoft)
+                    .borderRadius(6)
+                }
               }
               .width('100%')
               .padding({ left: 11, right: 11, top: 10, bottom: 10 })
@@ -7626,8 +7635,8 @@ struct Index {
               .justifyContent(FlexAlign.Start)
             }
 
-            // 过程记录：每轮请求、工具调用与结果摘要；忙碌时实时增长，结束后留到下一轮再清。
-            if (this.aiTrace.length > 0) {
+            // 过程记录：忙碌时实时增长；出结果后自动收起，需要回看再翻「思考与操作」。
+            if (this.aiBusy && this.aiTrace.length > 0) {
               Column({ space: 2 }) {
                 ForEach(this.aiTrace, (line: string) => {
                   Text(line)

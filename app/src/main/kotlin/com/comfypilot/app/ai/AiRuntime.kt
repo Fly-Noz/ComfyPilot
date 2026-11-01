@@ -19,6 +19,7 @@ import com.comfypilot.core.ai.AiLoopState
 import com.comfypilot.core.ai.AiLoopStep
 import com.comfypilot.core.ai.AiOp
 import com.comfypilot.core.ai.AiQuery
+import com.comfypilot.core.ai.AiStreamAssembler
 import com.comfypilot.core.ai.AiToolEnv
 import com.comfypilot.core.ai.AiToolOutcome
 import com.comfypilot.core.ai.AiToolRouter
@@ -154,6 +155,8 @@ data class AiSnapshot(
     val canUndo: Boolean = false,
     /** 当前正在做什么（"请求模型" / "执行 get_node"），替代三个点。 */
     val activity: String = "",
+    /** 流式输出到一半的正文（整段模式下为空）。 */
+    val streaming: String = "",
 )
 
 data class AiPendingEdit(
@@ -309,6 +312,9 @@ object AiRuntime {
 
     /** 当前步骤（给界面替代三个点）：请求模型 / 执行某个工具。 */
     private var activity: String = ""
+
+    /** 流式输出到一半的正文；整段模式下始终为空。 */
+    private var streamingText: String = ""
 
     /** 界面订阅：运行时在协程里改了状态就推一份新快照过去。 */
     var onChange: (() -> Unit)? = null
@@ -558,7 +564,7 @@ object AiRuntime {
     }
 
     fun snapshot(): AiSnapshot =
-        AiSnapshot(actions, messages, pending, question, busy, error, tokenEstimate, config, canUndo, activity)
+        AiSnapshot(actions, messages, pending, question, busy, error, tokenEstimate, config, canUndo, activity, streamingText)
 
     /**
      * 发一轮对话。
@@ -1211,6 +1217,8 @@ object AiRuntime {
 
     /** 只负责发：请求体由共享层的状态机拼好，这里不做消息拼装。 */
     private fun postModel(payload: String): JsonObject {
+        // 先试流式：正文能边生成边显示；不支持就退回整段，别因为流式挂了就不回话。
+        streamModel(payload)?.let { return it }
         val endpoint = config.baseUrl.trimEnd('/') + "/chat/completions"
         val request = Request.Builder()
             .url(endpoint)
@@ -1227,6 +1235,46 @@ object AiRuntime {
             return root["choices"]?.jsonArray?.firstOrNull()?.jsonObject
                 ?.get("message")?.jsonObject
                 ?: throw IllegalStateException("响应里没有 choices")
+        }
+    }
+
+    /**
+     * 流式请求：读 OkHttp 的流，按 SSE 行喂给 [AiStreamAssembler]，实时更新界面。
+     *
+     * 返回 null 表示「不支持/没数据」，交给整段请求重来。
+     */
+    private fun streamModel(payload: String): JsonObject? {
+        val body = runCatching { json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return null
+        val withStream = JsonObject(body + ("stream" to JsonPrimitive(true)))
+        val request = Request.Builder()
+            .url(config.baseUrl.trimEnd('/') + "/chat/completions")
+            .header("Authorization", "Bearer ${config.apiKey}")
+            .header("Content-Type", "application/json")
+            .header("Accept", "text/event-stream")
+            .post(withStream.toString().toRequestBody("application/json".toMediaType()))
+            .build()
+        return try {
+            http.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val source = response.body?.source() ?: return null
+                val assembler = AiStreamAssembler()
+                while (true) {
+                    val line = source.readUtf8Line() ?: break
+                    assembler.feed(line)
+                    val partial = assembler.text.ifEmpty { assembler.thoughts }
+                    if (partial != streamingText) {
+                        streamingText = partial
+                        notifyUi()
+                    }
+                }
+                assembler.message()
+            }
+        } catch (err: Throwable) {
+            aiLog("stream fallback: ${err.message}")
+            null
+        } finally {
+            streamingText = ""
+            notifyUi()
         }
     }
 
