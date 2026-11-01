@@ -327,6 +327,9 @@ private fun nodeJson(node: WorkflowNodeView, pinnedNodeIds: Set<Int>) = buildJso
     put("reachable", node.reachable)
     put("needsInput", node.needsInput)
     put("pinned", node.id in pinnedNodeIds)
+    // 子图展开簇：鸿蒙端靠这两个字段插分区头、显示实例控件摘要。
+    node.subgraph?.let { put("subgraph", it) }
+    node.subgraphWidgets?.let { put("subgraphWidgets", it) }
     putJsonArray("fields") { node.fields.forEach { add(fieldJson(it)) } }
 }
 
