@@ -201,6 +201,13 @@ export class AiAssistant {
   private pendingImages: AiImage[] = [];
   /** 本轮已上传过的附图（原文件名 → 服务器文件名）；避免同一张图重复上传。 */
   private uploadedRefs: Map<string, string> = new Map();
+  /**
+   * 本次运行里出现过的附图原名。
+   *
+   * 模型能从历史消息里再看到这些名字，然后在后续轮次直接写进 image 字段——那时
+   * pendingImages 已经是空的，「本轮附图」那道拦网就漏了。这里按会话记忆，没上传就拒绝。
+   */
+  private knownLocalImages: string[] = [];
   /** 明确拒绝过图片的模型名；下次直接跳过图片，省一次失败请求。 */
   private visionOffModel: string = '';
   /** 上一次 AI 修改的反向补丁 JSON；用于「撤销这次修改」。 */
@@ -483,6 +490,7 @@ export class AiAssistant {
     this.pending = null;
     // 上次这个模型明确拒绝过图片，就不再重复撞墙，只发文件名。
     this.pendingImages = this.visionOffModel === this.config.model ? [] : images;
+    this.rememberLocalImages(images);
     this.uploadedRefs = new Map();
     this.messages = [...this.messages, { role: 'user', content: prompt, display: display }];
     // 第一条用户消息落地，这轮对话才算真的用过；bump 会顺带落盘。
@@ -872,7 +880,14 @@ export class AiAssistant {
       const probe = JSON.parse(args) as Record<string, Object>;
       const summary = (probe.summary as string) ?? '';
       // 硬拦：手机上的原文件名服务器没有，写进 image 字段提交必然失败。
-      const localNames: string[] = this.pendingImages.map((image: AiImage) => image.name);
+      // 不只查本轮附图——历史消息里的名字也会被模型捡回来用。
+      const localNames: string[] = this.knownLocalImages.slice();
+      for (let i = 0; i < this.pendingImages.length; i++) {
+        const name: string = this.pendingImages[i].name;
+        if (localNames.indexOf(name) < 0) {
+          localNames.push(name);
+        }
+      }
       const wroteLocal: string = this.localImageFieldInProposal(args, localNames);
       if (wroteLocal.length > 0) {
         return `{"ok":false,"error":${JSON.stringify(
@@ -981,6 +996,16 @@ export class AiAssistant {
     return `{"ok":false,"error":"未知工具 ${name}"}`;
   }
 
+  /** 记下这一轮的附图原名，跨轮拦截「没上传就写进 image 字段」。 */
+  private rememberLocalImages(images: AiImage[]): void {
+    for (let i = 0; i < images.length; i++) {
+      const name: string = images[i].name;
+      if (name.length > 0 && this.knownLocalImages.indexOf(name) < 0) {
+        this.knownLocalImages.push(name);
+      }
+    }
+  }
+
   /** 提案里是否把手机上的原文件名写进了字段；返回字段名，没有则空串。 */
   private localImageFieldInProposal(proposalJson: string, localNames: string[]): string {
     if (localNames.length === 0) {
@@ -1037,7 +1062,7 @@ export class AiAssistant {
       return `{"ok":true,"filename":${JSON.stringify(cached)}}`;
     }
     if (target.uploadBytes === undefined || target.uploadBytes.length === 0) {
-      return '{"ok":false,"error":"这张图没准备好上传的字节"}';
+      return '{"ok":false,"error":"这张图没有待上传的字节了（多半是上一轮丢掉的）；让用户在同一条消息里重新附一次图，再上传"}';
     }
     this.log(`upload_image ${target.name} bytes=${target.uploadBytes.length}`);
     const raw = await upload(target.uploadBytes, target.name);

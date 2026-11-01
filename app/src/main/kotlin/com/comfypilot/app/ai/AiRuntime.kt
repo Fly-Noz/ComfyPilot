@@ -292,6 +292,15 @@ object AiRuntime {
 
     /** 本轮要发给多模态模型的图片；只用于当前请求，不写进历史，避免越存越大。 */
     private var pendingImages: List<AiImage> = emptyList()
+
+    /**
+     * 本次运行里出现过的附图原名。
+     *
+     * 模型能从历史消息里再看到这些名字，然后在后续轮次直接写进 image 字段——那时
+     * [pendingImages] 已经是空的，「本轮附图」那道拦网就漏了。这里按会话记忆，
+     * 只要没上传就一律拒绝。
+     */
+    private val knownLocalImages = mutableSetOf<String>()
     private var pendingUserText: String = ""
     /** 本轮已上传过的附图（原文件名 → 服务器文件名）；避免同一张图重复上传。 */
     private val uploadedRefs = mutableMapOf<String, String>()
@@ -575,6 +584,7 @@ object AiRuntime {
         busy = true
         // 上次这个模型明确拒绝过图片，就不再重复撞墙，只发文件名。
         pendingImages = if (visionOffModel == config.model) emptyList() else images
+        images.forEach { image -> knownLocalImages += image.name }
         uploadedRefs.clear()
         pendingUserText = text
         persistConversation()
@@ -969,7 +979,9 @@ object AiRuntime {
                         """{"ok":false,"error":"没有工作流上下文"}"""
                     } else {
                         // 硬拦：把手机上的原文件名写进字段，服务器上没有那张图，提交必然失败。
-                        val localNames = pendingImages.map { it.name }.toSet()
+                        // 不只查本轮附图——历史消息里的名字也会被模型捡回来用，所以连
+                        // 本次运行见过的所有原名一起拦。
+                        val localNames = knownLocalImages + pendingImages.map { it.name }
                         val wroteLocal = if (localNames.isEmpty()) null else proposal.ops
                             .filterIsInstance<AiOp.SetInput>()
                             .firstOrNull { op ->
@@ -1079,7 +1091,7 @@ object AiRuntime {
         }
 
         val bytes = target.uploadBytes
-            ?: return """{"ok":false,"error":"这张图没准备好上传的字节"}"""
+            ?: return """{"ok":false,"error":"这张图没有待上传的字节了（多半是上一轮丢掉的）；让用户在同一条消息里重新附一次图，再上传"}"""
 
         aiLog("upload_image ${target.name} bytes=${bytes.size}")
         return when (
