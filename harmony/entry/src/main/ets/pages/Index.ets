@@ -973,6 +973,8 @@ struct Index {
     // AI 循环、消息拼装、工具分派都在共享层；ArkTS 只执行 HTTP 与宿主动作。
     this.ai.stepFn = (request: string) => this.bridge.aiStep(request);
     this.ai.sendFn = (request: string) => this.bridge.aiSend(request);
+    // 没有工作流也要能对话（用来切工作流）：宿主常驻，方法自己处理「还没打开」。
+    this.registerAiHost();
     // 异步完成（等任务结果、循环结束）后推进界面；syncAi 里会再调 bump，靠标志位防递归。
     this.ai.changeSink = () => { this.syncAi(); };
     // 真正把一张图 POST 到 ComfyUI /upload/image；只有 AI 调 upload_image 时才会走到。
@@ -1863,7 +1865,8 @@ struct Index {
   }
 
   private closeWorkflow(): void {
-    this.ai.host = null;
+    // 宿主不置空：没有工作流时 AI 仍要能对话、能 open_workflow，只是拿不到节点摘要。
+    this.ai.closeWorkflow();
     this.aiOpen = false;
     this.cancelEditRefresh();
     this.notes.clear();
@@ -7020,8 +7023,15 @@ struct Index {
     return `{"id":${node.id},"class":${JSON.stringify(node.type)},"title":${JSON.stringify(node.title ?? node.displayName)},"fields":[${fields.join(',')}]}`;
   }
 
+  private aiHostInstance: PageAiHost | null = null;
+
   private registerAiHost(): void {
-    const host = new PageAiHost();
+    // 必须复用同一个宿主实例：循环里捕获的是这个对象，换新的会被
+    // executeTool 的 this.host !== host 判断当成「工作流已关闭」。
+    if (this.aiHostInstance === null) {
+      this.aiHostInstance = new PageAiHost();
+    }
+    const host = this.aiHostInstance;
     host.buildViewJson = () => this.aiViewJson();
     host.stateJson = () => this.aiStateJson();
     host.fieldValues = (keysJson: string) => this.aiFieldValues(keysJson);

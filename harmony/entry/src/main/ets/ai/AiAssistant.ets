@@ -872,6 +872,22 @@ export class AiAssistant {
   }
 
   /** 每一步的上下文：system 行 + 模型。摘要必须重算，否则模型对着旧值改。 */
+  /**
+   * 关掉当前工作流：丢掉待确认提案/问题与临时图片，但保留会话与宿主。
+   *
+   * 宿主常驻是为了「没打开工作流也能让 AI 切工作流」；关流后它自己拿不到节点摘要，
+   * 模型会被 context() 告知先 open_workflow。
+   */
+  closeWorkflow(): void {
+    this.pending = null;
+    this.question = null;
+    this.lastUndoJson = '';
+    this.canUndo = false;
+    this.pendingImages = [];
+    this.knownLocalImages = [];
+    this.bump();
+  }
+
   private context(host: AiHost): AiLoopContextRequest {
     const digest = host.digestJson();
     this.tokens = Math.floor(digest.length / 4);
@@ -880,7 +896,12 @@ export class AiAssistant {
     if (currentPath.length > 0) {
       system.push(`用户当前停留的工作流是：${currentPath}`);
     }
-    system.push(`当前工作流摘要：${digest}`);
+    if (digest.length > 0) {
+      system.push(`当前工作流摘要：${digest}`);
+    } else {
+      // 没有打开工作流时也能聊、也能切：别让模型以为有上下文。
+      system.push('当前没有打开任何工作流：要改东西就先调用 open_workflow 打开一个；不确定用户要哪个就先问。');
+    }
     const guide = host.promptGuide();
     if (guide.length > 0) {
       this.log(`prompt guide ${guide.substring(0, 80)}`);
@@ -1140,8 +1161,27 @@ export class AiAssistant {
     if (name === 'open_workflow') {
       const probe = JSON.parse(args) as Record<string, Object>;
       const path = (probe.path as string) ?? '';
+      if (path.length === 0) {
+        return '{"ok":false,"error":"path 为空"}';
+      }
+      if (path === host.currentWorkflow() && host.digestJson().length > 0) {
+        return '{"ok":true,"already":true}';
+      }
       this.actions = [...this.actions, `切换工作流：${path}`].slice(-50);
-      return `{"ok":${host.openWorkflow(path)}}`;
+      if (!host.openWorkflow(path)) {
+        return '{"ok":false,"error":"打不开这个工作流（不在可用列表里？）"}';
+      }
+      // 页面换视图是异步的：等真的拿到摘要再回话，否则下一轮模型会以为没打开、
+      // 反复 open_workflow，直到轮数上限。
+      for (let i = 0; i < 30; i++) {
+        await new Promise<void>((resolve) => {
+          setTimeout(() => { resolve(); }, 300);
+        });
+        if (host.currentWorkflow() === path && host.digestJson().length > 0) {
+          return '{"ok":true,"loaded":true}';
+        }
+      }
+      return '{"ok":true,"loading":true,"hint":"工作流还在加载；稍等再 list_graphs，不要重复 open"}';
     }
     if (name === 'upload_image') {
       return await this.uploadImageTool(args);

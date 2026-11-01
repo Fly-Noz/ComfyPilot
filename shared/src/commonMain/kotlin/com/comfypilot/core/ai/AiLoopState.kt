@@ -87,8 +87,8 @@ data class AiLoopContext(
  * 否则 assistant 消息里的 tool_calls 会缺结果，下一轮请求直接非法。
  */
 class AiLoopState(
-    /** 单轮最多几次模型往返；默认 6，与 Android 原来的 `repeat(6)` 对齐。 */
-    val maxRounds: Int = 6,
+    /** 单轮最多几次模型往返；默认 8（切工作流 + 查节点 + 改 + 提交，6 轮经常不够）。 */
+    val maxRounds: Int = 8,
 ) {
 
     private val turns = mutableListOf<JsonObject>()
