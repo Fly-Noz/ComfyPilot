@@ -87,32 +87,35 @@ class PromptBuilderTest {
     }
 
     @Test
-    fun `overriding a linked input is rejected`() {
-        val blocked = blocked(
+    fun `overriding a linked input is ignored with a warning`() {
+        val ready = ready(
             PromptBuilder.build(
                 document(DEMO_UI),
                 DEFINITIONS,
                 mapOf(3 to mapOf("model" to JsonPrimitive(9))),
             ),
         )
+        // 连线优先：覆盖值被丢掉，但整张图仍然可提交（旧会话残留不该卡死提交）。
+        assertEquals(4 to 0, ready.link("3", "model"))
         assertTrue(
-            blocked.problems.any { it.nodeId == 3 && it.message.contains("不能覆盖") },
-            "覆盖连线必须被拒绝：${blocked.problems}",
+            ready.warnings.any { it.contains("忽略") },
+            "应当提示覆盖被忽略：${ready.warnings}",
         )
     }
 
     @Test
-    fun `overriding an unknown field is rejected`() {
-        val blocked = blocked(
+    fun `overriding an unknown field is ignored with a warning`() {
+        val ready = ready(
             PromptBuilder.build(
                 document(DEMO_UI),
                 DEFINITIONS,
                 mapOf(3 to mapOf("not_a_field" to JsonPrimitive(1))),
             ),
         )
+        // 旧会话里残留的字段名：告警后忽略，不该把整张图卡住。
         assertTrue(
-            blocked.problems.any { it.message.contains("not_a_field") },
-            "未知字段必须被拒绝：${blocked.problems}",
+            ready.warnings.any { it.contains("not_a_field") },
+            "未知字段应当被忽略并告警：${ready.warnings}",
         )
     }
 

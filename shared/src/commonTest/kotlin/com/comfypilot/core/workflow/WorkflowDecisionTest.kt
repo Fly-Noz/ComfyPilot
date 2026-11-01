@@ -138,7 +138,7 @@ class WorkflowDecisionTest {
     }
 
     @Test
-    fun `invalid override blocks through the same decision`() {
+    fun `invalid override is ignored instead of blocking`() {
         val decision = WorkflowDecisions.evaluate(
             document = document(),
             definitions = DEFINITIONS,
@@ -146,9 +146,10 @@ class WorkflowDecisionTest {
             nodeInfoRequested = CLASSES,
         )
 
-        assertFalse(decision.canSubmit)
-        assertTrue(decision.problems.any { it.message.contains("not_a_field") })
-        assertEquals("不可提交：${decision.problems.first().format()}", decision.blockReason)
+        // 旧会话残留的未知字段：告警后忽略，不再把整张图卡成不可提交。
+        assertTrue(decision.canSubmit)
+        val ready = decision.build as PromptBuild.Ready
+        assertTrue(ready.warnings.any { it.contains("not_a_field") })
     }
 
     private fun promptText(decision: WorkflowDecision, nodeId: String): String {

@@ -97,12 +97,18 @@ object AiDigest {
                                 put("title", node.title)
                                 put("enabled", state.isEnabled(node))
                                 putJsonArray("fields") {
-                                    node.fields.filter { it.editable }.forEach { field ->
+                                    // 连线驱动的字段也要发：模型得知道「这个字段改不了、要去上游改」，
+                                    // 否则会直接 set_input 然后收到一条它看不懂的拒绝。
+                                    node.fields.forEach { field ->
                                         add(
                                             buildJsonObject {
                                                 put("name", field.input)
                                                 put("type", field.type)
-                                                put("value", state.valueOf(field) ?: JsonNull)
+                                                put("editable", field.editable)
+                                                if (field.editable) {
+                                                    put("value", state.valueOf(field) ?: JsonNull)
+                                                }
+                                                field.fromNode?.let { put("fromNode", it) }
                                             },
                                         )
                                     }

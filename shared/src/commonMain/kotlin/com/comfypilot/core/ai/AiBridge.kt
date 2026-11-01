@@ -115,6 +115,9 @@ object AiBridge {
                         type = field.string("type"),
                         value = field["value"],
                         editable = field["editable"]?.jsonPrimitive?.booleanOrNull ?: true,
+                        // 连线驱动的字段：模型据此去上游改，而不是直接 set_input。
+                        fromNode = field["fromNode"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+                        fromSlot = field["fromSlot"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
                     )
                 },
             )

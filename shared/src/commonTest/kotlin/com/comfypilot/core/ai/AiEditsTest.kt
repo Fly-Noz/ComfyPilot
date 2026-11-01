@@ -23,7 +23,7 @@ class AiEditsTest {
                 fields = listOf(
                     AiField(195, "steps", "INT", JsonPrimitive(4), editable = true),
                     AiField(195, "seed", "INT", JsonPrimitive(1), editable = true),
-                    AiField(195, "linked", "INT", JsonPrimitive(2), editable = false),
+                    AiField(195, "linked", "INT", JsonPrimitive(2), editable = false, fromNode = 7, fromSlot = 0),
                 ),
             ),
             AiNode(
@@ -101,7 +101,9 @@ class AiEditsTest {
             """{"summary":"x","ops":[{"op":"set_input","node":195,"input":"linked","value":6}]}""",
         )
         assertNotNull(linked)
-        assertTrue(AiEdits.apply(view(), AiEditState(), linked).errors.single().contains("不可编辑"))
+        // 连线驱动的字段被拒时，错误信息要指向上游节点，模型才知道去哪改。
+        val error = AiEdits.apply(view(), AiEditState(), linked).errors.single()
+        assertTrue(error.contains("由 #7 提供"), error)
     }
 
     @Test
@@ -146,10 +148,14 @@ class AiEditsTest {
         assertEquals(2, nodes.size)
         val sampler = nodes.first { it.jsonObject["id"]!!.jsonPrimitive.content == "195" }
         val fields = sampler.jsonObject["fields"]!!.let { it as kotlinx.serialization.json.JsonArray }
-        assertEquals(2, fields.size)
+        assertEquals(3, fields.size)
         val steps = fields.first { it.jsonObject["name"]!!.jsonPrimitive.content == "steps" }
         assertEquals("6", steps.jsonObject["value"]!!.jsonPrimitive.content)
-        assertTrue(fields.none { it.jsonObject["name"]!!.jsonPrimitive.content == "linked" })
+        // 连线驱动的字段也要下发（带 editable:false 与 fromNode），模型才知道往上游找。
+        val linked = fields.first { it.jsonObject["name"]!!.jsonPrimitive.content == "linked" }
+        assertEquals("false", linked.jsonObject["editable"]!!.jsonPrimitive.content)
+        assertTrue(linked.jsonObject["fromNode"] != null)
+        assertTrue(linked.jsonObject["value"] == null)
         assertTrue(AiDigest.estimateTokens(digest) > 0)
     }
 

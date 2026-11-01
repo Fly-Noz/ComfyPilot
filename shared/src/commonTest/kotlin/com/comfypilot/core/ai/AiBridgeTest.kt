@@ -19,7 +19,7 @@ class AiBridgeTest {
               "enabled": true, "reachable": true,
               "fields": [
                 {"name": "steps", "type": "INT", "value": 4, "editable": true},
-                {"name": "linked", "type": "INT", "value": 2, "editable": false}
+                {"name": "linked", "type": "INT", "value": 2, "editable": false, "fromNode": 7, "fromSlot": 0}
               ]
             }
           ],
@@ -34,15 +34,19 @@ class AiBridgeTest {
     """.trimIndent()
 
     @Test
-    fun `digest includes override and hides linked fields`() {
+    fun `digest includes overrides and marks linked fields as not editable`() {
         val response = Json.parseToJsonElement(AiBridge.digest(request)).jsonObject
         assertEquals(true, response["ok"]!!.jsonPrimitive.content.toBoolean())
         assertTrue(response["tokens"]!!.jsonPrimitive.content.toInt() > 0)
         val digest = response["digest"]!!.jsonObject
         val node = digest["nodes"]!!.jsonArray.first().jsonObject
         val fields = node["fields"]!!.jsonArray
-        assertEquals(1, fields.size)
-        assertEquals("6", fields.first().jsonObject["value"]!!.jsonPrimitive.content)
+        assertEquals(2, fields.size)
+        val editable = fields.first { it.jsonObject["editable"]!!.jsonPrimitive.content == "true" }
+        assertEquals("6", editable.jsonObject["value"]!!.jsonPrimitive.content)
+        // 连线驱动的字段带 fromNode，模型据此去上游改，不会直接 set_input。
+        val linked = fields.first { it.jsonObject["editable"]!!.jsonPrimitive.content == "false" }
+        assertTrue(linked.jsonObject["fromNode"] != null)
     }
 
     @Test

@@ -105,7 +105,14 @@ object AiEdits {
                     val field = view.field(op.nodeId, op.input)
                     when {
                         field == null -> errors += "节点 ${nodeLabel(op.nodeId)} 没有输入 ${op.input}"
-                        !field.editable -> errors += "节点 ${nodeLabel(op.nodeId)} 的 ${op.input} 不可编辑（由连线驱动）"
+                        !field.editable -> {
+                            val from = field.fromNode
+                            errors += if (from != null) {
+                                "节点 ${nodeLabel(op.nodeId)} 的 ${op.input} 由 #$from 提供，不能直接改；去改 #$from 里真正存值的那一项"
+                            } else {
+                                "节点 ${nodeLabel(op.nodeId)} 的 ${op.input} 不可编辑（由连线驱动）"
+                            }
+                        }
                         else -> {
                             val coerced = coerce(field, op.value)
                             if (coerced == null) {

@@ -282,11 +282,9 @@ object PromptBuilder {
         for ((name, value) in overrides) {
             val declared = declaredByName[name]
             if (declared == null || !declared.isWidget || declared.forceInput) {
-                problems += BuildProblem(
-                    node.id,
-                    node.type,
-                    "字段 $name 不能覆盖（不存在或由连线提供）",
-                )
+                // 旧会话残留的覆盖值：字段现在不存在、或本来就是连线/非控件输入。
+                // 忽略它并告警，别让一条历史记录把整张图卡在不可提交。
+                warnings += "节点 ${node.title}（#${node.id}）的字段 $name 已不可覆盖（不存在或由连线提供），忽略本地值"
                 continue
             }
             val linked = node.inputs.any { uiInput ->
@@ -299,7 +297,9 @@ object PromptBuilder {
                 }
             }
             if (linked) {
-                problems += BuildProblem(node.id, node.type, "字段 ${declared.name} 由连线提供，不能覆盖")
+                // 旧会话可能存过「当时还没连线」的覆盖值；连线优先，丢掉覆盖而不是
+                // 把整张图卡在「字段 X 由连线提供，不能覆盖」上。
+                warnings += "节点 ${node.title}（#${node.id}）的字段 ${declared.name} 由连线提供，已忽略本地覆盖值"
                 continue
             }
             // 会话里存下来的旧值可能已经不在候选里（换模型/换节点版本）：换回默认值并告警，
