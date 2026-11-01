@@ -87,9 +87,8 @@ object SubgraphExpander {
             val outputDefs = definition.array("outputs")
             val instanceInputs = instance.array("inputs")
             val outerLinks = links.mapNotNull { parseLink(it) }.associateBy { it.id }
-            val instancePos = (instance["pos"] as? JsonArray).orEmpty()
-            val offsetX = instancePos.getOrNull(0).doubleOrZero()
-            val offsetY = instancePos.getOrNull(1).doubleOrZero()
+            // 子图内部节点用的是画布上的绝对坐标（定义里保留着创建时的位置），
+            // 不要再叠加实例位置，否则会整体飞出去、脱离原来的图组。
 
             val idMap = innerNodes.mapNotNull { it as? JsonObject }
                 .mapNotNull { inner -> inner.int("id")?.let { it to allocate(instanceId.toString(), it) } }
@@ -194,8 +193,8 @@ object SubgraphExpander {
                         put(
                             "pos",
                             buildJsonArray {
-                                add(JsonPrimitive(pos.getOrNull(0).doubleOrZero() + offsetX))
-                                add(JsonPrimitive(pos.getOrNull(1).doubleOrZero() + offsetY))
+                                add(JsonPrimitive(pos.getOrNull(0).doubleOrZero()))
+                                add(JsonPrimitive(pos.getOrNull(1).doubleOrZero()))
                             },
                         )
                     }
