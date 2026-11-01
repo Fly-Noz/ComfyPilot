@@ -562,10 +562,71 @@ export class AiAssistant {
     this.actions = [...this.actions, ...outcome.changes].slice(-50);
     const suffix = skipped.length > 0 ? `（跳过你期间改过的：${skipped.join('、')}）` : '';
     this.messages = [...this.messages, { role: 'assistant', content: `已应用：${pending.summary}${suffix}` }];
-    if (submit && !host.submit()) {
-      this.error = '提交失败：工作流还有未填字段';
+    if (submit) {
+      if (!host.submit()) {
+        this.error = '提交失败：工作流还有未填字段';
+      } else {
+        this.messages = [...this.messages, { role: 'assistant', content: '已提交任务，等待结果…' }];
+        this.busy = true;
+        this.activity = '等待任务结果…';
+        this.bump();
+        // 确认后要自己盯着这次任务：不能只丢一句「已提交」就没动静。
+        host.taskSummary(60).then((task: string) => {
+          const report = this.taskReport(task);
+          this.messages = [...this.messages, { role: 'assistant', content: report.text }];
+          if (report.failed) {
+            this.error = '';
+          }
+          this.busy = false;
+          this.activity = '';
+          this.bump();
+        }).catch((err: Error) => {
+          this.busy = false;
+          this.activity = '';
+          this.error = `等待任务结果失败：${err.message}`;
+          this.bump();
+        });
+      }
+    } else {
+      // 只应用不提交时也要给个交代，否则界面就停在「已应用」不动了。
+      this.messages = [
+        ...this.messages,
+        { role: 'assistant', content: '（没有提交）要跑的话点下方「提交任务」，或对我说「提交」，我会盯着这次结果。' },
+      ];
     }
     this.bump();
+  }
+
+  /** 把 taskSummary 的 JSON 翻成一句话：成功给产物，失败给服务端错误。 */
+  private taskReport(taskJson: string): TaskReport {
+    let state: string = '';
+    let error: string = '';
+    let outputs: string[] = [];
+    try {
+      const list = JSON.parse(taskJson) as AiTaskRow[];
+      if (list.length > 0) {
+        const last = list[list.length - 1];
+        state = last.state ?? '';
+        error = last.error ?? '';
+        const refs = last.outputs ?? [];
+        outputs = refs.map((item: AiTaskOutput) => item.filename);
+      }
+    } catch (err) {
+      return { failed: false, text: '任务状态未知：没有拿到任务信息' };
+    }
+    const text = state.toLowerCase();
+    const failed = error.length > 0 || text.indexOf('fail') >= 0 || text.indexOf('error') >= 0;
+    if (failed) {
+      return {
+        failed: true,
+        text: `任务失败：${error.length > 0 ? error : state}。要我现在定位并修吗？说「修」我就继续。`,
+      };
+    }
+    if (text.indexOf('success') >= 0 || text.indexOf('complete') >= 0) {
+      const names = outputs.slice(0, 3).join('、');
+      return { failed: false, text: names.length > 0 ? `任务完成，产物：${names}` : '任务完成。' };
+    }
+    return { failed: false, text: `任务还在跑（${state}），完成后我再报。` };
   }
 
   /** 撤销上一次 AI 修改：用提案前记下的旧值构造反向补丁。 */
@@ -1161,8 +1222,25 @@ interface AskProbe {
   options?: string[];
 }
 
-/** 提案结构的只读探针：只用来检查 image 字段是不是本地文件名。 */
-interface ProposalOpProbe {
+/** taskSummary 里的一条产物。 */
+interface AiTaskOutput {
+  filename: string;
+}
+
+/** taskSummary 里的一条任务（只取界面用得到的字段）。 */
+interface AiTaskRow {
+  state?: string;
+  error?: string;
+  outputs?: AiTaskOutput[];
+}
+
+/** 任务结果的人话摘要。 */
+interface TaskReport {
+  failed: boolean;
+  text: string;
+}
+
+/** 提案结构的只读探针：只用来检查 image 字段是不是本地文件名。 */interface ProposalOpProbe {
   op?: string;
   input?: string;
   value?: Object;

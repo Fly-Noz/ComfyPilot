@@ -676,11 +676,61 @@ object AiRuntime {
             if (!currentHost.submitCurrent()) {
                 error = "提交失败：请检查工作流是否有未填字段"
             } else {
-                messages = messages + AiChatMessage("assistant", "已提交任务，等待结果。")
+                messages = messages + AiChatMessage("assistant", "已提交任务，等待结果…")
+                persistConversation()
+                // 确认后要自己盯着这次任务：不能只丢一句「已提交」就没动静。
+                job = scope.launch {
+                    busy = true
+                    activity = "等待任务结果…"
+                    val task = runCatching { currentHost.taskSummary(60) }.getOrDefault("[]")
+                    busy = false
+                    activity = ""
+                    val report = taskReport(task)
+                    messages = messages + AiChatMessage("assistant", report.text)
+                    if (report.failed) {
+                        error = null
+                        aiLog("task failed: ${report.detail.take(200)}")
+                    }
+                    persistConversation()
+                }
             }
+        } else {
+            // 只应用不提交时也要给个交代，否则界面就停在「已应用」不动了。
+            messages = messages + AiChatMessage(
+                "assistant",
+                "（没有提交）要跑的话点下方「提交任务」，或对我说「提交」，我会盯着这次结果。",
+            )
         }
         persistConversation()
     }
+
+    /**
+     * 把 taskSummary 的 JSON 翻成一句话。
+     *
+     * 成功给出产物文件名，失败给出服务端错误并提示可以让我接着修——之前这里只留
+     * 一句「已提交」，任务失败时 AI 和用户都收不到结果。
+     */
+    private fun taskReport(taskJson: String): TaskReport {
+        val last = runCatching { json.parseToJsonElement(taskJson).jsonArray.lastOrNull() }.getOrNull()
+            ?: return TaskReport(false, "任务状态未知：没有拿到任务信息")
+        val obj = last as? JsonObject ?: return TaskReport(false, "任务状态未知")
+        val state = obj["state"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val error = obj["error"]?.jsonPrimitive?.contentOrNull.orEmpty()
+        val outputs = (obj["outputs"] as? JsonArray)?.mapNotNull { item ->
+            (item as? JsonObject)?.get("filename")?.jsonPrimitive?.contentOrNull
+        }.orEmpty()
+        val failed = error.isNotBlank() || state.contains("fail", true) || state.contains("error", true)
+        return if (failed) {
+            TaskReport(true, "任务失败：${error.ifBlank { state }}。要我现在定位并修吗？说「修」我就继续。", error)
+        } else if (state.contains("success", true) || state.contains("complete", true)) {
+            val names = outputs.take(3).joinToString("、")
+            TaskReport(false, if (names.isEmpty()) "任务完成。" else "任务完成，产物：$names")
+        } else {
+            TaskReport(false, "任务还在跑（$state），完成后我再报。")
+        }
+    }
+
+    private data class TaskReport(val failed: Boolean, val text: String, val detail: String = "")
 
     /** 撤销上一次 AI 修改：把提案前的编辑状态原样写回。 */
     fun undoLast(): Boolean {
