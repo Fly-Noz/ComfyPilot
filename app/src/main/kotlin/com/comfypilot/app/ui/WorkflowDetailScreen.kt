@@ -2026,8 +2026,8 @@ private fun NodeInputCard(
             .fillMaxWidth()
             .padding(start = if (nested) 10.dp else 0.dp)
             .clip(shape)
-            .background(if (enabled) c.card else c.card.copy(alpha = 0.85f))
-            .border(1.dp, if (enabled) c.border else c.border.copy(alpha = 0.8f), shape),
+            .background(if (enabled) c.card else c.card.copy(alpha = 0.5f))
+            .border(1.dp, if (enabled) c.border else c.border.copy(alpha = 0.55f), shape),
     ) {
         Row(
             modifier = Modifier
@@ -2065,7 +2065,7 @@ private fun NodeInputCard(
                     } else {
                         "${node.type} · ${node.fields.size} 个输入"
                     },
-                    color = c.textDim,
+                    color = if (enabled) c.textDim else c.textMuted,
                     fontSize = 9.5.sp,
                     fontFamily = SpectrumMono,
                     modifier = Modifier.padding(top = 2.dp),
@@ -2096,7 +2096,11 @@ private fun NodeInputCard(
         if (note != null) {
             Text(
                 text = note,
-                color = if (node.missing) c.err else c.textDim,
+                color = when {
+                    node.missing -> c.err
+                    enabled -> c.textDim
+                    else -> c.textMuted
+                },
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
                 modifier = Modifier.padding(horizontal = 13.dp, vertical = 2.dp),
