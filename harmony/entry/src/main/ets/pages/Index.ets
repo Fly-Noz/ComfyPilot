@@ -9359,9 +9359,10 @@ struct Index {
             .onChange((value: boolean) => { this.setForceSubmit(value); })
         }
         .width('100%')
-        .constraintSize({ minHeight: 46 })
-        .alignItems(VerticalAlign.Center)
-        .padding({ left: 4, right: 4 })
+        .padding(14)
+        .backgroundColor(this.c().card)
+        .borderRadius(16)
+        .border({ width: 1, color: this.c().border })
 
         Row({ space: 8 }) {
           Column({ space: 3 }) {
