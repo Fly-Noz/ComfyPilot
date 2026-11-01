@@ -32,6 +32,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -319,6 +320,9 @@ object AiRuntime {
     /** 界面订阅：运行时在协程里改了状态就推一份新快照过去。 */
     var onChange: (() -> Unit)? = null
 
+    /** 没打开工作流时的宿主（只负责切流）；由应用根组件注册，详情页关闭时回落。 */
+    var fallbackHost: AiWorkflowHost? = null
+
     private fun notifyUi() {
         onChange?.invoke()
     }
@@ -582,9 +586,9 @@ object AiRuntime {
             error = "先在设置里填好接口地址、模型和 API Key"
             return
         }
-        val currentHost = host
+        val currentHost = host ?: fallbackHost
         if (currentHost == null) {
-            error = "先打开一个工作流，AI 需要工作流上下文"
+            error = "AI 还没初始化完成，请稍后再试"
             return
         }
         aiLog("send: $text images=${images.size}")
@@ -789,8 +793,7 @@ object AiRuntime {
         busy = true
         job = scope.launch {
             try {
-                runLoop(currentHost)
-            } catch (err: Throwable) {
+                runLoop(currentHost)            } catch (err: Throwable) {
                 error = err.message ?: "AI 请求失败"
             } finally {
                 busy = false
@@ -823,6 +826,9 @@ object AiRuntime {
                 is AiLoopStep.Http -> {
                     activity = "第 ${loop.round} 轮 · 请求模型…"
                     notifyUi()
+                    // 每一轮都用「当前」宿主：open_workflow 之后详情页会换掉 host，
+                    // 继续用开跑时捕获的那个会被 toolkit 当成「工作流已关闭」。
+                    val active = host ?: fallbackHost ?: currentHost
                     val message = try {
                         postModel(step.body)
                     } catch (err: Throwable) {
@@ -839,7 +845,7 @@ object AiRuntime {
                                 "assistant",
                                 "（当前模型不接受图片输入，已改用文件名描述继续；要让它看图，请在设置里换支持视觉的模型）",
                             )
-                            step = loop.nextRequest(contextFor(currentHost))
+                            step = loop.nextRequest(contextFor(host ?: fallbackHost ?: currentHost))
                             continue
                         }
                         throw err
@@ -850,11 +856,12 @@ object AiRuntime {
                 is AiLoopStep.CallTool -> {
                     activity = "执行 ${step.name}…"
                     notifyUi()
-                    val result = executeTool(step.name, step.args, currentHost)
+                    val active = host ?: fallbackHost ?: currentHost
+                    val result = executeTool(step.name, step.args, active)
                     // 工具执行会改 pending / question；循环靠这两个标志决定停不停。
                     if (pending != null) loop.markPending()
                     question?.let { loop.markQuestion(it.question) }
-                    step = loop.acceptToolResult(step.callId, result, contextFor(currentHost))
+                    step = loop.acceptToolResult(step.callId, result, contextFor(host ?: fallbackHost ?: active))
                 }
 
                 is AiLoopStep.Done -> {
@@ -898,6 +905,7 @@ object AiRuntime {
             add(AiPrompt.systemPrompt(config.model))
             if (path.isNotEmpty()) add("用户当前停留的工作流：$path")
             if (digest != null) add("当前工作流摘要：$digest")
+            else add("当前没有打开工作流：要改东西就先 open_workflow 打开一个；不确定用户要哪个就先问。")
             if (paths.isNotEmpty()) {
                 add("可切换的工作流（open_workflow 用）：" + paths.take(60).joinToString("、"))
             }
@@ -1027,6 +1035,28 @@ object AiRuntime {
             return """{"ok":false,"error":"工作流已关闭，请重新打开后再试"}"""
         }
         aiLog("tool $name args=${argsJson.take(300)}")
+        if (name == "open_workflow") {
+            val path = runCatching {
+                json.parseToJsonElement(argsJson).jsonObject["path"]?.jsonPrimitive?.contentOrNull
+            }.getOrNull().orEmpty().trim()
+            if (path.isBlank()) return """{"ok":false,"error":"path 为空"}"""
+            if ((host ?: currentHost).digest()?.path == path) {
+                return """{"ok":true,"already":true}"""
+            }
+            if (!currentHost.openWorkflow(path)) {
+                return """{"ok":false,"error":"打不开这个工作流（不在可用列表里？）"}"""
+            }
+            actions = actions + "切换工作流：$path"
+            // 详情页换视图是异步的：等摘要里出现目标路径再回话，否则模型会反复 open。
+            repeat(30) {
+                delay(300)
+                val fresh = host ?: fallbackHost
+                if (fresh != null && fresh.digest()?.path == path) {
+                    return """{"ok":true,"loaded":true}"""
+                }
+            }
+            return """{"ok":true,"loading":true,"hint":"工作流还在加载；稍后再查，不要重复 open"}"""
+        }
         // 无状态工具交给共享路由器；propose_edits / ask_user 仍由本端处理。
         AiToolRouter.execute(name, argsJson, toolEnv(currentHost))?.let { outcome ->
             return when (outcome) {

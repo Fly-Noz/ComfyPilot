@@ -86,6 +86,20 @@ fun ComfyPilotApp(
     var mode by remember { mutableStateOf(appearance.load()) }
 
     var screen by remember { mutableStateOf<Screen>(Screen.Connect) }
+    // 没打开工作流时的 AI 宿主：只负责切流。详情页会覆盖它，退出详情再回落。
+    val navigationHost = remember {
+        com.comfypilot.app.ai.AiNavigationHost(
+            snapshot = { com.comfypilot.app.SessionHost.state.value },
+            openDetail = { screen = Screen.Detail },
+            open = { path -> onOpenWorkflow(path) },
+        )
+    }
+    LaunchedEffect(screen) {
+        com.comfypilot.app.ai.AiRuntime.fallbackHost = navigationHost
+        if (screen != Screen.Detail) {
+            com.comfypilot.app.ai.AiRuntime.host = navigationHost
+        }
+    }
     // 从详情打开任务时，详情必须继续留在组合里；否则字段/图开关/页签会全部丢失。
     var tasksOverlay by remember { mutableStateOf(false) }
     // 设置从哪来回哪去：连接页和目录页都能进。

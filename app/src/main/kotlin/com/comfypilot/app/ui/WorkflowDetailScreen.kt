@@ -790,7 +790,8 @@ private fun DetailBody(
     }
     DisposableEffect(document.path) {
         onDispose {
-            AiRuntime.host = null
+            // 回目录页后仍要能让 AI 切流，不能把宿主清空。
+            AiRuntime.host = AiRuntime.fallbackHost
         }
     }
 
