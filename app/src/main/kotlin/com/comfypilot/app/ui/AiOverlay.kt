@@ -1166,7 +1166,25 @@ private fun AiQuestionOverlay(question: AiQuestion, onPick: (String) -> Unit) {
                                 .padding(horizontal = 6.dp, vertical = 2.dp),
                         )
                         androidx.compose.foundation.layout.Spacer(Modifier.width(9.dp))
-                        Text(option, color = c.text, fontSize = 11.5.sp, lineHeight = 16.sp)
+                        Text(
+                            text = option,
+                            color = c.text,
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (index == 0) {
+                            // 提示词要求选项按推荐程度排序，第一个就是最推荐的。
+                            Text(
+                                text = "推荐",
+                                color = c.accent,
+                                fontSize = 9.sp,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(c.accentSoft)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
                     }
                 }
             }
