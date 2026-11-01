@@ -271,6 +271,23 @@ interface AiBridgeResult {
   openWorkflow?: string;
 }
 
+/** 主流 AI 服务商预设：选完自动填地址与模型；模型名以厂商文档为准，仍可手改。 */
+interface AiProviderPreset {
+  name: string;
+  baseUrl: string;
+  model: string;
+}
+
+const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
+  { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-v4' },
+  { name: '通义千问 Qwen', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen3-max' },
+  { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-6-astra' },
+  { name: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-pro' },
+  { name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4.6' },
+  { name: 'Kimi（月之暗面）', baseUrl: 'https://api.moonshot.cn/v1', model: 'kimi-k2-turbo-preview' },
+  { name: '自定义', baseUrl: '', model: '' },
+];
+
 @Entry
 @Component
 struct Index {
@@ -520,6 +537,7 @@ struct Index {
   @State aiKey: string = '';
   @State aiAutoSubmit: boolean = false;
   @State aiMaxRounds: number = 8;
+  @State aiProviderIndex: number = AI_PROVIDER_PRESETS.length - 1;
   private draftSaveTimer: number = -1;
   /** 性能条复用一个 HttpRequest 句柄，页面离场时 destroy()。 */
   private statsRequest: http.HttpRequest | null = null;
@@ -7067,6 +7085,7 @@ struct Index {
     this.aiModel = this.ai.config.model;
     this.aiKey = this.ai.config.apiKey;
     this.aiAutoSubmit = this.ai.config.autoSubmit;
+    this.aiProviderIndex = this.matchAiProvider(this.ai.config.baseUrl);
     this.aiMaxRounds = this.ai.roundLimit();
     this.syncAi();
   }
@@ -7250,11 +7269,48 @@ struct Index {
     }
   }
 
+  /** 服务商预设：名字、选项列表、按当前地址反查、应用选中项。 */
+  private aiProviderName(): string {
+    const index: number = this.aiProviderIndex >= 0 && this.aiProviderIndex < AI_PROVIDER_PRESETS.length
+      ? this.aiProviderIndex : AI_PROVIDER_PRESETS.length - 1;
+    return AI_PROVIDER_PRESETS[index].name;
+  }
+
+  private aiProviderOptions(): SelectOption[] {
+    return AI_PROVIDER_PRESETS.map((item: AiProviderPreset) => {
+      const option: SelectOption = { value: item.name };
+      return option;
+    });
+  }
+
+  private matchAiProvider(baseUrl: string): number {
+    for (let i = 0; i < AI_PROVIDER_PRESETS.length; i++) {
+      const preset: AiProviderPreset = AI_PROVIDER_PRESETS[i];
+      if (preset.baseUrl.length > 0 && baseUrl.startsWith(preset.baseUrl)) {
+        return i;
+      }
+    }
+    return AI_PROVIDER_PRESETS.length - 1;
+  }
+
+  private applyAiProvider(index: number): void {
+    if (index < 0 || index >= AI_PROVIDER_PRESETS.length) {
+      return;
+    }
+    this.aiProviderIndex = index;
+    const preset: AiProviderPreset = AI_PROVIDER_PRESETS[index];
+    if (preset.baseUrl.length > 0) {
+      this.aiBaseUrl = preset.baseUrl;
+      this.aiModel = preset.model;
+    }
+  }
+
   private openAiSettings(): void {
     this.aiBaseUrl = this.ai.config.baseUrl;
     this.aiModel = this.ai.config.model;
     this.aiKey = this.ai.config.apiKey;
     this.aiAutoSubmit = this.ai.config.autoSubmit;
+    this.aiProviderIndex = this.matchAiProvider(this.ai.config.baseUrl);
     this.aiSettingsOpen = true;
   }
 
@@ -9038,6 +9094,19 @@ struct Index {
 
             if (this.aiEnabled) {
               Column({ space: 8 }) {
+                Row({ space: 8 }) {
+                  Text('服务商').fontSize(10.5).fontColor(this.c().textMuted)
+                  Select(this.aiProviderOptions())
+                    .selected(this.aiProviderIndex)
+                    .value(this.aiProviderName())
+                    .font({ size: 11 })
+                    .fontColor(this.c().text)
+                    .backgroundColor(this.c().cardStrong)
+                    .height(34)
+                    .layoutWeight(1)
+                    .onSelect((index: number) => { this.applyAiProvider(index); })
+                }
+                .width('100%')
                 TextInput({ text: this.aiBaseUrl, placeholder: '接口地址（OpenAI 兼容）' })
                   .fontSize(11).height(36).fontColor(this.c().text).placeholderColor(this.c().textDim)
                   .onChange((value: string) => { this.aiBaseUrl = value; })

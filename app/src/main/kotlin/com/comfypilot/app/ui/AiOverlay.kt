@@ -42,6 +42,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -1262,7 +1264,7 @@ private fun PendingAction(
     )
 }
 
-/** 设置页里编辑 AI 配置：开关、接口、模型、Key、自动提交。 */
+/** 设置页里编辑 AI 配置：服务商、接口、模型、Key、自动提交、轮数。 */
 @Composable
 fun AiConfigEditor(
     initial: AiConfig,
@@ -1298,6 +1300,12 @@ fun AiConfigEditor(
         }
         // 功能没开放时不摆输入框：填了也不会生效，只会让人以为是自己没配对。
         if (AiFeature.available) {
+            AiProviderPicker(currentBaseUrl = baseUrl) { preset ->
+                if (preset.baseUrl.isNotEmpty()) {
+                    baseUrl = preset.baseUrl
+                    model = preset.model
+                }
+            }
             AiField("接口地址（OpenAI 兼容）", baseUrl, false) { baseUrl = it }
             AiField("模型名", model, false) { model = it }
             AiField("API Key（只存本机）", apiKey, true) { apiKey = it }
@@ -1338,6 +1346,59 @@ fun AiConfigEditor(
                     .padding(horizontal = 16.dp, vertical = 9.dp),
             ) {
                 Text("保存", color = Color.White, fontSize = 12.5.sp)
+            }
+        }
+    }
+}
+
+/** 主流厂商预设：选完自动填地址与模型；模型名以厂商文档为准，仍可手改。 */
+private data class AiProviderPreset(val name: String, val baseUrl: String, val model: String)
+
+private val AI_PROVIDER_PRESETS = listOf(
+    AiProviderPreset("DeepSeek", "https://api.deepseek.com/v1", "deepseek-v4"),
+    AiProviderPreset("通义千问 Qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3-max"),
+    AiProviderPreset("OpenAI", "https://api.openai.com/v1", "gpt-6-astra"),
+    AiProviderPreset("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-pro"),
+    AiProviderPreset("智谱 GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4.6"),
+    AiProviderPreset("Kimi（月之暗面）", "https://api.moonshot.cn/v1", "kimi-k2-turbo-preview"),
+    AiProviderPreset("自定义", "", ""),
+)
+
+@Composable
+private fun AiProviderPicker(currentBaseUrl: String, onPick: (AiProviderPreset) -> Unit) {
+    val c = Spectrum.colors
+    var expanded by remember { mutableStateOf(false) }
+    val matched = AI_PROVIDER_PRESETS.firstOrNull {
+        it.baseUrl.isNotEmpty() && currentBaseUrl.startsWith(it.baseUrl)
+    } ?: AI_PROVIDER_PRESETS.last()
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("服务商", color = c.textMuted, fontSize = 11.sp)
+            Text("选中后自动填地址与模型，仍可手改", color = c.textDim, fontSize = 9.5.sp)
+        }
+        Box {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(9.dp))
+                    .background(c.card)
+                    .border(1.dp, c.border, RoundedCornerShape(9.dp))
+                    .clickableNoRipple { expanded = true }
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(matched.name, color = c.text, fontSize = 11.sp)
+                Text(" ▾", color = c.textDim, fontSize = 10.sp)
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                AI_PROVIDER_PRESETS.forEach { preset ->
+                    DropdownMenuItem(
+                        text = { Text(preset.name, fontSize = 12.sp) },
+                        onClick = {
+                            expanded = false
+                            onPick(preset)
+                        },
+                    )
+                }
             }
         }
     }
