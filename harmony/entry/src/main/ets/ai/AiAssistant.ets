@@ -2,6 +2,7 @@ import { preferences } from '@kit.ArkData';
 import { http } from '@kit.NetworkKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { common } from '@kit.AbilityKit';
+import { util } from '@kit.ArkTS';
 import { AiSecretStore } from './AiSecretStore';
 import { aiSystemPrompt } from './AiPrompt';
 import { fetchDoc, lookupPromptGuide } from './AiLookup';
@@ -190,6 +191,11 @@ export class AiAssistant {
 
   /** 当前步骤（给界面替代三个点）：请求模型 / 执行某个工具。 */
   activity: string = '';
+
+  /** 流式输出的正文（模型边生成边显示）；整段模式下始终为空。 */
+  streamingText: string = '';
+  /** 流式输出的思考内容（部分模型给 reasoning_content），目前只留着备用。 */
+  streamingReasoning: string = '';
 
   private store: preferences.Preferences | null = null;
   private client: http.HttpRequest | null = null;
@@ -1197,7 +1203,21 @@ export class AiAssistant {
     }
   }
 
+  /**
+   * 发一次 chat/completions。
+   *
+   * 先试流式（边生成边显示），失败就退回整段请求——部分兼容实现不支持 stream，
+   * 不能因为流式挂了整个助手就不回话。
+   */
   private async request(body: string): Promise<AiResponseMessage> {
+    const streamed = await this.requestStream(body);
+    if (streamed !== null) {
+      return streamed;
+    }
+    return await this.requestOnce(body);
+  }
+
+  private async requestOnce(body: string): Promise<AiResponseMessage> {
     const base = this.config.baseUrl.trim().replace(/\/+$/, '');
     const client = http.createHttp();
     this.client = client;
@@ -1227,6 +1247,152 @@ export class AiAssistant {
       if (this.client === client) {
         this.client = null;
       }
+    }
+  }
+
+  /**
+   * 流式请求：把 SSE 的 delta 拼成一条完整 message。
+   *
+   * 返回 null 表示「不支持/没数据」，交给 [requestOnce] 重来；正常返回的
+   * message 形状与整段模式完全一致，循环层不需要知道是流式还是整段。
+   */
+  private async requestStream(body: string): Promise<AiResponseMessage | null> {
+    const base = this.config.baseUrl.trim().replace(/\/+$/, '');
+    let payload: string = body;
+    try {
+      const probe = JSON.parse(body) as Record<string, Object>;
+      probe.stream = true;
+      payload = JSON.stringify(probe);
+    } catch (err) {
+      return null;
+    }
+    const client = http.createHttp();
+    this.client = client;
+    const decoder = util.TextDecoder.create('utf-8', { ignoreBOM: true });
+    const state: StreamState = { buffer: '', content: '', reasoning: '', calls: new Map() };
+    this.streamingText = '';
+    this.streamingReasoning = '';
+    let ended: boolean = false;
+    try {
+      let chunks: number = 0;
+      const finished = new Promise<void>((resolve) => {
+        client.on('dataReceive', (data: ArrayBuffer) => {
+          try {
+            chunks++;
+            state.buffer += decoder.decodeWithStream(new Uint8Array(data), { stream: true });
+            this.consumeSse(state);
+          } catch (err) {
+            state.buffer = '';
+          }
+        });
+        client.on('dataEnd', () => {
+          ended = true;
+          resolve();
+        });
+      });
+      const code = await client.requestInStream(`${base}/chat/completions`, {
+        method: http.RequestMethod.POST,
+        header: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          'Authorization': `Bearer ${this.config.apiKey}`,
+        },
+        extraData: payload,
+        connectTimeout: 30000,
+        readTimeout: 120000,
+      });
+      if (code < 200 || code >= 300) {
+        this.log(`stream http ${code}, fallback`);
+        return null;
+      }
+      await finished;
+      this.log(`stream chunks=${chunks} ended=${ended} chars=${state.content.length} calls=${state.calls.size}`);
+      if (!ended || (state.content.length === 0 && state.calls.size === 0)) {
+        return null;
+      }
+      const toolCalls: AiToolCall[] = [];
+      state.calls.forEach((call: StreamToolCall) => {
+        toolCalls.push({ id: call.id, function: { name: call.name, arguments: call.args } });
+      });
+      return { content: state.content, tool_calls: toolCalls };
+    } catch (err) {
+      this.log(`stream fallback: ${(err as Error).message}`);
+      return null;
+    } finally {
+      client.off('dataReceive');
+      client.off('dataEnd');
+      client.destroy();
+      if (this.client === client) {
+        this.client = null;
+      }
+      this.streamingText = '';
+      this.streamingReasoning = '';
+      this.bump();
+    }
+  }
+
+  /** 按行切 SSE；保留最后一段不完整行给下一次。 */
+  private consumeSse(state: StreamState): void {
+    let index: number = state.buffer.indexOf('\n');
+    while (index >= 0) {
+      const line: string = state.buffer.substring(0, index).trim();
+      state.buffer = state.buffer.substring(index + 1);
+      if (line.startsWith('data:')) {
+        const data: string = line.substring(5).trim();
+        if (data.length > 0 && data !== '[DONE]') {
+          this.applyDelta(state, data);
+        }
+      }
+      index = state.buffer.indexOf('\n');
+    }
+  }
+
+  /** 一个 delta：正文/思考是追加，tool_calls 按 index 拼 name 与 arguments。 */
+  private applyDelta(state: StreamState, data: string): void {
+    try {
+      const chunk = JSON.parse(data) as StreamChunk;
+      const choices: StreamChoice[] = chunk.choices ?? [];
+      if (choices.length === 0) {
+        return;
+      }
+      const delta = choices[0].delta;
+      if (delta === undefined) {
+        return;
+      }
+      const text: string = delta.content ?? '';
+      if (text.length > 0) {
+        state.content += text;
+      }
+      const think: string = delta.reasoning_content ?? '';
+      if (think.length > 0) {
+        state.reasoning += think;
+      }
+      const parts: StreamDeltaToolCall[] = delta.tool_calls ?? [];
+      for (let i = 0; i < parts.length; i++) {
+        const part: StreamDeltaToolCall = parts[i];
+        const key: number = part.index ?? 0;
+        let call = state.calls.get(key);
+        if (call === undefined) {
+          call = { id: '', name: '', args: '' };
+          state.calls.set(key, call);
+        }
+        if (part.id !== undefined && part.id.length > 0) {
+          call.id = part.id;
+        }
+        if (part.function !== undefined) {
+          if (part.function.name !== undefined) {
+            call.name += part.function.name;
+          }
+          if (part.function.arguments !== undefined) {
+            call.args += part.function.arguments;
+          }
+        }
+      }
+      this.streamingText = state.content;
+      this.streamingReasoning = state.reasoning;
+      this.bump();
+    } catch (err) {
+      // 坏行忽略，流继续
     }
   }
 }
@@ -1285,4 +1451,43 @@ interface AiChatChoice {
 
 interface AiChatResponse {
   choices?: AiChatChoice[];
+}
+
+/** 流式 tool_call 的累积体（name/arguments 都是分片到达）。 */
+interface StreamToolCall {
+  id: string;
+  name: string;
+  args: string;
+}
+
+interface StreamState {
+  buffer: string;
+  content: string;
+  reasoning: string;
+  calls: Map<number, StreamToolCall>;
+}
+
+interface StreamDeltaFunction {
+  name?: string;
+  arguments?: string;
+}
+
+interface StreamDeltaToolCall {
+  index?: number;
+  id?: string;
+  function?: StreamDeltaFunction;
+}
+
+interface StreamDelta {
+  content?: string;
+  reasoning_content?: string;
+  tool_calls?: StreamDeltaToolCall[];
+}
+
+interface StreamChoice {
+  delta?: StreamDelta;
+}
+
+interface StreamChunk {
+  choices?: StreamChoice[];
 }

@@ -466,6 +466,7 @@ struct Index {
   @State aiActions: string[] = [];
   @State aiBusy: boolean = false;
   @State aiActivity: string = '';
+  @State aiStreaming: string = '';
   @State aiError: string = '';
   @State aiTokens: number = 0;
   @State aiPending: AiPending | null = null;
@@ -7159,6 +7160,7 @@ struct Index {
     this.aiActions = [...this.ai.actions];
     this.aiBusy = this.ai.busy;
     this.aiActivity = this.ai.activity;
+    this.aiStreaming = this.ai.streamingText;
     this.aiError = this.ai.error;
     this.aiTokens = this.ai.tokens;
     this.aiPending = this.ai.pending;
@@ -7178,7 +7180,8 @@ struct Index {
    * 看起来就像"没滚"。同时标记这次是自己滚的，别让 onScrollStart 把跟随关掉。
    */
   private keepBottom(): void {
-    const sig = `${this.aiMessages.length}:${this.aiActions.length}:${this.aiBusy ? 1 : 0}`;
+    // 流式文本增长也要跟着滚，否则新内容长在视口外，看起来像「没在生成」。
+    const sig = `${this.aiMessages.length}:${this.aiActions.length}:${this.aiBusy ? 1 : 0}:${this.aiStreaming.length}`;
     if (sig === this.aiContentSig) {
       return;
     }
@@ -7621,8 +7624,17 @@ struct Index {
               .justifyContent(FlexAlign.Start)
             }
 
-            // 「思考过程」：模型整段返回、没有流式输出，能看见的只有工具往返，
-            // 收成折叠卡，忙碌时自动展开。
+            // 流式输出：模型边生成边显示，比一直等整段更接近"在思考"。
+            if (this.aiStreaming.length > 0) {
+              Text(this.aiStreaming)
+                .fontSize(12)
+                .lineHeight(17)
+                .fontColor(this.c().textMuted)
+                .width('100%')
+                .padding({ left: 26, right: 4, top: 2, bottom: 2 })
+                .maxLines(16)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
             if (this.aiActions.length > 0) {
               Column({ space: 4 }) {
                 Row({ space: 5 }) {

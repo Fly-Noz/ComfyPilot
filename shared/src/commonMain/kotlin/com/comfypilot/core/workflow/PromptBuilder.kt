@@ -301,15 +301,23 @@ object PromptBuilder {
                 problems += BuildProblem(node.id, node.type, "字段 ${declared.name} 由连线提供，不能覆盖")
                 continue
             }
-            // 会话里存下来的旧值可能已经不在候选里（换模型/换节点版本），直接拒绝比提交后被
-            // 服务端整批打回更好定位。
+            // 会话里存下来的旧值可能已经不在候选里（换模型/换节点版本）：换回默认值并告警，
+            // 别让一条历史覆盖把整次提交卡死。
             val text = (value as? JsonPrimitive)?.contentOrNull
             if (declared.options.isNotEmpty() && text != null && text !in declared.options) {
-                problems += BuildProblem(
-                    node.id,
-                    node.type,
-                    "字段 ${declared.name} 的值「$text」不在候选列表里（候选：${declared.options.take(6).joinToString("、")}）",
-                )
+                val fallback = declared.defaultValue?.takeIf { it !is JsonNull }
+                    ?: declared.options.firstOrNull()?.let { JsonPrimitive(it) }
+                if (fallback == null) {
+                    problems += BuildProblem(
+                        node.id,
+                        node.type,
+                        "字段 ${declared.name} 的值「$text」不在候选列表里（候选：${declared.options.take(6).joinToString("、")}）",
+                    )
+                    continue
+                }
+                val shown = (fallback as? JsonPrimitive)?.contentOrNull ?: fallback.toString()
+                warnings += "节点 ${node.title}（#${node.id}）的 ${declared.name} 旧值「$text」已不在候选里，提交时改用「$shown」"
+                inputs[declared.name] = fallback
                 continue
             }
             inputs[declared.name] = value
