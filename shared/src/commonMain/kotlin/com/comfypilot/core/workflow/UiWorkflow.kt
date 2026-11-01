@@ -198,8 +198,11 @@ object UiWorkflowParser {
     const val MODE_BYPASS = 4
 
     fun parse(raw: String): UiGraph? {
-        val root = runCatching { ApiCodec.json.parseToJsonElement(raw) as? JsonObject }.getOrNull()
+        val parsedRoot = runCatching { ApiCodec.json.parseToJsonElement(raw) as? JsonObject }.getOrNull()
             ?: return null
+        // 子图先展开成平铺节点，否则整份工作流会被当成不支持；展开失败时保留原文，
+        // 后面仍按「包含子图」拒绝，不会悄悄提交一张残图。
+        val root = SubgraphExpander.expand(parsedRoot)
         val nodesJson = root["nodes"] as? JsonArray ?: return null
 
         val nodes = nodesJson.mapNotNull { element -> parseNode(element as? JsonObject ?: return@mapNotNull null) }
