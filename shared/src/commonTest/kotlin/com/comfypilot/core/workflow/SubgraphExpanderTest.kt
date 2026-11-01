@@ -20,6 +20,31 @@ import kotlin.test.assertTrue
 class SubgraphExpanderTest {
 
     @Test
+    fun `relocation keeps the original group by extending its bounding box`() {
+        // 给 fixture 加一个包住子图内部节点的图组；展开簇和已有节点重叠时，
+        // 应该贴着原组右侧停放并扩展原组，而不是新造一个「子图 …」组。
+        val withGroup = FIXTURE
+            .replace(
+                "\"nodes\": [",
+                "\"groups\": [{\"id\": 9, \"title\": \"编辑组\", \"bounding\": [0, 0, 700, 400]}],\n              \"nodes\": [",
+            )
+            // 把外层节点挪远，保证组框右侧的夹缝里没有节点，才能走「扩展原组」分支。
+            .replace("\"pos\": [900, 0]", "\"pos\": [2000, 0]")
+        val expanded = SubgraphExpander.expand(Json.parseToJsonElement(withGroup).jsonObject)
+        val groups = expanded["groups"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(1, groups.size, "不应额外造组：$groups")
+        assertEquals("编辑组", groups[0]["title"]!!.jsonPrimitive.content)
+        val bounding = groups[0]["bounding"]!!.jsonArray.map { it.jsonPrimitive.content.toDouble() }
+        assertTrue(bounding[2] > 700.0, "原组应被扩展到包住展开簇：$bounding")
+
+        // 展开节点仍在原组（扩展后的）范围内。
+        val inner = expanded["nodes"]!!.jsonArray.map { it.jsonObject }
+            .first { it["type"]!!.jsonPrimitive.content == "SaveImage" }
+        val pos = inner["pos"]!!.jsonArray.map { it.jsonPrimitive.content.toDouble() }
+        assertTrue(pos[0] >= 0 && pos[0] + 220 <= bounding[2], "展开节点应落在扩展后的组框内：$pos / $bounding")
+    }
+
+    @Test
     fun `instance is flattened into inner nodes with boundary links remapped`() {
         val expanded = SubgraphExpander.expand(Json.parseToJsonElement(FIXTURE).jsonObject)
         val nodes = expanded["nodes"]!!.jsonArray.map { it.jsonObject }

@@ -69,8 +69,16 @@ object SubgraphExpander {
         // 展开后的节点要占画布位置：原坐标可能已经压着别的节点/图组，
         // 节点图预览上会叠成一团。先记下已有占位，冲突时把整簇挪到空处。
         val obstacles = mutableListOf<Rect>()
-        nodes.forEach { node -> (node as? JsonObject)?.let { obstacles += nodeRect(it) } }
-        var nextGroupId = (root.array("groups").mapNotNull { (it as? JsonObject)?.int("id") }.maxOrNull() ?: 0) + 1
+        val nodeRects = mutableListOf<Rect>()
+        nodes.forEach { node ->
+            val obj = node as? JsonObject ?: return@forEach
+            val rect = nodeRect(obj)
+            nodeRects += rect
+            obstacles += rect
+        }
+        val groupObjs = root.array("groups").mapNotNull { it as? JsonObject }.toMutableList()
+        groupObjs.forEach { group -> groupRect(group)?.let { obstacles += it } }
+        var nextGroupId = (groupObjs.mapNotNull { it.int("id") }.maxOrNull() ?: 0) + 1
         val syntheticGroups = mutableListOf<JsonObject>()
 
         // 同一实例的内部节点每次展开都要拿到稳定 id，草稿里的覆盖值才不会乱跳。
@@ -101,26 +109,63 @@ object SubgraphExpander {
                 .mapNotNull { inner -> inner.int("id")?.let { it to allocate(instanceId.toString(), it) } }
                 .toMap()
 
-            // 展开簇占位：先按定义里的原坐标算包围盒，和已有节点/图组撞了就整体平移。
+            // 展开簇占位：先按定义里的原坐标算包围盒。撞上了优先「就近停放」——
+            // 贴着原图组右侧放，再把原组扩到把簇包住，这样图组标题与归属都不变；
+            // 只有本来就无组可选、或夹缝里塞着别的节点时才退回合成图组。
             val cluster = clusterRect(innerNodes)
-            val placed = freeSpot(cluster, obstacles)
+            val home = groupObjs
+                .mapNotNull { group -> groupRect(group)?.let { group to it } }
+                .filter { (_, rect) -> intersects(rect, cluster) }
+                .maxByOrNull { (_, rect) -> rect.width * rect.height }
+            val needsMove = obstacles.any { intersects(it, cluster) }
+            var placed = cluster
+            var synthetic = false
+            if (needsMove && home != null) {
+                val homeObj = home.first
+                val homeRect = home.second
+                val candidate = Rect(homeRect.x + homeRect.width + 60.0, cluster.y, cluster.width, cluster.height)
+                val spot = freeSpot(candidate, obstacles)
+                val gap = Rect(
+                    x = homeRect.x + homeRect.width,
+                    y = spot.y,
+                    width = spot.x - (homeRect.x + homeRect.width),
+                    height = spot.height,
+                )
+                // 夹缝里有节点就说明扩展组框会把它圈进来，那就别再扩了。
+                if (nodeRects.none { intersects(it, gap) }) {
+                    placed = spot
+                    val index = groupObjs.indexOf(homeObj)
+                    if (index >= 0) groupObjs[index] = withBounding(homeObj, union(homeRect, spot.padded(12.0)))
+                } else {
+                    placed = spot
+                    synthetic = true
+                }
+            } else if (needsMove) {
+                placed = freeSpot(cluster, obstacles)
+                synthetic = true
+            } else if (home == null) {
+                // 不挪、也没有归属的组：给它一个合成组，图组下拉里能整簇选中。
+                synthetic = true
+            }
             val shiftX = placed.x - cluster.x
             val shiftY = placed.y - cluster.y
             obstacles += placed
             val subgraphName = definition.string("name")?.takeIf { it.isNotBlank() } ?: "子图"
-            val groupTitle = "子图 $subgraphName (#$instanceId)"
-            syntheticGroups += buildJsonObject {
-                put("id", JsonPrimitive(nextGroupId++))
-                put("title", JsonPrimitive(groupTitle))
-                put(
-                    "bounding",
-                    buildJsonArray {
-                        add(JsonPrimitive(placed.x - 24))
-                        add(JsonPrimitive(placed.y - 24))
-                        add(JsonPrimitive(placed.width + 48))
-                        add(JsonPrimitive(placed.height + 48))
-                    },
-                )
+            if (synthetic) {
+                val groupTitle = "子图 $subgraphName (#$instanceId)"
+                syntheticGroups += buildJsonObject {
+                    put("id", JsonPrimitive(nextGroupId++))
+                    put("title", JsonPrimitive(groupTitle))
+                    put(
+                        "bounding",
+                        buildJsonArray {
+                            add(JsonPrimitive(placed.x - 24))
+                            add(JsonPrimitive(placed.y - 24))
+                            add(JsonPrimitive(placed.width + 48))
+                            add(JsonPrimitive(placed.height + 48))
+                        },
+                    )
+                }
             }
 
             // 控件注入：子图输入在实例上如果是控件值（没有连线），要写进内部节点的 widgets_values。
@@ -272,7 +317,7 @@ object SubgraphExpander {
             put("links", JsonArray(links))
             put(
                 "groups",
-                JsonArray(root.array("groups") + syntheticGroups),
+                JsonArray(groupObjs + syntheticGroups),
             )
             put("last_node_id", JsonPrimitive(maxNodeId))
             put("last_link_id", JsonPrimitive(maxLinkId))
@@ -383,6 +428,40 @@ object SubgraphExpander {
 
     private fun intersects(a: Rect, b: Rect): Boolean =
         a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+
+    private fun groupRect(group: JsonObject): Rect? {
+        val bounding = group["bounding"] as? JsonArray ?: return null
+        if (bounding.size < 4) return null
+        return Rect(
+            x = bounding[0].doubleOrZero(),
+            y = bounding[1].doubleOrZero(),
+            width = bounding[2].doubleOrZero(),
+            height = bounding[3].doubleOrZero(),
+        )
+    }
+
+    private fun withBounding(group: JsonObject, rect: Rect): JsonObject = buildJsonObject {
+        group.forEach { (key, value) -> if (key != "bounding") put(key, value) }
+        put(
+            "bounding",
+            buildJsonArray {
+                add(JsonPrimitive(rect.x))
+                add(JsonPrimitive(rect.y))
+                add(JsonPrimitive(rect.width))
+                add(JsonPrimitive(rect.height))
+            },
+        )
+    }
+
+    private fun union(a: Rect, b: Rect): Rect {
+        val left = minOf(a.x, b.x)
+        val top = minOf(a.y, b.y)
+        val right = maxOf(a.x + a.width, b.x + b.width)
+        val bottom = maxOf(a.y + a.height, b.y + b.height)
+        return Rect(left, top, right - left, bottom - top)
+    }
+
+    private fun Rect.padded(by: Double): Rect = Rect(x - by, y - by, width + by * 2, height + by * 2)
 
     /**
      * 找一个不和已有节点/图组重叠的位置。
