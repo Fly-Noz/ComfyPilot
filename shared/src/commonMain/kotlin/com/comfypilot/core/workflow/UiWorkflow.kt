@@ -5,6 +5,7 @@ import com.comfypilot.core.api.stringOrNull
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
@@ -158,6 +159,11 @@ data class UiGroup(
     val y: Double,
     val width: Double,
     val height: Double,
+    /**
+     * 显式成员：子图展开时，内部节点可能不落在组框里（定义坐标和实例位置无关），
+     * 这时把它们的 id 记进原组，组标题、组开关、nodeIds 都和子图在组里时一致。
+     */
+    val members: Set<Int> = emptySet(),
 ) {
     /**
      * 节点是否属于这个分组：按包围盒相交判断，和桌面端 LiteGraph 一致。
@@ -166,6 +172,7 @@ data class UiGroup(
      * 于是桌面上明明在组里的节点，在 App 里变成「未归属」，组开关对它完全无效。
      */
     fun contains(node: UiNode): Boolean {
+        if (node.id in members) return true
         val nodeRight = node.x + node.width
         val nodeBottom = node.y + node.height
         return node.x < x + width && nodeRight > x && node.y < y + height && nodeBottom > y
@@ -258,6 +265,9 @@ object UiWorkflowParser {
             y = bounding[1].asDoubleOrNull() ?: return null,
             width = bounding[2].asDoubleOrNull() ?: return null,
             height = bounding[3].asDoubleOrNull() ?: return null,
+            members = (obj["nodeIds"] as? JsonArray).orEmpty()
+                .mapNotNull { element -> (element as? kotlinx.serialization.json.JsonPrimitive)?.intOrNull }
+                .toSet(),
         )
     }
 

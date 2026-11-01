@@ -32,16 +32,17 @@ class SubgraphExpanderTest {
             .replace("\"pos\": [900, 0]", "\"pos\": [2000, 0]")
         val expanded = SubgraphExpander.expand(Json.parseToJsonElement(withGroup).jsonObject)
         val groups = expanded["groups"]!!.jsonArray.map { it.jsonObject }
-        assertEquals(1, groups.size, "不应额外造组：$groups")
+        assertEquals(1, groups.size, "实例在组里时不应额外造组：$groups")
         assertEquals("编辑组", groups[0]["title"]!!.jsonPrimitive.content)
         val bounding = groups[0]["bounding"]!!.jsonArray.map { it.jsonPrimitive.content.toDouble() }
-        assertTrue(bounding[2] > 700.0, "原组应被扩展到包住展开簇：$bounding")
+        assertEquals(700.0, bounding[2], "实例所在组不靠改框来保归属：$bounding")
 
-        // 展开节点仍在原组（扩展后的）范围内。
+        // 展开节点通过显式成员记进原组，图组判定、组开关仍然有效。
         val inner = expanded["nodes"]!!.jsonArray.map { it.jsonObject }
             .first { it["type"]!!.jsonPrimitive.content == "SaveImage" }
-        val pos = inner["pos"]!!.jsonArray.map { it.jsonPrimitive.content.toDouble() }
-        assertTrue(pos[0] >= 0 && pos[0] + 220 <= bounding[2], "展开节点应落在扩展后的组框内：$pos / $bounding")
+        val innerId = inner["id"]!!.jsonPrimitive.intOrNull!!
+        val members = groups[0]["nodeIds"]!!.jsonArray.map { it.jsonPrimitive.intOrNull!! }
+        assertTrue(innerId in members, "展开节点应记入原组：$members / $innerId")
     }
 
     @Test

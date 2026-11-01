@@ -109,42 +109,57 @@ object SubgraphExpander {
                 .mapNotNull { inner -> inner.int("id")?.let { it to allocate(instanceId.toString(), it) } }
                 .toMap()
 
-            // 展开簇占位：先按定义里的原坐标算包围盒。撞上了优先「就近停放」——
-            // 贴着原图组右侧放，再把原组扩到把簇包住，这样图组标题与归属都不变；
-            // 只有本来就无组可选、或夹缝里塞着别的节点时才退回合成图组。
+            // 展开簇占位。优先看**实例**落在哪个图组里：子图定义坐标跟实例位置无关，
+            // 按定义坐标判断归属会把「生图里的子图」判丢。实例有组时直接把展开节点
+            // 记进那个组的显式成员，组标题/开关/nodeIds 都不变。
             val cluster = clusterRect(innerNodes)
-            val home = groupObjs
-                .mapNotNull { group -> groupRect(group)?.let { group to it } }
-                .filter { (_, rect) -> intersects(rect, cluster) }
-                .maxByOrNull { (_, rect) -> rect.width * rect.height }
             val needsMove = obstacles.any { intersects(it, cluster) }
+            val instanceRect = nodeRect(instance)
+            val instanceHome = groupObjs
+                .mapNotNull { group -> groupRect(group)?.let { group to it } }
+                .filter { (_, rect) -> intersects(rect, instanceRect) }
+                .maxByOrNull { (_, rect) -> rect.width * rect.height }
+
             var placed = cluster
             var synthetic = false
-            if (needsMove && home != null) {
-                val homeObj = home.first
-                val homeRect = home.second
-                val candidate = Rect(homeRect.x + homeRect.width + 60.0, cluster.y, cluster.width, cluster.height)
-                val spot = freeSpot(candidate, obstacles)
-                val gap = Rect(
-                    x = homeRect.x + homeRect.width,
-                    y = spot.y,
-                    width = spot.x - (homeRect.x + homeRect.width),
-                    height = spot.height,
-                )
-                // 夹缝里有节点就说明扩展组框会把它圈进来，那就别再扩了。
-                if (nodeRects.none { intersects(it, gap) }) {
+            if (instanceHome != null) {
+                placed = if (needsMove) freeSpot(cluster, obstacles) else cluster
+                val index = groupObjs.indexOf(instanceHome.first)
+                if (index >= 0) groupObjs[index] = withMembers(instanceHome.first, idMap.values)
+            } else if (needsMove && groupObjs.isNotEmpty()) {
+                // 实例不在任何组里，但展开簇原坐标落在某个组：贴着该组右侧停放并扩组，
+                // 前提是夹缝里没有别的节点，避免把无关节点圈进来。
+                val home = groupObjs
+                    .mapNotNull { group -> groupRect(group)?.let { group to it } }
+                    .filter { (_, rect) -> intersects(rect, cluster) }
+                    .maxByOrNull { (_, rect) -> rect.width * rect.height }
+                if (home != null) {
+                    val homeObj = home.first
+                    val homeRect = home.second
+                    val candidate = Rect(homeRect.x + homeRect.width + 60.0, cluster.y, cluster.width, cluster.height)
+                    val spot = freeSpot(candidate, obstacles)
+                    val gap = Rect(
+                        x = homeRect.x + homeRect.width,
+                        y = spot.y,
+                        width = spot.x - (homeRect.x + homeRect.width),
+                        height = spot.height,
+                    )
                     placed = spot
-                    val index = groupObjs.indexOf(homeObj)
-                    if (index >= 0) groupObjs[index] = withBounding(homeObj, union(homeRect, spot.padded(12.0)))
+                    if (nodeRects.none { intersects(it, gap) }) {
+                        val index = groupObjs.indexOf(homeObj)
+                        if (index >= 0) groupObjs[index] = withBounding(homeObj, union(homeRect, spot.padded(12.0)))
+                    } else {
+                        synthetic = true
+                    }
                 } else {
-                    placed = spot
+                    placed = freeSpot(cluster, obstacles)
                     synthetic = true
                 }
             } else if (needsMove) {
                 placed = freeSpot(cluster, obstacles)
                 synthetic = true
-            } else if (home == null) {
-                // 不挪、也没有归属的组：给它一个合成组，图组下拉里能整簇选中。
+            } else {
+                // 不挪、实例也不在组里：给它一个合成组，图组下拉里能整簇选中。
                 synthetic = true
             }
             val shiftX = placed.x - cluster.x
@@ -450,6 +465,17 @@ object SubgraphExpander {
                 add(JsonPrimitive(rect.width))
                 add(JsonPrimitive(rect.height))
             },
+        )
+    }
+
+    /** 把展开出来的节点 id 记进组的显式成员（合并已有），组框可以不动。 */
+    private fun withMembers(group: JsonObject, ids: Collection<Int>): JsonObject = buildJsonObject {
+        group.forEach { (key, value) -> if (key != "nodeIds") put(key, value) }
+        val existing = (group["nodeIds"] as? JsonArray).orEmpty()
+            .mapNotNull { element -> (element as? JsonPrimitive)?.intOrNull }
+        put(
+            "nodeIds",
+            buildJsonArray { (existing + ids).distinct().forEach { add(JsonPrimitive(it)) } },
         )
     }
 
