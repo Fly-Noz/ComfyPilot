@@ -9053,6 +9053,21 @@ struct Index {
                     .onChange((value: boolean) => { this.aiAutoSubmit = value; })
                 }
                 .width('100%')
+                Row({ space: 8 }) {
+                  Text('单轮工具轮数上限').fontSize(10.5).fontColor(this.c().textMuted).layoutWeight(1)
+                  Text('−')
+                    .fontSize(14).fontColor(this.c().accent)
+                    .width(28).height(28).textAlign(TextAlign.Center)
+                    .backgroundColor(this.c().cardStrong).borderRadius(8)
+                    .onClick(() => { this.aiMaxRounds = Math.max(2, this.aiMaxRounds - 1); })
+                  Text(`${this.aiMaxRounds}`).fontSize(11.5).fontColor(this.c().text).width(24).textAlign(TextAlign.Center)
+                  Text('+')
+                    .fontSize(14).fontColor(this.c().accent)
+                    .width(28).height(28).textAlign(TextAlign.Center)
+                    .backgroundColor(this.c().cardStrong).borderRadius(8)
+                    .onClick(() => { this.aiMaxRounds = Math.min(20, this.aiMaxRounds + 1); })
+                }
+                .width('100%')
                 Text('保存').fontSize(12).fontColor(this.c().accent)
                   .onClick(() => {
                     const next: AiConfig = {
