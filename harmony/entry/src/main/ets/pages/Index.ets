@@ -3392,23 +3392,25 @@ struct Index {
       .onClick(() => action())
   }
 
-  /** 子图展开簇的分区头：认子图的人看到这一行就知道整簇在哪。 */
+  /** 子图展开簇的分区头：跟 SectionHeader 同层级，不单独占一张卡片。 */
   @Builder
   SubgraphHeader(node: WorkflowNodeView) {
-    Row({ space: 8 }) {
+    Row({ space: 6 }) {
       Text(this.collapsedSubgraphs.indexOf(node.subgraph ?? '') >= 0 ? '▸' : '▾')
-        .fontSize(11)
+        .fontSize(9)
         .fontFamily('monospace')
         .fontColor(this.c().textDim)
       Column({ space: 1 }) {
         Text(`子图 ${node.subgraph ?? ''}`)
-          .fontSize(12)
-          .fontColor(this.c().text)
+          .fontSize(11)
+          .fontWeight(FontWeight.Bold)
+          .letterSpacing(0.4)
+          .fontColor(this.c().textMuted)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
         if ((node.subgraphWidgets ?? '').length > 0) {
           Text(node.subgraphWidgets ?? '')
-            .fontSize(9.5)
+            .fontSize(9)
             .fontFamily('monospace')
             .fontColor(this.c().textDim)
             .maxLines(1)
@@ -3418,15 +3420,13 @@ struct Index {
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
       Text(`${this.subgraphNodeCount(node.subgraph ?? '')} 个节点`)
-        .fontSize(9.5)
+        .fontSize(9)
         .fontFamily('monospace')
         .fontColor(this.c().textDim)
     }
     .width('100%')
-    .padding({ left: 12, right: 12, top: 9, bottom: 9 })
-    .backgroundColor(this.c().card)
-    .borderRadius(12)
-    .border({ width: 1, color: this.c().border })
+    .padding({ left: 2, top: 6, bottom: 1 })
+    .alignItems(VerticalAlign.Center)
     .onClick(() => { this.toggleSubgraph(node.subgraph ?? ''); })
   }
 

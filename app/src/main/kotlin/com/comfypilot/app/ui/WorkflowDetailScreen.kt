@@ -1800,29 +1800,28 @@ private sealed interface InputRow {
 @Composable
 private fun SubgraphHeader(row: InputRow.SubgraphRow, onClick: () -> Unit) {
     val c = Spectrum.colors
+    // 跟 SectionHeader 一个层级：不要独立卡片，避免在列表里像多出来一张卡。
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(c.card)
-            .border(1.dp, c.border, RoundedCornerShape(12.dp))
             .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(start = 2.dp, top = 6.dp, bottom = 1.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         Text(
             text = if (row.collapsed) "▸" else "▾",
             color = c.textDim,
-            fontSize = 11.sp,
+            fontSize = 9.sp,
             fontFamily = SpectrumMono,
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = "子图 ${row.tag}",
-                color = c.text,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
+                color = c.textMuted,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.4.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -1830,7 +1829,7 @@ private fun SubgraphHeader(row: InputRow.SubgraphRow, onClick: () -> Unit) {
                 Text(
                     text = row.widgets,
                     color = c.textDim,
-                    fontSize = 9.5.sp,
+                    fontSize = 9.sp,
                     fontFamily = SpectrumMono,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1840,7 +1839,7 @@ private fun SubgraphHeader(row: InputRow.SubgraphRow, onClick: () -> Unit) {
         Text(
             text = "${row.count} 个节点",
             color = c.textDim,
-            fontSize = 10.sp,
+            fontSize = 9.sp,
             fontFamily = SpectrumMono,
         )
     }
