@@ -467,6 +467,7 @@ struct Index {
   @State aiBusy: boolean = false;
   @State aiActivity: string = '';
   @State aiStreaming: string = '';
+  @State aiTrace: string[] = [];
   @State aiError: string = '';
   @State aiTokens: number = 0;
   @State aiPending: AiPending | null = null;
@@ -7160,7 +7161,8 @@ struct Index {
     this.aiActions = [...this.ai.actions];
     this.aiBusy = this.ai.busy;
     this.aiActivity = this.ai.activity;
-    this.aiStreaming = this.ai.streamingText;
+    this.aiStreaming = this.ai.streamingText.length > 0 ? this.ai.streamingText : this.ai.streamingReasoning;
+    this.aiTrace = [...this.ai.trace];
     this.aiError = this.ai.error;
     this.aiTokens = this.ai.tokens;
     this.aiPending = this.ai.pending;
@@ -7624,9 +7626,26 @@ struct Index {
               .justifyContent(FlexAlign.Start)
             }
 
+            // 过程记录：每轮请求、工具调用与结果摘要；忙碌时实时增长，结束后留到下一轮再清。
+            if (this.aiTrace.length > 0) {
+              Column({ space: 2 }) {
+                ForEach(this.aiTrace, (line: string) => {
+                  Text(line)
+                    .fontSize(10)
+                    .fontColor(this.c().textDim)
+                    .maxLines(2)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .width('100%')
+                }, (line: string, index: number) => `${index}:${line}`)
+              }
+              .width('100%')
+              .alignItems(HorizontalAlign.Start)
+              .padding({ left: 26, right: 4, top: 2, bottom: 2 })
+            }
+
             // 流式输出：模型边生成边显示，比一直等整段更接近"在思考"。
             if (this.aiStreaming.length > 0) {
-              Text(this.aiStreaming)
+              Text(aiPlainText(this.aiStreaming))
                 .fontSize(12)
                 .lineHeight(17)
                 .fontColor(this.c().textMuted)

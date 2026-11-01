@@ -196,6 +196,8 @@ export class AiAssistant {
   streamingText: string = '';
   /** 流式输出的思考内容（部分模型给 reasoning_content），目前只留着备用。 */
   streamingReasoning: string = '';
+  /** 本轮过程：每轮请求、工具调用与结果摘要，界面实时显示，避免「轮数在涨但看不到在干嘛」。 */
+  trace: string[] = [];
 
   private store: preferences.Preferences | null = null;
   private client: http.HttpRequest | null = null;
@@ -508,6 +510,7 @@ export class AiAssistant {
     this.cancelled = false;
     this.error = '';
     this.pending = null;
+    this.trace = [];
     // 上次这个模型明确拒绝过图片，就不再重复撞墙，只发文件名。
     this.pendingImages = this.visionOffModel === this.config.model ? [] : images;
     this.rememberLocalImages(images);
@@ -797,7 +800,8 @@ export class AiAssistant {
         return;
       }
       if (action.action === 'http') {
-        this.activity = `第 ${httpSeen + 1} 轮 · 请求模型…`;
+        this.activity = `第 ${httpSeen + 1} 轮 · 模型思考中…`;
+        this.pushTrace(`第 ${httpSeen + 1} 轮：请求模型`);
         this.log(`request ${httpSeen + 1} images=${this.pendingImages.length} tokens≈${this.tokens}`);
         let message: AiResponseMessage;
         try {
@@ -827,8 +831,11 @@ export class AiAssistant {
         continue;
       }
       if (action.action === 'call_host') {
-        this.activity = `执行 ${action.name ?? '工具'}…`;
+        const toolName: string = this.toolLabel(action.name ?? '', action.args ?? '');
+        this.activity = `正在${toolName}…`;
+        this.pushTrace(`→ ${toolName}`);
         const result = await this.executeTool(action.name ?? '', action.args ?? '{}', host);
+        this.pushTrace(`← ${this.resultBrief(result)}`);
         const ask = this.question;
         let pause = '';
         if (this.pending !== null) {
@@ -942,6 +949,71 @@ export class AiAssistant {
    * 里的那张，把字节与文件名交出去。
    */
   uploadImageFn: ((bytes: Uint8Array, filename: string) => Promise<string>) | null = null;
+
+  /** 过程记录：追加一行并推给界面。 */
+  private pushTrace(line: string): void {
+    this.trace = [...this.trace, line].slice(-12);
+    this.bump();
+  }
+
+  /** 工具名的中文短标签 + 关键参数，让「第 N 轮」不再是黑盒。 */
+  private toolLabel(name: string, args: string): string {
+    let detail: string = '';
+    try {
+      const probe = JSON.parse(args) as Record<string, Object>;
+      if (probe.id !== undefined) {
+        detail = ` #${probe.id as number}`;
+      } else if (probe.query !== undefined) {
+        detail = `「${probe.query as string}」`;
+      } else if (probe.index !== undefined) {
+        detail = ` 第${probe.index as number}张`;
+      }
+    } catch (err) {
+      detail = '';
+    }
+    switch (name) {
+      case 'get_node':
+        return `查询节点${detail}`;
+      case 'list_nodes':
+        return `搜索节点${detail}`;
+      case 'list_graphs':
+        return '查看节点图';
+      case 'propose_edits':
+        return '提交修改';
+      case 'submit':
+        return '提交任务';
+      case 'task_status':
+        return '查看任务状态';
+      case 'upload_image':
+        return `上传附图${detail}`;
+      case 'host_status':
+        return '查看主机状态';
+      case 'list_models':
+        return '查询模型清单';
+      case 'open_workflow':
+        return '切换工作流';
+      case 'ask_user':
+        return '向你确认';
+      case 'lookup_prompt_guide':
+        return '查提示词规范';
+      case 'fetch_doc':
+        return '读文档';
+      default:
+        return name.length > 0 ? name : '工具';
+    }
+  }
+
+  /** 工具结果的首要点：失败给错误文本，成功给「返回了多少内容」，别把整段 JSON 甩给用户。 */
+  private resultBrief(result: string): string {
+    const text: string = result.replace(/\s+/g, ' ').trim();
+    if (text.indexOf('"ok":false') >= 0) {
+      return text.substring(0, 120);
+    }
+    if (text.startsWith('{') || text.startsWith('[')) {
+      return `已返回 ${text.length} 字符`;
+    }
+    return text.substring(0, 80);
+  }
 
   private log(message: string): void {
     const line: string = message.substring(0, 2000);
