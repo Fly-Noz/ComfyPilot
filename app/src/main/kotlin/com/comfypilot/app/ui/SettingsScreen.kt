@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -235,6 +236,29 @@ private fun AdvancedSettingsPage(
                 )
             }
 
+            Spacer(modifier = Modifier.height(4.dp))
+            SectionLabel("提交")
+            GlassCard(padding = PaddingValues(12.dp)) {
+                var forceSubmit by remember { mutableStateOf(ForceSubmitPrefs.isEnabled(context)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("忽略本地校验，强制提交", color = c.text, fontSize = 13.sp)
+                        Text(
+                            "本地有报错也照样把任务发给服务器，由 ComfyUI 判定",
+                            color = c.textDim,
+                            fontSize = 10.5.sp,
+                            lineHeight = 15.sp,
+                        )
+                    }
+                    Switch(
+                        checked = forceSubmit,
+                        onCheckedChange = {
+                            forceSubmit = it
+                            ForceSubmitPrefs.setEnabled(context, it)
+                        },
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(4.dp))
             SectionLabel("工作流参数")
             GlassCard(padding = PaddingValues(6.dp)) {

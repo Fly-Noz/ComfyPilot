@@ -507,10 +507,11 @@ private fun DetailBody(
     // 这里只用于按钮可用性和按钮上方的阻断原因；真正提交时 submit() 会再算一次，
     // 防止用户在 120ms 窗口内抢点导致提交旧值。
     var liveDecision by remember(document.path) { mutableStateOf<WorkflowDecision?>(null) }
-    LaunchedEffect(analysis, overrides) {
+    val forceSubmitEnabled = ForceSubmitPrefs.isEnabled(context)
+    LaunchedEffect(analysis, overrides, forceSubmitEnabled) {
         delay(120)
         liveDecision = withContext(Dispatchers.Default) {
-            WorkflowDecisions.decide(analysis, overrides = overrides)
+            WorkflowDecisions.decide(analysis, overrides = overrides, forceSubmit = forceSubmitEnabled)
         }
     }
     // 节点图或节点定义变化后，旧决策不能继续代表当前工作流。
@@ -668,6 +669,8 @@ private fun DetailBody(
             analysis = analysis,
             overrides = overrides,
             runToken = UUID.randomUUID().toString().replace("-", "").take(10),
+            // 用户明确开了「忽略本地校验」就按强制模式构建；否则维持原来的严格校验。
+            forceSubmit = force || ForceSubmitPrefs.isEnabled(context),
         )
         if (!decision.canSubmit) {
             blockedProblems = decision.problems.ifEmpty {
@@ -752,7 +755,12 @@ private fun DetailBody(
             }
 
             override fun submitCurrent(): Boolean {
-                val decision = WorkflowDecisions.decide(analysis = analysis, overrides = overrides)
+                // AI 的「应用并提交」：允许在用户开了强制提交时绕过本地校验。
+                val decision = WorkflowDecisions.decide(
+                    analysis = analysis,
+                    overrides = overrides,
+                    forceSubmit = ForceSubmitPrefs.isEnabled(context),
+                )
                 if (!decision.canSubmit) return false
                 submit(force = true)
                 return true
@@ -2018,8 +2026,8 @@ private fun NodeInputCard(
             .fillMaxWidth()
             .padding(start = if (nested) 10.dp else 0.dp)
             .clip(shape)
-            .background(if (enabled) c.card else c.card.copy(alpha = 0.5f))
-            .border(1.dp, if (enabled) c.border else c.border.copy(alpha = 0.55f), shape),
+            .background(if (enabled) c.card else c.card.copy(alpha = 0.85f))
+            .border(1.dp, if (enabled) c.border else c.border.copy(alpha = 0.8f), shape),
     ) {
         Row(
             modifier = Modifier
@@ -2044,7 +2052,7 @@ private fun NodeInputCard(
                     )
                     Text(
                         text = label ?: node.displayName,
-                        color = if (enabled) c.text else c.textDim,
+                        color = if (enabled) c.text else c.textMuted,
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,

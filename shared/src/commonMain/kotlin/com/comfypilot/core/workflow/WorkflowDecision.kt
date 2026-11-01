@@ -190,6 +190,8 @@ object WorkflowDecisions {
         overrides: Map<Int, Map<String, JsonElement>> = emptyMap(),
         pinnedNodeIds: Set<Int> = emptySet(),
         runToken: String? = null,
+        /** 用户打开「忽略本地校验」时为 true：本地问题只告警，仍生成 prompt。 */
+        forceSubmit: Boolean = false,
     ): WorkflowDecision {
         val build = PromptBuilder.build(
             document = analysis.document,
@@ -202,6 +204,7 @@ object WorkflowDecisions {
             removedLinkIds = analysis.removedLinkIds,
             linkOverrides = analysis.linkOverrides,
             runToken = runToken,
+            force = forceSubmit,
         )
         return WorkflowDecision(
             analysis = analysis,
@@ -223,6 +226,7 @@ object WorkflowDecisions {
         enabledNodeIds: Set<Int> = emptySet(),
         removedLinkIds: Set<Int> = emptySet(),
         linkOverrides: List<InputLinkOverride> = emptyList(),
+        forceSubmit: Boolean = false,
     ): WorkflowDecision = decide(
         analysis = analyze(
             document = document,
@@ -237,6 +241,7 @@ object WorkflowDecisions {
         overrides = overrides,
         pinnedNodeIds = pinnedNodeIds,
         runToken = runToken,
+        forceSubmit = forceSubmit,
     )
 
     /**

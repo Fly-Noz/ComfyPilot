@@ -13,6 +13,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -53,6 +54,8 @@ private data class WorkflowUiRequest(
     val nodeId: Int?,
     /** 仅提交时使用：保存类节点的文件名追加这个短 token，避免产物互相覆盖。 */
     val runToken: String?,
+    /** 用户打开「忽略本地校验」时为 true：本地问题只告警，仍生成 prompt。 */
+    val forceSubmit: Boolean,
 ) {
     companion object {
         const val OP_VIEW = "view"
@@ -75,6 +78,7 @@ private data class WorkflowUiRequest(
                 linkOverrides = parseLinkOverrides(obj["linkOverrides"] as? JsonArray),
                 nodeId = (obj["nodeId"] as? JsonPrimitive)?.contentOrNull?.toIntOrNull(),
                 runToken = obj.stringOrNull("run")?.trim()?.takeIf { it.isNotEmpty() },
+                forceSubmit = (obj["forceSubmit"] as? JsonPrimitive)?.booleanOrNull ?: false,
             )
         }
 
@@ -140,6 +144,7 @@ private fun workflowViewJson(state: SessionState, request: WorkflowUiRequest): S
         enabledNodeIds = request.effectiveEnabledNodeIds(state),
         removedLinkIds = request.removedLinkIds,
         linkOverrides = request.linkOverrides,
+        forceSubmit = request.forceSubmit,
     )
 
     return buildJsonObject {
@@ -206,6 +211,7 @@ private fun workflowPromptJson(state: SessionState, request: WorkflowUiRequest):
         runToken = request.runToken,
         bypassedNodeIds = request.effectiveBypassedNodeIds(state),
         enabledNodeIds = request.effectiveEnabledNodeIds(state),
+        forceSubmit = request.forceSubmit,
     )
     if (decision.format == WorkflowFormat.UI && decision.pendingNodeClasses.isNotEmpty()) {
         return buildJsonObject {

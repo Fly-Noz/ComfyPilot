@@ -77,6 +77,11 @@ object PromptBuilder {
         removedLinkIds: Set<Int> = emptySet(),
         /** 会话级新建/改接连线：在解析后应用到图上。 */
         linkOverrides: List<InputLinkOverride> = emptyList(),
+        /**
+         * 用户显式打开「忽略本地校验」时为 true：问题只记成警告，仍然把能转换的节点
+         * 交给服务器，由服务端做最终判定。
+         */
+        force: Boolean = false,
     ): PromptBuild {
         when (document.format) {
             WorkflowFormat.API -> {
@@ -186,7 +191,10 @@ object PromptBuilder {
         }
 
         val problems = included.flatMap { it.problems }.distinct()
-        if (problems.isNotEmpty()) return PromptBuild.Blocked(problems)
+        if (problems.isNotEmpty()) {
+            if (!force) return PromptBuild.Blocked(problems)
+            warnings += problems.map { "强制提交（忽略本地问题）：${it.format()}" }
+        }
 
         val output = included.mapNotNull { it.json }
         if (output.isEmpty()) {

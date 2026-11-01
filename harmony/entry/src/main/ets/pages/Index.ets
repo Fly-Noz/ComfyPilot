@@ -30,6 +30,7 @@ import { NodeNoteStore } from '../bridge/NodeNoteStore';
 import { AddressEntry, AddressStore } from '../bridge/AddressStore';
 import { DismissedErrorStore } from '../bridge/DismissedErrorStore';
 import { AppearanceStore } from '../bridge/AppearanceStore';
+import { SubmitPrefs } from '../bridge/SubmitPrefs';
 import { ClientIdStore } from '../bridge/ClientIdStore';
 import { TaskNotifier } from '../notify/TaskNotifier';
 import { emptyServerStats, fetchServerStats, sameServerStats, ServerStats } from '../bridge/ServerStats';
@@ -465,6 +466,9 @@ struct Index {
   private noteStore: NodeNoteStore = new NodeNoteStore();
   private addressStore: AddressStore = new AddressStore();
   private appearanceStore: AppearanceStore = new AppearanceStore();
+  private submitPrefs: SubmitPrefs = new SubmitPrefs();
+  /** 忽略本地校验，强制提交：请求里带给共享层。 */
+  @State forceSubmit: boolean = false;
   private clientIdStore: ClientIdStore = new ClientIdStore();
   private notifier: TaskNotifier = new TaskNotifier();
   /** 页面是否可见：只有切到后台才需要进度/完成通知。 */
@@ -1032,6 +1036,8 @@ struct Index {
       this.appearanceMode = savedAppearance;
       this.applyAppearance();
     }
+    // 强制提交开关也落盘：默认关闭，恢复原来的严格校验。
+    this.forceSubmit = await this.submitPrefs.load(context);
     if (workflowPinsReady) {
       this.pinnedWorkflowPaths = this.pinnedWorkflowStore.load();
     }
@@ -2015,7 +2021,8 @@ struct Index {
       `"type":${JSON.stringify(item.type)}}`).join(',')}]`;
     return `{"op":${JSON.stringify(op)},"graphs":${graphs},"pinned":${pinned}${run},` +
       `"overrides":${this.overridesJson()},${bypass}${target},` +
-      `"removedLinkIds":${removed},"linkOverrides":${linkOverrides}}`;
+      `"removedLinkIds":${removed},"linkOverrides":${linkOverrides},` +
+      `"forceSubmit":${this.forceSubmit}}`;
   }
 
   private overridesJson(): string {
@@ -8311,8 +8318,13 @@ struct Index {
     }
   }
 
-  private applyAppearance(): void {
-    this.isDark = this.appearanceMode === 'dark' ||
+  /** 强制提交开关：内存生效 + 落盘，并立刻重算一次视图（按钮可用性跟着变）。 */
+  private setForceSubmit(value: boolean): void {
+    this.forceSubmit = value;
+    this.submitPrefs.save(getContext(this) as common.Context, value);
+    this.refreshView();
+  }
+  private applyAppearance(): void {    this.isDark = this.appearanceMode === 'dark' ||
       (this.appearanceMode === 'system' && this.systemIsDark());
   }
 
@@ -9334,6 +9346,22 @@ struct Index {
 
         Text('诊断日志').fontSize(11).fontColor(this.c().textDim).width('100%')
         this.LogsTab()
+
+        Row({ space: 8 }) {
+          Column({ space: 3 }) {
+            Text('忽略本地校验，强制提交').fontSize(14).fontColor(this.c().text)
+            Text('本地有报错也照样发给服务器，由 ComfyUI 判定')
+              .fontSize(10.5).fontColor(this.c().textDim)
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+          Toggle({ type: ToggleType.Switch, isOn: this.forceSubmit })
+            .onChange((value: boolean) => { this.setForceSubmit(value); })
+        }
+        .width('100%')
+        .constraintSize({ minHeight: 46 })
+        .alignItems(VerticalAlign.Center)
+        .padding({ left: 4, right: 4 })
 
         Row({ space: 8 }) {
           Column({ space: 3 }) {
