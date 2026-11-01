@@ -166,6 +166,14 @@ object SubgraphExpander {
             val shiftY = placed.y - cluster.y
             obstacles += placed
             val subgraphName = definition.string("name")?.takeIf { it.isNotBlank() } ?: "子图"
+            val subgraphTag = "$subgraphName (#$instanceId)"
+            // 实例上的控件值摘要：输入区的「子图」分区头直接显示，认子图的人一眼能对上。
+            val widgetSummary = (instance["widgets_values_named"] as? JsonObject)
+                ?.entries
+                ?.joinToString(" · ") { (key, value) ->
+                    "$key=${(value as? JsonPrimitive)?.contentOrNull ?: ""}"
+                }
+                ?.take(80)
             if (synthetic) {
                 val groupTitle = "子图 $subgraphName (#$instanceId)"
                 syntheticGroups += buildJsonObject {
@@ -281,6 +289,10 @@ object SubgraphExpander {
                     put("id", JsonPrimitive(newId))
                     // 标题带子图前缀：列表和节点图里都能看出这节点是从哪个子图展开的。
                     put("title", JsonPrimitive("$subgraphName · ${innerTitle ?: inner.string("type") ?: "节点"}"))
+                    put("comfypilot_subgraph", JsonPrimitive(subgraphTag))
+                    if (!widgetSummary.isNullOrBlank()) {
+                        put("comfypilot_subgraph_widgets", JsonPrimitive(widgetSummary))
+                    }
                     if (pos.isNotEmpty()) {
                         put(
                             "pos",

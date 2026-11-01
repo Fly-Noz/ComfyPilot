@@ -147,6 +147,10 @@ data class UiNode(
     val y: Double = 0.0,
     val width: Double = 0.0,
     val height: Double = 0.0,
+    /** 子图展开出来的节点：来自哪个子图（`名称 (#实例id)`），普通节点为空。 */
+    val subgraph: String? = null,
+    /** 子图实例上的控件摘要（`filename_prefix=QW21-…`），给输入区分区头用。 */
+    val subgraphWidgets: String? = null,
 ) {
     val hasWidgetValuesNamed: Boolean get() = widgetsNamed.isNotEmpty()
 }
@@ -251,6 +255,8 @@ object UiWorkflowParser {
             y = pos?.getOrNull(1).asDoubleOrNull() ?: 0.0,
             width = size?.getOrNull(0).asDoubleOrNull() ?: 0.0,
             height = size?.getOrNull(1).asDoubleOrNull() ?: 0.0,
+            subgraph = obj.stringOrNull("comfypilot_subgraph")?.takeIf { it.isNotBlank() },
+            subgraphWidgets = obj.stringOrNull("comfypilot_subgraph_widgets")?.takeIf { it.isNotBlank() },
         )
     }
 

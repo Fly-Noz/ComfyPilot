@@ -354,6 +354,8 @@ struct Index {
   @State view: WorkflowViewResponse = emptyView();
   @State viewLoading: boolean = false;
   @State viewError: string = '';
+  /** 子图展开簇默认展开；折叠后只留一行分区头。 */
+  @State collapsedSubgraphs: string[] = [];
   @State graphIds: string[] = [];
   @State graphsInitialized: boolean = false;
   /**
@@ -1878,6 +1880,7 @@ struct Index {
     this.allNodesOpen = false;
     this.expandedIds = [];
     this.expandedSeed = false;
+    this.collapsedSubgraphs = [];
     this.log(`打开工作流：${name || path}`);
     this.registerAiHost();
     this.bridge.openWorkflow(path);
@@ -1902,6 +1905,7 @@ struct Index {
     this.allNodesOpen = false;
     this.expandedIds = [];
     this.expandedSeed = false;
+    this.collapsedSubgraphs = [];
     this.resetUploadState();
     // 先落盘再清路径：flushDraft 依赖 selectedPath。
     this.flushDraft();
@@ -2650,6 +2654,29 @@ struct Index {
     return this.graphKeyOfNode(nodes[index]) !== this.graphKeyOfNode(nodes[index - 1]);
   }
 
+  /** 子图展开簇的分区头：在第一个属于该子图的节点前插入。 */
+  private isSubgraphStart(index: number): boolean {
+    const nodes = this.view.nodes;
+    const tag: string = nodes[index].subgraph ?? '';
+    if (tag.length === 0) {
+      return false;
+    }
+    if (index <= 0) {
+      return true;
+    }
+    return (nodes[index - 1].subgraph ?? '') !== tag;
+  }
+
+  private toggleSubgraph(tag: string): void {
+    this.collapsedSubgraphs = this.collapsedSubgraphs.indexOf(tag) >= 0
+      ? this.collapsedSubgraphs.filter((item: string) => item !== tag)
+      : [...this.collapsedSubgraphs, tag];
+  }
+
+  private subgraphNodeCount(tag: string): number {
+    return this.view.nodes.filter((node: WorkflowNodeView) => (node.subgraph ?? '') === tag).length;
+  }
+
   private graphTitleOfNode(node: WorkflowNodeView): string {
     const graph = this.graphOfNode(node);
     if (graph === null) {
@@ -3363,6 +3390,44 @@ struct Index {
       .scale(this.pressScaleOptions(`chip-${label}`))
       .onTouch((event: TouchEvent) => this.onPressTouch(event, `chip-${label}`))
       .onClick(() => action())
+  }
+
+  /** 子图展开簇的分区头：认子图的人看到这一行就知道整簇在哪。 */
+  @Builder
+  SubgraphHeader(node: WorkflowNodeView) {
+    Row({ space: 8 }) {
+      Text(this.collapsedSubgraphs.indexOf(node.subgraph ?? '') >= 0 ? '▸' : '▾')
+        .fontSize(11)
+        .fontFamily('monospace')
+        .fontColor(this.c().textDim)
+      Column({ space: 1 }) {
+        Text(`子图 ${node.subgraph ?? ''}`)
+          .fontSize(12)
+          .fontColor(this.c().text)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        if ((node.subgraphWidgets ?? '').length > 0) {
+          Text(node.subgraphWidgets ?? '')
+            .fontSize(9.5)
+            .fontFamily('monospace')
+            .fontColor(this.c().textDim)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      Text(`${this.subgraphNodeCount(node.subgraph ?? '')} 个节点`)
+        .fontSize(9.5)
+        .fontFamily('monospace')
+        .fontColor(this.c().textDim)
+    }
+    .width('100%')
+    .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+    .backgroundColor(this.c().card)
+    .borderRadius(12)
+    .border({ width: 1, color: this.c().border })
+    .onClick(() => { this.toggleSubgraph(node.subgraph ?? ''); })
   }
 
   /** 节点卡片，对应 Android NodeInputCard：标题行 + 方形按钮 + 展开的字段区。 */
@@ -4204,10 +4269,18 @@ struct Index {
                 if (this.isSectionStart(index)) {
                   this.SectionHeader(node)
                 }
-                this.NodeCard(node)
+                if (this.isSubgraphStart(index)) {
+                  this.SubgraphHeader(node)
+                }
+                // 折叠后只保留分区头，节点卡片全部收起。
+                if ((node.subgraph ?? '').length === 0 ||
+                  this.collapsedSubgraphs.indexOf(node.subgraph ?? '') < 0) {
+                  this.NodeCard(node)
+                }
               }, (node: WorkflowNodeView) =>
                 `${node.id}:${this.graphKeyOfNode(node)}:${node.missing}:${node.fields.length}:` +
-                  `${node.pinned}:${node.reachable}:${node.needsInput}:${node.enabled}:${node.bypassed}`)
+                  `${node.pinned}:${node.reachable}:${node.needsInput}:${node.enabled}:${node.bypassed}:` +
+                  `${node.subgraph ?? ''}`)
             }
           }
           .width('100%')

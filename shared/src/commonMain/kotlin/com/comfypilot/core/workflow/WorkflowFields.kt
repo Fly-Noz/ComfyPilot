@@ -55,6 +55,10 @@ data class WorkflowNodeView(
      */
     val orderReachable: Boolean = reachable || bypassed,
     val fields: List<WorkflowField>,
+    /** 子图展开出来的节点：来自哪个子图（`名称 (#实例id)`），普通节点为空。 */
+    val subgraph: String? = null,
+    /** 子图实例上的控件摘要，给输入区的分区头显示。 */
+    val subgraphWidgets: String? = null,
     /** 排序用的“是否缺值”：同样忽略单节点开关，保持关闭前后的相对顺序。 */
     val orderNeedsInput: Boolean = reachable && fields.any { it.needsInput },
 ) {
@@ -237,6 +241,8 @@ object WorkflowFields {
                 orderReachable = orderReachable,
                 fields = emptyList(),
                 orderNeedsInput = orderNeedsInput ?: false,
+                subgraph = node.subgraph,
+                subgraphWidgets = node.subgraphWidgets,
             )
         }
 
@@ -319,6 +325,8 @@ object WorkflowFields {
             orderReachable = orderReachable,
             fields = fields,
             orderNeedsInput = orderNeedsInput ?: (reachable && fields.any { it.needsInput }),
+            subgraph = node.subgraph,
+            subgraphWidgets = node.subgraphWidgets,
         )
     }
 

@@ -482,6 +482,9 @@ private fun DetailBody(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
+    // 子图展开后的节点默认收成可折叠的一簇：认子图的人看到的就是一个「子图」分区头。
+    var collapsedSubgraphs by remember(document.path) { mutableStateOf<Set<String>>(emptySet()) }
+
     // AI 聊天里点「定位 #id」：展开那张卡片并滚过去；浮窗已经在点击时关掉。
     val locateTarget by AiRuntime.locateRequests.collectAsState()
     LaunchedEffect(locateTarget) {
@@ -958,6 +961,14 @@ private fun DetailBody(
                     notes = nodeNotes,
                     previews = uploadPreviews,
                     selectedGraphIds = selectedGraphIds,
+                    collapsedSubgraphs = collapsedSubgraphs,
+                    onToggleSubgraph = { tag ->
+                        collapsedSubgraphs = if (tag in collapsedSubgraphs) {
+                            collapsedSubgraphs - tag
+                        } else {
+                            collapsedSubgraphs + tag
+                        }
+                    },
                     onEditNote = { target ->
                         noteTarget = target
                         noteDraft = nodeNotes[target.id].orEmpty()
@@ -1345,6 +1356,8 @@ private fun InputPane(
     notes: Map<Int, String>,
     previews: Map<String, Bitmap>,
     selectedGraphIds: Set<String>,
+    collapsedSubgraphs: Set<String>,
+    onToggleSubgraph: (String) -> Unit,
     onToggle: (Int) -> Unit,
     onEditNote: (WorkflowNodeView) -> Unit,
     onTogglePin: (Int) -> Unit,
@@ -1356,7 +1369,25 @@ private fun InputPane(
     onPickImage: (WorkflowField) -> Unit,
 ) {
     val c = Spectrum.colors
-    val rows = remember(sections, restNodes, expandedChildGraphs, restExpanded, selectedGraphIds) {
+    val rows = remember(sections, restNodes, expandedChildGraphs, restExpanded, selectedGraphIds, collapsedSubgraphs) {
+        fun MutableList<InputRow>.appendNodes(nodes: List<WorkflowNodeView>, nested: Boolean) {
+            var last: String? = null
+            nodes.forEach { node ->
+                val tag = node.subgraph
+                if (tag != null && tag != last) {
+                    add(
+                        InputRow.SubgraphRow(
+                            tag = tag,
+                            count = nodes.count { it.subgraph == tag },
+                            widgets = node.subgraphWidgets,
+                            collapsed = tag in collapsedSubgraphs,
+                        ),
+                    )
+                }
+                last = tag
+                if (tag == null || tag !in collapsedSubgraphs) add(InputRow.NodeRow(node, nested = nested))
+            }
+        }
         buildList {
             sections.forEachIndexed { index, section ->
                 add(
@@ -1368,7 +1399,7 @@ private fun InputPane(
                         first = index == 0,
                     )
                 )
-                section.nodes.forEach { add(InputRow.NodeRow(it, nested = false)) }
+                appendNodes(section.nodes, nested = false)
                 section.children.forEach { child ->
                     val open = child.graph.id in expandedChildGraphs
                     add(
@@ -1379,7 +1410,7 @@ private fun InputPane(
                             expanded = open,
                         )
                     )
-                    if (open) child.nodes.forEach { add(InputRow.NodeRow(it, nested = true)) }
+                    if (open) appendNodes(child.nodes, nested = true)
                 }
             }
             if (restNodes.isNotEmpty()) {
@@ -1390,7 +1421,7 @@ private fun InputPane(
                         expanded = restExpanded,
                     )
                 )
-                if (restExpanded) restNodes.forEach { add(InputRow.NodeRow(it, nested = false)) }
+                if (restExpanded) appendNodes(restNodes, nested = false)
             }
         }
     }
@@ -1427,6 +1458,7 @@ private fun InputPane(
             Box(modifier = Modifier.animateItem()) {
             when (row) {
                 is InputRow.Header -> SectionHeader(row)
+                is InputRow.SubgraphRow -> SubgraphHeader(row, onClick = { onToggleSubgraph(row.tag) })
                 is InputRow.ChildRow -> ChildGraphRow(
                     row = row,
                     onToggleExpand = { onToggleChildGraph(row.graph.id) },
@@ -1750,8 +1782,67 @@ private sealed interface InputRow {
         override val key: String = "h:rest"
     }
 
+    /** 子图展开出来的一簇节点：可折叠的分区头。 */
+    data class SubgraphRow(
+        val tag: String,
+        val count: Int,
+        val widgets: String?,
+        val collapsed: Boolean,
+    ) : InputRow {
+        override val key: String = "s:$tag"
+    }
+
     data class NodeRow(val node: WorkflowNodeView, val nested: Boolean) : InputRow {
         override val key: String = "n:${node.id}"
+    }
+}
+
+@Composable
+private fun SubgraphHeader(row: InputRow.SubgraphRow, onClick: () -> Unit) {
+    val c = Spectrum.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(c.card)
+            .border(1.dp, c.border, RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = if (row.collapsed) "▸" else "▾",
+            color = c.textDim,
+            fontSize = 11.sp,
+            fontFamily = SpectrumMono,
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "子图 ${row.tag}",
+                color = c.text,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (!row.widgets.isNullOrBlank()) {
+                Text(
+                    text = row.widgets,
+                    color = c.textDim,
+                    fontSize = 9.5.sp,
+                    fontFamily = SpectrumMono,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        Text(
+            text = "${row.count} 个节点",
+            color = c.textDim,
+            fontSize = 10.sp,
+            fontFamily = SpectrumMono,
+        )
     }
 }
 

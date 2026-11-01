@@ -35,7 +35,6 @@ export interface WorkflowFieldView {
   common: boolean;
   needsInput: boolean;
 }
-
 export interface WorkflowNodeView {
   id: number;
   type: string;
@@ -57,6 +56,10 @@ export interface WorkflowNodeView {
   needsInput: boolean;
   pinned: boolean;
   fields: WorkflowFieldView[];
+  /** 子图展开出来的节点：来自哪个子图（`名称 (#实例id)`）。 */
+  subgraph?: string;
+  /** 子图实例上的控件摘要，给输入区分区头显示。 */
+  subgraphWidgets?: string;
 }
 
 export interface BuildProblemView {
