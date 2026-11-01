@@ -5,6 +5,7 @@ import com.comfypilot.core.transport.HttpResponse
 import com.comfypilot.core.transport.HttpTransport
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
@@ -88,6 +89,27 @@ class ImageUploadTest {
         val result = ImageUpload.upload(transport, "http://host", "a.png", byteArrayOf())
         assertEquals(ImageUploadResult.Failure("图片内容为空"), result)
         assertEquals(null, transport.request)
+    }
+
+    @Test
+    fun `unique file name keeps extension and never repeats`() {
+        val first = ImageUpload.uniqueFilename("测试图 (17).png", 1_760_000_000_000L, 42)
+        assertTrue(first.endsWith(".png"), first)
+        // 空格会换成下划线，括号保留；关键是唯一后缀 + 原扩展名。
+        assertTrue(first.startsWith("测试图_"), first)
+        assertNotEquals(first, ImageUpload.uniqueFilename("测试图 (17).png", 1_760_000_000_001L, 42))
+        assertNotEquals(first, ImageUpload.uniqueFilename("测试图 (17).png", 1_760_000_000_000L, 7))
+    }
+
+    @Test
+    fun `unique file name strips illegal characters and handles blanks`() {
+        val cleaned = ImageUpload.uniqueFilename("a/b\\c:d*e?f\"g<h>i|j.jpg", 1, 1)
+        assertTrue(cleaned.endsWith(".jpg"), cleaned)
+        assertTrue(!cleaned.contains('/') && !cleaned.contains('\\') && !cleaned.contains(':'), cleaned)
+        val blank = ImageUpload.uniqueFilename("   ", 1, 1)
+        assertTrue(blank.startsWith("image-"), blank)
+        val long = ImageUpload.uniqueFilename("x".repeat(200) + ".png", 1, 1)
+        assertTrue(long.substringBeforeLast('.').length <= 70, long)
     }
 }
 

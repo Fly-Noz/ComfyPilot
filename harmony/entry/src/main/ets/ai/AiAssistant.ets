@@ -1212,6 +1212,18 @@ export class AiAssistant {
     }
   }
 
+  /** 上传文件名去重：保留扩展名，带上时间戳与随机后缀（与共享层 ImageUpload.uniqueFilename 同规则）。 */
+  private uniqueUploadName(filename: string): string {
+    const trimmed: string = filename.trim();
+    const dot: number = trimmed.lastIndexOf('.');
+    const rawBase: string = dot > 0 ? trimmed.substring(0, dot) : trimmed;
+    const ext: string = dot > 0 ? trimmed.substring(dot) : '';
+    const cleaned: string = rawBase.replace(/[\\/:*?"<>|\s]+/g, '_').replace(/^_+|_+$/g, '');
+    const base: string = (cleaned.length > 0 ? cleaned.substring(0, 48) : 'image');
+    const suffix: string = Date.now().toString(36) + '-' + Math.floor(Math.random() * 1048576).toString(36);
+    return `${base}-${suffix}${ext}`;
+  }
+
   /** 提案里是否把手机上的原文件名写进了字段；返回字段名，没有则空串。 */
   private localImageFieldInProposal(proposalJson: string, localNames: string[]): string {
     if (localNames.length === 0) {
@@ -1270,8 +1282,11 @@ export class AiAssistant {
     if (target.uploadBytes === undefined || target.uploadBytes.length === 0) {
       return '{"ok":false,"error":"这张图没有待上传的字节了（多半是上一轮丢掉的）；让用户在同一条消息里重新附一次图，再上传"}';
     }
-    this.log(`upload_image ${target.name} bytes=${target.uploadBytes.length}`);
-    const raw = await upload(target.uploadBytes, target.name);
+    // 服务器上可能已有同名文件；换一个唯一名字再传，避免覆盖/失败，
+    // 也免得模型写进节点的名字和服务器实际文件名对不上。
+    const uploadName: string = this.uniqueUploadName(target.name);
+    this.log(`upload_image ${target.name} -> ${uploadName} bytes=${target.uploadBytes.length}`);
+    const raw = await upload(target.uploadBytes, uploadName);
     try {
       const result = JSON.parse(raw) as Record<string, Object>;
       const reference = (result.filename as string) ?? '';

@@ -21,6 +21,26 @@ sealed interface ImageUploadResult {
  * 失败也不会影响已有任务；调用方拿到 [ImageUploadResult.Success.reference] 后再覆盖对应控件值。
  */
 object ImageUpload {
+
+    /**
+     * 上传前换一个唯一文件名。
+     *
+     * ComfyUI 的 `/upload/image` 默认不覆盖同名文件：可能直接报错，也可能被服务器自动改名，
+     * 于是模型刚写进节点的名字和服务器上的实际文件对不上。带时间戳 + 随机后缀最稳；
+     * 扩展名要保留（LoadImage 靠它识别格式），其余非法字符换成下划线。
+     */
+    fun uniqueFilename(filename: String, nowMs: Long, salt: Int): String {
+        val trimmed = filename.trim()
+        val dot = trimmed.lastIndexOf('.')
+        val rawBase = if (dot > 0) trimmed.substring(0, dot) else trimmed
+        val ext = if (dot > 0) trimmed.substring(dot) else ""
+        val base = rawBase.replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_")
+            .trim('_')
+            .take(48)
+            .ifBlank { "image" }
+        val suffix = nowMs.toString(36) + "-" + (salt and 0x7fffffff).toString(36)
+        return "$base-$suffix$ext"
+    }
     suspend fun upload(
         http: HttpTransport,
         baseUrl: String,

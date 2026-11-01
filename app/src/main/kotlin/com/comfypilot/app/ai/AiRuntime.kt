@@ -1196,12 +1196,19 @@ object AiRuntime {
         val bytes = target.uploadBytes
             ?: return """{"ok":false,"error":"这张图没有待上传的字节了（多半是上一轮丢掉的）；让用户在同一条消息里重新附一次图，再上传"}"""
 
-        aiLog("upload_image ${target.name} bytes=${bytes.size}")
+        // 服务器上可能已有同名文件；换一个唯一名字再传，避免覆盖/失败，也免得模型
+        // 写进节点的名字和服务器实际文件名对不上。
+        val uploadName = ImageUpload.uniqueFilename(
+            target.name,
+            System.currentTimeMillis(),
+            kotlin.random.Random.nextInt(0, 1 shl 20),
+        )
+        aiLog("upload_image ${target.name} -> $uploadName bytes=${bytes.size}")
         return when (
             val result = ImageUpload.upload(
                 http = OkHttpHttpTransport(),
                 baseUrl = base,
-                filename = target.name,
+                filename = uploadName,
                 bytes = bytes,
             )
         ) {
