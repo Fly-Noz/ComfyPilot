@@ -1,8 +1,8 @@
 {
-  "versionCode": 3,
-  "versionName": "0.2.1",
-  "publishedAt": "2026-10-31",
-  "notes": "首个带更新检查的版本。此文件位于仓库根目录，发版时连同 versionCode 一起改。",
+  "versionCode": 5,
+  "versionName": "0.3.1",
+  "publishedAt": "2026-11-01",
+  "notes": "AI 助手：流式输出、过程可见、无工作流也能切流、提交后自动取结果、#节点定位、附图按需上传并自动改名；修复 rgthree Power Lora Loader 权重丢失、切图组误触发提交。",
   "android": {
     "github": "https://github.com/Fly-Noz/ComfyPilot/releases/latest",
     "gitee": "https://gitee.com/Fly-Noz/ComfyPilot/releases"
