@@ -7136,6 +7136,27 @@ struct Index {
   }
 
   /**
+   * 从助手回复里挑出 `#节点号`，渲染成「定位 #id」按钮。
+   *
+   * 不新增工具：模型本来就会在解释里写 `#517`，直接把它变成可点入口，
+   * 比再让它调一次工具更省一轮，也不会因为工具被服务端拒而失效。
+   */
+  private aiNodeRefs(text: string): number[] {
+    const ids: number[] = [];
+    const matches: RegExpMatchArray | null = text.match(/#(\d+)/g);
+    if (matches === null) {
+      return ids;
+    }
+    for (let i = 0; i < matches.length && ids.length < 4; i++) {
+      const id: number = parseInt(matches[i].substring(1), 10);
+      if (id > 0 && ids.indexOf(id) < 0) {
+        ids.push(id);
+      }
+    }
+    return ids;
+  }
+
+  /**
    * 当前工作流的生成模型 + 它的提示词写法。
    *
    * 模型家族从工作流路径、节点类型和加载器字段值里推（ComfyUI 的文件名五花八门，
@@ -7542,6 +7563,7 @@ struct Index {
                 .fontSize(10.5).fontColor(this.c().textDim).width('100%').textAlign(TextAlign.Center)
             }
             ForEach(this.aiVisibleMessages(), (message: AiChatMessage, index: number) => {
+              Column({ space: 4 }) {
               Row({ space: 6 }) {
                 // 助手消息带头像：一眼能分清"谁在说"，自己的消息不需要。
                 if (message.role !== 'user') {
@@ -7577,6 +7599,26 @@ struct Index {
               .width('100%')
               .alignItems(VerticalAlign.Bottom)
               .justifyContent(message.role === 'user' ? FlexAlign.End : FlexAlign.Start)
+              // 回复里提到的 #节点号 → 一键定位：关掉浮窗并跳到对应节点卡片。
+              if (message.role !== 'user' && this.aiNodeRefs(message.content).length > 0) {
+                Row({ space: 6 }) {
+                  ForEach(this.aiNodeRefs(message.content), (id: number) => {
+                    Text(`定位 #${id}`)
+                      .fontSize(10)
+                      .fontColor(this.c().accent)
+                      .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+                      .backgroundColor(this.c().accentSoft)
+                      .borderRadius(8)
+                      .onClick(() => {
+                        this.aiOpen = false;
+                        this.syncAi();
+                        setTimeout(() => { this.jumpToNode(id); }, 60);
+                      })
+                  }, (id: number) => `${id}`)
+                }
+                .padding({ left: 26 })
+              }
+              }
             }, (message: AiChatMessage, index: number) => `${index}:${message.content.substring(0, 24)}`)
 
             if (this.aiPending !== null) {
