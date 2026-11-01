@@ -1355,12 +1355,14 @@ fun AiConfigEditor(
 private data class AiProviderPreset(val name: String, val baseUrl: String, val model: String)
 
 private val AI_PROVIDER_PRESETS = listOf(
-    AiProviderPreset("DeepSeek", "https://api.deepseek.com/v1", "deepseek-v4"),
-    AiProviderPreset("通义千问 Qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3-max"),
+    AiProviderPreset("DeepSeek（推荐）", "https://api.deepseek.com", "deepseek-flash"),
+    AiProviderPreset("DeepSeek V4 Pro", "https://api.deepseek.com", "deepseek-v4-pro"),
+    AiProviderPreset("通义千问 Qwen3.8 Max", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3.8-max"),
+    AiProviderPreset("通义千问 Flash", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen3.8-flash"),
+    AiProviderPreset("Kimi", "https://api.moonshot.cn/v1", "kimi-k3"),
+    AiProviderPreset("智谱 GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-5.3"),
     AiProviderPreset("OpenAI", "https://api.openai.com/v1", "gpt-6-astra"),
-    AiProviderPreset("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-pro"),
-    AiProviderPreset("智谱 GLM", "https://open.bigmodel.cn/api/paas/v4", "glm-4.6"),
-    AiProviderPreset("Kimi（月之暗面）", "https://api.moonshot.cn/v1", "kimi-k2-turbo-preview"),
+    AiProviderPreset("Google Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-3-pro"),
     AiProviderPreset("自定义", "", ""),
 )
 

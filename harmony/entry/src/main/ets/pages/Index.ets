@@ -279,12 +279,14 @@ interface AiProviderPreset {
 }
 
 const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
-  { name: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-v4' },
-  { name: '通义千问 Qwen', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen3-max' },
+  { name: 'DeepSeek（推荐）', baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash' },
+  { name: 'DeepSeek V4 Pro', baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-pro' },
+  { name: '通义千问 Qwen3.8 Max', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen3.8-max' },
+  { name: '通义千问 Flash', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen3.8-flash' },
+  { name: 'Kimi', baseUrl: 'https://api.moonshot.cn/v1', model: 'kimi-k3' },
+  { name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-5.3' },
   { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-6-astra' },
-  { name: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-pro' },
-  { name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4.6' },
-  { name: 'Kimi（月之暗面）', baseUrl: 'https://api.moonshot.cn/v1', model: 'kimi-k2-turbo-preview' },
+  { name: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3-pro' },
   { name: '自定义', baseUrl: '', model: '' },
 ];
 
@@ -9102,6 +9104,14 @@ struct Index {
                     .font({ size: 11 })
                     .fontColor(this.c().text)
                     .backgroundColor(this.c().cardStrong)
+                    .borderRadius(10)
+                    .border({ width: 1, color: this.c().border })
+                    // 下拉弹层默认是白底：深色主题下会整块发白，这里跟主题走。
+                    .optionBgColor(this.c().dialog)
+                    .optionFont({ size: 12 })
+                    .optionFontColor(this.c().text)
+                    .selectedOptionBgColor(this.c().accentSoft)
+                    .selectedOptionFontColor(this.c().accent)
                     .height(34)
                     .layoutWeight(1)
                     .onSelect((index: number) => { this.applyAiProvider(index); })
