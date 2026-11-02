@@ -1,8 +1,8 @@
 {
-  "versionCode": 4,
-  "versionName": "0.3.0",
-  "publishedAt": "2026-11-01",
-  "notes": "AI 助手：流式输出、过程可见、无工作流也能切流、提交后自动取结果、#节点定位、附图按需上传并自动改名；修复 rgthree Power Lora Loader 权重丢失、切图组误触发提交。",
+  "versionCode": 5,
+  "versionName": "0.3.1",
+  "publishedAt": "2026-11-02",
+  "notes": "• 修复 Power Lora Loader 只接 MODEL 时不生效\n• 修复展开节点误报「服务端没有该节点的定义」\n• AI 默认模型改为 deepseek-flash，旧的 deepseek-chat 自动迁移",
   "android": {
     "github": "https://github.com/Fly-Noz/ComfyPilot/releases/latest",
     "gitee": "https://gitee.com/Fly-Noz/ComfyPilot/releases"
