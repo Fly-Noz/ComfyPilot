@@ -180,7 +180,7 @@ export interface AiHost {
  * Key 存在系统 Asset Store，只在请求头里使用，不写日志。
  */
 export class AiAssistant {
-  config: AiConfig = { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat', apiKey: '', enabled: false, autoSubmit: false };
+  config: AiConfig = { baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash', apiKey: '', enabled: false, autoSubmit: false };
   messages: AiChatMessage[] = [];
   actions: string[] = [];
   pending: AiPending | null = null;
@@ -238,9 +238,15 @@ export class AiAssistant {
   async open(context: common.Context): Promise<void> {
     try {
       this.store = await preferences.getPreferences(context, STORE_NAME);
+      // 旧默认值 deepseek-chat 已被官方下线：没改过模型的用户自动升到 deepseek-flash。
+      const storedModel: string = this.store.getSync('model', this.config.model) as string;
+      const model: string = storedModel === 'deepseek-chat' ? 'deepseek-flash' : storedModel;
+      if (model !== storedModel) {
+        this.store.putSync('model', model);
+      }
       this.config = gateAi({
         baseUrl: this.store.getSync('base_url', this.config.baseUrl) as string,
-        model: this.store.getSync('model', this.config.model) as string,
+        model: model,
         apiKey: this.secrets.load(),
         enabled: this.store.getSync('enabled', false) as boolean,
         autoSubmit: this.store.getSync('auto_submit', false) as boolean,

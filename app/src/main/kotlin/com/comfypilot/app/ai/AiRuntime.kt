@@ -59,8 +59,8 @@ import javax.crypto.spec.GCMParameterSpec
 
 /** 用户配置的模型服务；Key 加密后存本机。 */
 data class AiConfig(
-    val baseUrl: String = "https://api.deepseek.com/v1",
-    val model: String = "deepseek-chat",
+    val baseUrl: String = "https://api.deepseek.com",
+    val model: String = "deepseek-flash",
     val apiKey: String = "",
     /** 总开关：关闭后悬浮球不出现，也不会发起请求。 */
     val enabled: Boolean = false,
@@ -178,14 +178,21 @@ class AiSecretStore(context: Context) {
     private val prefs = context.applicationContext
         .getSharedPreferences("ai_assistant", Context.MODE_PRIVATE)
 
-    fun load(): AiConfig = AiConfig(
-        baseUrl = prefs.getString("base_url", null) ?: AiConfig().baseUrl,
-        model = prefs.getString("model", null) ?: AiConfig().model,
-        apiKey = decrypt(prefs.getString("api_key", null).orEmpty()),
-        enabled = prefs.getBoolean("enabled", false),
-        autoSubmit = prefs.getBoolean("auto_submit", false),
-        maxRounds = prefs.getInt("max_rounds", 8),
-    )
+    fun load(): AiConfig {
+        val defaults = AiConfig()
+        // 旧默认值 deepseek-chat 已被官方下线：没改过模型的用户自动升到 deepseek-flash。
+        val storedModel = prefs.getString("model", null) ?: defaults.model
+        val model = if (storedModel == "deepseek-chat") "deepseek-flash" else storedModel
+        if (model != storedModel) prefs.edit().putString("model", model).apply()
+        return AiConfig(
+            baseUrl = prefs.getString("base_url", null) ?: defaults.baseUrl,
+            model = model,
+            apiKey = decrypt(prefs.getString("api_key", null).orEmpty()),
+            enabled = prefs.getBoolean("enabled", false),
+            autoSubmit = prefs.getBoolean("auto_submit", false),
+            maxRounds = prefs.getInt("max_rounds", 8),
+        )
+    }
 
     fun save(config: AiConfig) {
         prefs.edit()
