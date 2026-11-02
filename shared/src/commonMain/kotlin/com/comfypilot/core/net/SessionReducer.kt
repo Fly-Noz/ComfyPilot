@@ -567,7 +567,10 @@ class SessionReducer(
                     nodeClasses = parsed.nodeClasses,
                 )
                 // 只为还没取过定义的类发请求：同一台服务器上节点定义是稳定的。
-                val missing = parsed.nodeClasses
+                // 子图/Power LoRA 展开会动态生成新类（LoraLoaderModelOnly 等），
+                // 这些类不在文件里，但同样需要定义，否则会被判成「服务端没有该节点」。
+                val missing = (parsed.nodeClasses + syntheticNodeClasses(body, parsed.format))
+                    .distinct()
                     .filter { it !in state.nodeInfo && it !in state.nodeInfoRequested }
                     .take(MAX_OBJECT_INFO_REQUESTS)
                 val effects = state.lease?.let { lease ->
@@ -586,6 +589,18 @@ class SessionReducer(
         }
     }
 
+    /**
+     * 展开阶段可能生成、但文件里不存在的节点类。
+     *
+     * rgthree 的 Power Lora Loader 会被换成 LoraLoader / LoraLoaderModelOnly；
+     * 主机的 object_info 只按「文件里出现的类」请求，所以这里要主动补上。
+     */
+    private fun syntheticNodeClasses(raw: String, format: com.comfypilot.core.workflow.WorkflowFormat): List<String> {
+        if (format != com.comfypilot.core.workflow.WorkflowFormat.UI) return emptyList()
+        val graph = com.comfypilot.core.workflow.UiWorkflowParser.parse(raw) ?: return emptyList()
+        if (graph.nodes.none { it.type == "Power Lora Loader (rgthree)" }) return emptyList()
+        return listOf("LoraLoaderModelOnly", "LoraLoader")
+    }
     private fun onObjectInfoResult(
         state: SessionState,
         tag: RequestTag.ObjectInfo,
