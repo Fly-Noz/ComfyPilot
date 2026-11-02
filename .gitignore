@@ -59,6 +59,11 @@ harmony/build-profile.json5
 keystore.properties
 *.jks
 *.keystore
+*.p12
+*.p7b
+*.cer
+*.csr
+agconnect-services.json
 
 # 本机会话产物（AI 助手的记忆目录，不进版本库）
 .workbuddy/
