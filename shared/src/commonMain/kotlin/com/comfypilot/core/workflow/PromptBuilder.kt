@@ -540,6 +540,10 @@ private fun expandPowerLoraNodes(graph: UiGraph, warnings: MutableList<String>):
 
         var modelSource = incomingModel?.let { it.originId to it.originSlot }
         var clipSource = incomingClip?.let { it.originId to it.originSlot }
+        // rgthree 的 Power Lora Loader 在没有接 CLIP 时，前端会用 LoraLoaderModelOnly
+        // 展开（只处理 MODEL）。我们之前一律生成 LoraLoader，导致 clip 必填校验失败，
+        // 用户看到的正是「LoRA 不生效 / 提交被拒」。
+        val hasClip = clipSource != null
 
         if (entries.isEmpty()) {
             warnings += "节点「${target.title ?: target.type}」没有启用的 LoRA，已按直通处理"
@@ -553,41 +557,63 @@ private fun expandPowerLoraNodes(graph: UiGraph, warnings: MutableList<String>):
                 links[linkId] = UiLink(linkId, origin, slot, id, 0, "MODEL")
                 modelLinkId = linkId
             }
-            clipSource?.let { (origin, slot) ->
-                val linkId = nextLinkId++
-                links[linkId] = UiLink(linkId, origin, slot, id, 1, "CLIP")
-                clipLinkId = linkId
+            if (hasClip) {
+                clipSource?.let { (origin, slot) ->
+                    val linkId = nextLinkId++
+                    links[linkId] = UiLink(linkId, origin, slot, id, 1, "CLIP")
+                    clipLinkId = linkId
+                }
             }
             nodes += UiNode(
                 id = id,
-                type = "LoraLoader",
+                type = if (hasClip) "LoraLoader" else "LoraLoaderModelOnly",
                 title = "${target.title ?: "Power LoRA"} · ${entry.name}",
                 mode = UiWorkflowParser.MODE_NORMAL,
                 order = target.order,
-                inputs = listOf(
-                    UiInput("model", "MODEL", modelLinkId, null, null),
-                    UiInput("clip", "CLIP", clipLinkId, null, null),
-                ),
-                outputs = listOf(UiOutput("MODEL", "MODEL"), UiOutput("CLIP", "CLIP")),
-                widgets = JsonArray(
+                inputs = if (hasClip) {
                     listOf(
-                        JsonPrimitive(entry.name),
-                        JsonPrimitive(entry.strength),
-                        JsonPrimitive(entry.clipStrength),
-                    ),
+                        UiInput("model", "MODEL", modelLinkId, null, null),
+                        UiInput("clip", "CLIP", clipLinkId, null, null),
+                    )
+                } else {
+                    listOf(UiInput("model", "MODEL", modelLinkId, null, null))
+                },
+                outputs = if (hasClip) {
+                    listOf(UiOutput("MODEL", "MODEL"), UiOutput("CLIP", "CLIP"))
+                } else {
+                    listOf(UiOutput("MODEL", "MODEL"))
+                },
+                widgets = JsonArray(
+                    if (hasClip) {
+                        listOf(
+                            JsonPrimitive(entry.name),
+                            JsonPrimitive(entry.strength),
+                            JsonPrimitive(entry.clipStrength),
+                        )
+                    } else {
+                        listOf(
+                            JsonPrimitive(entry.name),
+                            JsonPrimitive(entry.strength),
+                        )
+                    },
                 ),
                 widgetsNamed = emptyMap(),
                 x = target.x,
                 y = target.y,
             )
             modelSource = id to 0
-            clipSource = id to 1
+            if (hasClip) clipSource = id to 1
         }
 
         // 下游原来接虚拟节点的输出：改接链尾；一个 LoRA 都没有时接上游（直通）。
         for (link in downstream) {
             val source = if (link.originSlot == 0) modelSource else clipSource
-            if (source == null) continue
+            if (source == null) {
+                if (link.originSlot != 0) {
+                    warnings += "节点「${target.title ?: target.type}」的 CLIP 输出没有上游，已断开下游连线"
+                }
+                continue
+            }
             links[link.id] = link.copy(originId = source.first, originSlot = source.second)
         }
     }
