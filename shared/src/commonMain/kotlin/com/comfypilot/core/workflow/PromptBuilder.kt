@@ -119,7 +119,7 @@ object PromptBuilder {
         }
 
         val warnings = mutableListOf<String>()
-        val expanded = expandPowerLoraNodes(graph, warnings)
+        val expanded = expandPowerLoraNodes(graph, overrides, warnings)
         val resolver = UiGraphResolver(expanded)
 
         val ordered = expanded.nodes
@@ -498,29 +498,48 @@ internal class UiGraphResolver(private val graph: UiGraph) {
  *
  * 这里在转换前把它展开成真正的 LoraLoader 链；没有启用的 LoRA 时按直通处理。
  */
-private val RGTHREE_POWER_LORA_TYPES = setOf("Power Lora Loader (rgthree)")
+private val RGTHREE_POWER_LORA_TYPES = setOf(RGTHREE_POWER_LORA_TYPE)
 
 private data class LoraEntry(val name: String, val strength: Double, val clipStrength: Double)
 
-private fun parsePowerLoraEntries(node: UiNode): List<LoraEntry> {
+/** 读取条目时先看用户覆盖（`lora_1.strength` 等），再看文件里的原值。 */
+private fun parsePowerLoraEntries(
+    node: UiNode,
+    overrides: Map<String, JsonElement>,
+): List<LoraEntry> {
     val raw = node.widgets ?: return emptyList()
     val result = mutableListOf<LoraEntry>()
+    var index = 0
     for (element in raw) {
         val obj = element as? JsonObject ?: continue
         // 表头/表尾是前端组件描述，不是 LoRA 条目。
         if (obj["type"] != null) continue
-        val lora = (obj["lora"] as? JsonPrimitive)?.contentOrNull ?: continue
+        if (obj["lora"] !is JsonPrimitive) continue
+        index += 1
+        val key = "lora_$index"
+        val lora = (overrides["$key.lora"] as? JsonPrimitive)?.contentOrNull
+            ?: (obj["lora"] as? JsonPrimitive)?.contentOrNull
+            ?: continue
         if (lora.isBlank() || lora == "None") continue
-        val on = (obj["on"] as? JsonPrimitive)?.contentOrNull?.toBooleanStrictOrNull() ?: true
+        val on = (overrides["$key.on"] as? JsonPrimitive)?.contentOrNull?.toBooleanStrictOrNull()
+            ?: (obj["on"] as? JsonPrimitive)?.contentOrNull?.toBooleanStrictOrNull()
+            ?: true
         if (!on) continue
-        val strength = (obj["strength"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull() ?: 1.0
-        val second = (obj["strengthTwo"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
+        val strength = (overrides["$key.strength"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
+            ?: (obj["strength"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
+            ?: 1.0
+        val second = (overrides["$key.strengthTwo"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
+            ?: (obj["strengthTwo"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
         result += LoraEntry(lora, strength, second ?: strength)
     }
     return result
 }
 
-private fun expandPowerLoraNodes(graph: UiGraph, warnings: MutableList<String>): UiGraph {
+private fun expandPowerLoraNodes(
+    graph: UiGraph,
+    overrides: Map<Int, Map<String, JsonElement>>,
+    warnings: MutableList<String>,
+): UiGraph {
     val targets = graph.nodes.filter {
         it.mode == UiWorkflowParser.MODE_NORMAL && it.type in RGTHREE_POWER_LORA_TYPES
     }
@@ -532,7 +551,7 @@ private fun expandPowerLoraNodes(graph: UiGraph, warnings: MutableList<String>):
     val links = LinkedHashMap(graph.links)
 
     for (target in targets) {
-        val entries = parsePowerLoraEntries(target)
+        val entries = parsePowerLoraEntries(target, overrides[target.id].orEmpty())
         val incomingModel = graph.links.values.firstOrNull { it.targetId == target.id && it.targetSlot == 0 }
         val incomingClip = graph.links.values.firstOrNull { it.targetId == target.id && it.targetSlot == 1 }
         val downstream = graph.links.values.filter { it.originId == target.id }

@@ -1,6 +1,13 @@
 package com.comfypilot.core.workflow
 
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
+
+/** rgthree 的 Power Lora Loader：前端虚拟节点，LoRA 参数藏在 widgets_values 对象数组里。 */
+const val RGTHREE_POWER_LORA_TYPE = "Power Lora Loader (rgthree)"
 
 /**
  * 工作流里的一个可编辑/可查看字段。
@@ -313,6 +320,10 @@ object WorkflowFields {
             }
         }
 
+        if (node.type == RGTHREE_POWER_LORA_TYPE) {
+            fields += powerLoraFields(node, definitions)
+        }
+
         return WorkflowNodeView(
             id = node.id,
             type = node.type,
@@ -330,8 +341,89 @@ object WorkflowFields {
         )
     }
 
-    /** 本次要提交的输出节点：模式正常、确实是输出节点，且在选中的节点图里。 */
-    private fun outputRootIds(
+    /**
+     * Power Lora Loader 的条目不是普通控件：开关 / 名称 / 权重都藏在 `widgets_values`
+     * 的对象数组里。不把这些列出来，用户就只能看到「LoRA 识别到了，但参数改不了」。
+     */
+    private fun powerLoraFields(
+        node: UiNode,
+        definitions: Map<String, NodeDefinition>,
+    ): List<WorkflowField> {
+        val raw = node.widgets ?: return emptyList()
+        val options = definitions["LoraLoader"]?.inputs
+            ?.firstOrNull { it.name == "lora_name" }?.options.orEmpty()
+        val result = mutableListOf<WorkflowField>()
+        var index = 0
+        for (element in raw) {
+            val entry = element as? JsonObject ?: continue
+            if (entry["type"] != null) continue
+            val loraElement = entry["lora"] as? JsonPrimitive ?: continue
+            index += 1
+            val lora = loraElement.contentOrNull ?: ""
+            val on = (entry["on"] as? JsonPrimitive)?.contentOrNull?.toBooleanStrictOrNull() ?: true
+            val strength = (entry["strength"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull() ?: 1.0
+            val second = (entry["strengthTwo"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
+            result += WorkflowField(
+                nodeId = node.id,
+                nodeType = node.type,
+                nodeTitle = node.title,
+                inputName = "lora_${index}.on",
+                label = "LoRA $index · 启用",
+                type = "BOOLEAN",
+                options = emptyList(),
+                value = JsonPrimitive(on),
+                linked = false,
+                widget = true,
+                required = false,
+                common = false,
+            )
+            result += WorkflowField(
+                nodeId = node.id,
+                nodeType = node.type,
+                nodeTitle = node.title,
+                inputName = "lora_${index}.lora",
+                label = "LoRA $index · 名称",
+                type = "COMBO",
+                options = (options + lora).distinct(),
+                value = JsonPrimitive(lora),
+                linked = false,
+                widget = true,
+                required = false,
+                common = false,
+            )
+            result += WorkflowField(
+                nodeId = node.id,
+                nodeType = node.type,
+                nodeTitle = node.title,
+                inputName = "lora_${index}.strength",
+                label = "LoRA $index · 权重",
+                type = "FLOAT",
+                options = emptyList(),
+                value = JsonPrimitive(strength),
+                linked = false,
+                widget = true,
+                required = false,
+                common = false,
+            )
+            result += WorkflowField(
+                nodeId = node.id,
+                nodeType = node.type,
+                nodeTitle = node.title,
+                inputName = "lora_${index}.strengthTwo",
+                label = "LoRA $index · CLIP 权重",
+                type = "FLOAT",
+                options = emptyList(),
+                value = second?.let { JsonPrimitive(it) },
+                linked = false,
+                widget = true,
+                required = false,
+                common = false,
+            )
+        }
+        return result
+    }
+
+    /** 本次要提交的输出节点：模式正常、确实是输出节点，且在选中的节点图里。 */    private fun outputRootIds(
         graph: UiGraph,
         definitions: Map<String, NodeDefinition>,
         enabledOutputIds: Set<Int>?,

@@ -3,6 +3,7 @@ package com.comfypilot.core.workflow
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -39,6 +40,40 @@ class LoraModelOnlyTest {
         assertEquals("[\"${loraEntry.key}\",0]", samplerModel)
     }
 
+    @Test
+    fun `power lora entries can be edited through overrides`() {
+        val overrides = mapOf(
+            2 to mapOf(
+                "lora_1.strength" to JsonPrimitive(0.42),
+                "lora_2.on" to JsonPrimitive(true),
+            ),
+        )
+        val build = PromptBuilder.build(document(FIXTURE), DEFINITIONS, overrides = overrides)
+        val ready = build as? PromptBuild.Ready ?: error("应当可以提交：$build")
+
+        val loras = ready.prompt.entries.filter {
+            (it.value.jsonObject["class_type"]?.jsonPrimitive?.content ?: "").startsWith("LoraLoader")
+        }
+        assertEquals(2, loras.size, "启用第二个 LoRA 后应当有两条链：${ready.prompt}")
+        val first = loras.first().value.jsonObject["inputs"]!!.jsonObject
+        assertEquals(0.42, first["strength_model"]!!.jsonPrimitive.content.toDouble(), 0.0001)
+        val second = loras.last().value.jsonObject["inputs"]!!.jsonObject
+        assertEquals("lora-b.safetensors", second["lora_name"]!!.jsonPrimitive.content)
+        assertEquals(0.5, second["strength_model"]!!.jsonPrimitive.content.toDouble(), 0.0001)
+    }
+
+    @Test
+    fun `power lora exposes editable entries in the field view`() {
+        val view = WorkflowFields.build(document(FIXTURE), DEFINITIONS)
+        val node = view.nodes.first { it.type == RGTHREE_POWER_LORA_TYPE }
+        val names = node.fields.map { it.inputName }
+        assertTrue("lora_1.on" in names, names.toString())
+        assertTrue("lora_1.lora" in names, names.toString())
+        assertTrue("lora_1.strength" in names, names.toString())
+        assertTrue("lora_2.strength" in names, names.toString())
+        assertTrue("lora_2.on" in names, names.toString())
+    }
+
     private fun document(raw: String): WorkflowDocument {
         return WorkflowDocument(
             path = "power-model-only.json",
@@ -60,8 +95,11 @@ class LoraModelOnlyTest {
             inputs = listOf(widget("ckpt_name", "COMBO", JsonPrimitive("sdxl.safetensors"))),
             outputs = listOf("MODEL", "CLIP", "VAE"),
         ),
-        "LoraLoaderModelOnly" to NodeDefinition(
-            className = "LoraLoaderModelOnly",
+        RGTHREE_POWER_LORA_TYPE to NodeDefinition(
+            className = RGTHREE_POWER_LORA_TYPE,
+            inputs = listOf(link("model", "MODEL"), link("clip", "CLIP")),
+            outputs = listOf("MODEL", "CLIP"),
+        ),        "LoraLoaderModelOnly" to NodeDefinition(            className = "LoraLoaderModelOnly",
             inputs = listOf(
                 link("model", "MODEL"),
                 widget("lora_name", "COMBO", JsonPrimitive("")),
