@@ -2,8 +2,8 @@
   "app": {
     "bundleName": "com.fly.comfypilot",
     "vendor": "comfypilot",
-    "versionCode": 5,
-    "versionName": "0.3.1",
+    "versionCode": 6,
+    "versionName": "0.3.2",
     "icon": "$media:layered_image",
     "label": "$string:app_name"
   }
