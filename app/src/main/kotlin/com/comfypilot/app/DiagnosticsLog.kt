@@ -67,6 +67,8 @@ object DiagnosticsLog {
             buffer.clear()
             _lines.value = emptyList()
         }
+        // 落盘文件一并删掉，否则「清空」只清了内存，磁盘上的 prompt 摘要仍在。
+        runCatching { logFile?.takeIf { it.exists() }?.delete() }
     }
 
     /** 供"复制全部"用：按当前顺序拼成多行文本。 */

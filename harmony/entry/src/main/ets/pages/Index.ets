@@ -2116,6 +2116,22 @@ struct Index {
     });
   }
 
+  /** 下拉菜单只显示文件名，避免长路径把菜单撑满、还把文件名截掉。 */
+  private shortOptions(field: WorkflowFieldView): SelectOption[] {
+    return field.options.map((option: string) => {
+      const item: SelectOption = { value: this.shortOptionName(option) };
+      return item;
+    });
+  }
+
+  private shortOptionName(name: string): string {
+    if (name.length === 0) {
+      return name;
+    }
+    const slash: number = Math.max(name.lastIndexOf('\\'), name.lastIndexOf('/'));
+    return slash >= 0 && slash < name.length - 1 ? name.substring(slash + 1) : name;
+  }
+
   private async pickAndUpload(field: WorkflowFieldView): Promise<void> {
     if (this.uploadingField.length > 0) {
       return;
@@ -3763,18 +3779,26 @@ struct Index {
   /** 下拉选项字段，对应 Android OptionPicker 的触发器外观。 */
   @Builder
   OptionField(field: WorkflowFieldView) {
-    Select(this.selectOptions(field))
+    // 候选常常是「文件夹\文件.safetensors」：菜单里只显示文件名，选中后仍写回完整路径。
+    Select(this.shortOptions(field))
       .enabled(this.nodeFieldEnabled(field.nodeId))
       .selected(field.options.indexOf(this.fieldText(field)))
-      .value(this.fieldText(field).length > 0 ? this.fieldText(field) : '选择…')
+      .value(this.shortOptionName(this.fieldText(field)).length > 0
+        ? this.shortOptionName(this.fieldText(field)) : '选择…')
       .font({ size: 11.5, family: 'monospace' })
       .fontColor(this.c().text)
       .backgroundColor(this.c().card)
       .borderRadius(12)
       .border({ width: 1, color: this.c().border })
+      .optionWidth(280)
       .width('100%')
       .height(38)
-      .onSelect((index: number, value: string) => this.setFieldText(field, value))
+      .onSelect((index: number) => {
+        const picked: string | undefined = field.options[index];
+        if (picked !== undefined) {
+          this.setFieldText(field, picked);
+        }
+      })
   }
 
   @Builder

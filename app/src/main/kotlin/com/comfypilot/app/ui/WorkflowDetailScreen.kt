@@ -2799,7 +2799,9 @@ private fun OptionPicker(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = current.ifBlank { "选择…" },
+                // LoRA 名称常常是「文件夹\文件.safetensors」，整串显示必然截断；
+                // 这里只展示最后一段文件名，实际值仍保存完整路径。
+                text = shortOptionName(current).ifBlank { "选择…" },
                 color = c.text,
                 fontSize = 11.5.sp,
                 fontFamily = SpectrumMono,
@@ -2822,6 +2824,8 @@ private fun OptionPicker(
                             color = c.text,
                             fontSize = 12.sp,
                             fontFamily = SpectrumMono,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     },
                     onClick = {
@@ -2872,6 +2876,13 @@ private fun valueText(value: JsonElement?): String = when (value) {
     null -> ""
     is JsonPrimitive -> value.content
     else -> value.toString()
+}
+
+/** 只保留路径最后一段，用于 LoRA 名称这类长候选的折叠显示。 */
+private fun shortOptionName(name: String): String {
+    if (name.isEmpty()) return name
+    val cut = maxOf(name.lastIndexOf('\\'), name.lastIndexOf('/'))
+    return if (cut in 0 until name.length - 1) name.substring(cut + 1) else name
 }
 
 /** 上传后的本地预览：只解码一张缩略图，不把原图整张留在内存里。 */
