@@ -30,6 +30,7 @@ object WorkflowCodec {
         "PrimitiveNode",
         "Label (rgthree)",
         "Fast Groups Bypasser (rgthree)",
+        "Image Comparer (rgthree)",
     )
 
     private val FRONTEND_ONLY = UI_ONLY_NODE_TYPES
