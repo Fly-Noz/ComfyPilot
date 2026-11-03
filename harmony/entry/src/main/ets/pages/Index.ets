@@ -547,6 +547,9 @@ struct Index {
   @State aiMaxRounds: number = 8;
   @State aiProviderIndex: number = AI_PROVIDER_PRESETS.length - 1;
   @State aiProviderMenuOpen: boolean = false;
+  // 下拉候选菜单（替代 ArkUI Select：它的弹层底色跟系统走，深色下会发白）
+  @State optionMenuOpen: boolean = false;
+  @State optionMenuKey: string = '';
   private draftSaveTimer: number = -1;
   /** 性能条复用一个 HttpRequest 句柄，页面离场时 destroy()。 */
   private statsRequest: http.HttpRequest | null = null;
@@ -3779,26 +3782,76 @@ struct Index {
   /** 下拉选项字段，对应 Android OptionPicker 的触发器外观。 */
   @Builder
   OptionField(field: WorkflowFieldView) {
-    // 候选常常是「文件夹\文件.safetensors」：菜单里只显示文件名，选中后仍写回完整路径。
-    Select(this.shortOptions(field))
-      .enabled(this.nodeFieldEnabled(field.nodeId))
-      .selected(field.options.indexOf(this.fieldText(field)))
-      .value(this.shortOptionName(this.fieldText(field)).length > 0
+    // 不用 Select：它的弹层底色跟系统主题走，深色模式下是一整块白。
+    Row({ space: 6 }) {
+      Text(this.shortOptionName(this.fieldText(field)).length > 0
         ? this.shortOptionName(this.fieldText(field)) : '选择…')
-      .font({ size: 11.5, family: 'monospace' })
-      .fontColor(this.c().text)
-      .backgroundColor(this.c().card)
-      .borderRadius(12)
-      .border({ width: 1, color: this.c().border })
-      .optionWidth(280)
-      .width('100%')
-      .height(38)
-      .onSelect((index: number) => {
-        const picked: string | undefined = field.options[index];
-        if (picked !== undefined) {
-          this.setFieldText(field, picked);
+        .fontSize(11.5)
+        .fontFamily('monospace')
+        .fontColor(this.c().text)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
+      Text('▾').fontSize(10).fontColor(this.c().textDim)
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 38 })
+    .padding({ left: 12, right: 12, top: 8, bottom: 8 })
+    .backgroundColor(this.c().card)
+    .borderRadius(12)
+    .border({ width: 1, color: this.c().border })
+    .opacity(this.nodeFieldEnabled(field.nodeId) ? 1 : 0.5)
+    .onClick(() => {
+      if (this.nodeFieldEnabled(field.nodeId)) {
+        this.optionMenuKey = this.editKey(field.nodeId, field.inputName);
+        this.optionMenuOpen = true;
+      }
+    })
+    .bindPopup(this.optionMenuOpen && this.optionMenuKey === this.editKey(field.nodeId, field.inputName), {
+      builder: this.OptionMenu(field),
+      placement: Placement.Bottom,
+      popupColor: this.c().dialog,
+      enableArrow: false,
+      autoCancel: true,
+      radius: 12,
+      onStateChange: (event) => {
+        if (!event.isVisible) {
+          this.optionMenuOpen = false;
         }
-      })
+      },
+    })
+  }
+
+  /** 下拉候选：自绘深色菜单，长文件名最多两行，避免右侧被截掉。 */
+  @Builder
+  OptionMenu(field: WorkflowFieldView) {
+    List({ space: 2 }) {
+      ForEach(field.options, (option: string, index: number) => {
+        ListItem() {
+          Text(this.shortOptionName(option))
+            .fontSize(12)
+            .fontFamily('monospace')
+            .fontColor(option === this.fieldText(field) ? this.c().accent : this.c().text)
+            .width('100%')
+            .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+            .backgroundColor(option === this.fieldText(field) ? this.c().accentSoft : Color.Transparent)
+            .borderRadius(8)
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .onClick(() => {
+              this.setFieldText(field, option);
+              this.optionMenuOpen = false;
+            })
+        }
+      }, (option: string, index: number) => `${index}:${option}`)
+    }
+    .width(320)
+    .constraintSize({ maxHeight: 380 })
+    .padding(6)
+    .scrollBar(BarState.Off)
+    .backgroundColor(this.c().dialog)
+    .borderRadius(12)
+    .border({ width: 1, color: this.c().border })
   }
 
   @Builder

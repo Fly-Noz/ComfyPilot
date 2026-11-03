@@ -352,6 +352,12 @@ object WorkflowFields {
         val raw = node.widgets ?: return emptyList()
         val options = definitions["LoraLoader"]?.inputs
             ?.firstOrNull { it.name == "lora_name" }?.options.orEmpty()
+        // 兜底：服务端定义还没到、或 lora_name 候选为空时，至少列出本节点已有的名字，
+        // 用户仍然可以改权重/开关，不会只剩“当前一项”。
+        val nodeLoras = raw.mapNotNull { element ->
+            ((element as? JsonObject)?.get("lora") as? JsonPrimitive)?.contentOrNull
+        }.filter { it.isNotBlank() }
+        val choiceOptions = (options + nodeLoras).distinct()
         // 网页端默认只画一个权重：CLIP 没接线时 strengthTwo 为空、复用 MODEL 权重。
         // 只有 CLIP 接了线，或文件里真的存了第二个权重，才拆成两项展示。
         val clipConnected = node.inputs.any { it.name == "clip" && it.linkId != null }
@@ -388,7 +394,7 @@ object WorkflowFields {
                 inputName = "lora_${index}.lora",
                 label = "LoRA $index · 名称",
                 type = "COMBO",
-                options = (options + lora).distinct(),
+                options = (choiceOptions + lora).distinct(),
                 value = JsonPrimitive(lora),
                 linked = false,
                 widget = true,
