@@ -72,6 +72,8 @@ class LoraModelOnlyTest {
         assertTrue("lora_1.strength" in names, names.toString())
         assertTrue("lora_2.strength" in names, names.toString())
         assertTrue("lora_2.on" in names, names.toString())
+        // CLIP 没接线、strengthTwo 为空：不该出现第二个权重。
+        assertTrue("lora_1.strengthTwo" !in names, names.toString())
     }
 
     private fun document(raw: String): WorkflowDocument {

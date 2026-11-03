@@ -352,6 +352,9 @@ object WorkflowFields {
         val raw = node.widgets ?: return emptyList()
         val options = definitions["LoraLoader"]?.inputs
             ?.firstOrNull { it.name == "lora_name" }?.options.orEmpty()
+        // 网页端默认只画一个权重：CLIP 没接线时 strengthTwo 为空、复用 MODEL 权重。
+        // 只有 CLIP 接了线，或文件里真的存了第二个权重，才拆成两项展示。
+        val clipConnected = node.inputs.any { it.name == "clip" && it.linkId != null }
         val result = mutableListOf<WorkflowField>()
         var index = 0
         for (element in raw) {
@@ -363,6 +366,7 @@ object WorkflowFields {
             val on = (entry["on"] as? JsonPrimitive)?.contentOrNull?.toBooleanStrictOrNull() ?: true
             val strength = (entry["strength"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull() ?: 1.0
             val second = (entry["strengthTwo"] as? JsonPrimitive)?.contentOrNull?.toDoubleOrNull()
+            val showClipStrength = clipConnected || second != null
             result += WorkflowField(
                 nodeId = node.id,
                 nodeType = node.type,
@@ -396,7 +400,7 @@ object WorkflowFields {
                 nodeType = node.type,
                 nodeTitle = node.title,
                 inputName = "lora_${index}.strength",
-                label = "LoRA $index · 权重",
+                label = if (showClipStrength) "LoRA $index · MODEL 权重" else "LoRA $index · 权重",
                 type = "FLOAT",
                 options = emptyList(),
                 value = JsonPrimitive(strength),
@@ -405,25 +409,29 @@ object WorkflowFields {
                 required = false,
                 common = false,
             )
-            result += WorkflowField(
-                nodeId = node.id,
-                nodeType = node.type,
-                nodeTitle = node.title,
-                inputName = "lora_${index}.strengthTwo",
-                label = "LoRA $index · CLIP 权重",
-                type = "FLOAT",
-                options = emptyList(),
-                value = second?.let { JsonPrimitive(it) },
-                linked = false,
-                widget = true,
-                required = false,
-                common = false,
-            )
+            if (showClipStrength) {
+                result += WorkflowField(
+                    nodeId = node.id,
+                    nodeType = node.type,
+                    nodeTitle = node.title,
+                    inputName = "lora_${index}.strengthTwo",
+                    label = "LoRA $index · CLIP 权重",
+                    type = "FLOAT",
+                    options = emptyList(),
+                    // strengthTwo 为空表示跟随 MODEL 权重；展示实际生效值，避免看起来像 0。
+                    value = JsonPrimitive(second ?: strength),
+                    linked = false,
+                    widget = true,
+                    required = false,
+                    common = false,
+                )
+            }
         }
         return result
     }
 
-    /** 本次要提交的输出节点：模式正常、确实是输出节点，且在选中的节点图里。 */    private fun outputRootIds(
+    /** 本次要提交的输出节点：模式正常、确实是输出节点，且在选中的节点图里。 */
+    private fun outputRootIds(
         graph: UiGraph,
         definitions: Map<String, NodeDefinition>,
         enabledOutputIds: Set<Int>?,
