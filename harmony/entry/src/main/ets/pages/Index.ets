@@ -7880,8 +7880,6 @@ struct Index {
                         .fontSize(10.5)
                         .fontColor(this.c().textMuted)
                         .width('100%')
-                        .maxLines(3)
-                        .textOverflow({ overflow: TextOverflow.Ellipsis })
                     }, (change: string, index: number) => `${index}:${change}`)
                   }
                   .width('100%')

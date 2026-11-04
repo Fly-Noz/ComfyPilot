@@ -437,13 +437,10 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                     ) {
                         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             pending.changes.forEach {
-                                // 提示词类改动的 label 会带整段旧/新文本；限行避免一张卡吃满屏幕。
                                 Text(
                                     text = "· ${it.label}",
                                     color = c.textMuted,
                                     fontSize = 10.5.sp,
-                                    maxLines = 3,
-                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
