@@ -7872,9 +7872,23 @@ struct Index {
             if (this.aiPending !== null) {
               Column({ space: 5 }) {
                 Text(aiPlainText(this.aiPending.summary)).fontSize(12).fontColor(this.c().text)
-                ForEach(this.aiPending.changes.slice(0, 6), (change: string, index: number) => {
-                  Text(`· ${change}`).fontSize(10.5).fontColor(this.c().textMuted)
-                }, (change: string, index: number) => `${index}:${change}`)
+                // 改动多时原来会把「应用并提交」挤出面板；限高滚动，按钮始终可见。
+                Scroll() {
+                  Column({ space: 3 }) {
+                    ForEach(this.aiPending.changes, (change: string, index: number) => {
+                      Text(`· ${change}`)
+                        .fontSize(10.5)
+                        .fontColor(this.c().textMuted)
+                        .width('100%')
+                        .maxLines(3)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    }, (change: string, index: number) => `${index}:${change}`)
+                  }
+                  .width('100%')
+                }
+                .constraintSize({ maxHeight: 110 })
+                .scrollBar(BarState.Off)
+                .width('100%')
                 Row({ space: 8 }) {
                   Text('应用')
                     .fontSize(11)

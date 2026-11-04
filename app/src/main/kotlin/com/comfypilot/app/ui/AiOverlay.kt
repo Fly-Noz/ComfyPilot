@@ -22,6 +22,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -427,8 +428,25 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                     verticalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
                     Text(aiPlainText(pending.summary), color = c.text, fontSize = 12.sp)
-                    pending.changes.take(6).forEach {
-                        Text("· ${it.label}", color = c.textMuted, fontSize = 10.5.sp)
+                    // 改动多时原来会把「应用并提交」顶出屏幕；限高并允许滚动，按钮始终可见。
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 120.dp)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            pending.changes.forEach {
+                                // 提示词类改动的 label 会带整段旧/新文本；限行避免一张卡吃满屏幕。
+                                Text(
+                                    text = "· ${it.label}",
+                                    color = c.textMuted,
+                                    fontSize = 10.5.sp,
+                                    maxLines = 3,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                     Row(
                         modifier = Modifier.padding(top = 4.dp),
