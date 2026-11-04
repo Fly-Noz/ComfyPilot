@@ -23,6 +23,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,6 +57,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -493,6 +499,64 @@ private fun ArtifactRow(
     }
 }
 
+/**
+ * 图片预览：双指缩放 + 拖动，双击在 1x / 2x 之间切换。
+ * 只用一根手指拖动时也按平移处理，放大后能把边角拖回可视区。
+ */
+@Composable
+private fun ZoomableImage(url: String) {
+    var scale by remember(url) { mutableStateOf(1f) }
+    var offset by remember(url) { mutableStateOf(Offset.Zero) }
+    var boxSize by remember { mutableStateOf(IntSize.Zero) }
+
+    fun clampOffset() {
+        val maxX = (boxSize.width * (scale - 1f)) / 2f
+        val maxY = (boxSize.height * (scale - 1f)) / 2f
+        offset = Offset(
+            offset.x.coerceIn(-maxX, maxX),
+            offset.y.coerceIn(-maxY, maxY),
+        )
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onSizeChanged { boxSize = it }
+            .pointerInput(url) {
+                detectTransformGestures { _, pan, zoom, _ ->
+                    scale = (scale * zoom).coerceIn(1f, 6f)
+                    offset += pan
+                    clampOffset()
+                }
+            }
+            .pointerInput(url) {
+                detectTapGestures(
+                    onDoubleTap = {
+                        if (scale > 1.01f) {
+                            scale = 1f
+                            offset = Offset.Zero
+                        } else {
+                            scale = 2f
+                        }
+                    },
+                )
+            },
+    ) {
+        RemoteOutputImage(
+            url = url,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offset.x
+                    translationY = offset.y
+                },
+            contentScale = ContentScale.Fit,
+        )
+    }
+}
+
 @Composable
 private fun ArtifactPreview(
     output: TaskOutput,
@@ -582,11 +646,7 @@ private fun ArtifactPreview(
                     )
                 }
 
-                ArtifactNames.isImage(output.filename) -> RemoteOutputImage(
-                    url = url,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit,
-                )
+                ArtifactNames.isImage(output.filename) -> ZoomableImage(url = url)
 
                 ArtifactNames.isVideo(output.filename) -> key(url) {
                     ArtifactVideo(url = url, modifier = Modifier.fillMaxSize(), autoStart = autoStartVideo)

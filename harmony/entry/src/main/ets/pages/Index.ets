@@ -444,6 +444,12 @@ struct Index {
   @State artifactOpen: boolean = false;
   @State artifactTask: BridgeTask = emptyTask();
   @State previewOpen: boolean = false;
+  @State previewScale: number = 1;
+  @State previewOffsetX: number = 0;
+  @State previewOffsetY: number = 0;
+  private previewBaseScale: number = 1;
+  private previewBaseX: number = 0;
+  private previewBaseY: number = 0;
   @State previewOutput: BridgeOutput = emptyOutput();
   @State previewError: boolean = false;
   /** 底栏提示的自动收起定时器句柄（-1 表示没有在计时）。 */
@@ -3117,6 +3123,9 @@ struct Index {
     this.artifactTask = task;
     this.artifactOpen = true;
     this.previewOpen = false;
+    this.previewScale = 1;
+    this.previewOffsetX = 0;
+    this.previewOffsetY = 0;
     this.previewError = false;
     this.downloadNotice = '';
     this.downloadFailedKey = '';
@@ -6614,8 +6623,45 @@ struct Index {
             .fontColor(this.c().textMuted)
             .padding(24)
         } else {
-          this.RemoteImage(this.artifactUrl(this.previewOutput), ImageFit.Contain)
-
+          Column() {
+            this.RemoteImage(this.artifactUrl(this.previewOutput), ImageFit.Contain)
+          }
+          .width('100%')
+          // 双指缩放 + 放大后拖动；双击复位。
+          .scale({ x: this.previewScale, y: this.previewScale })
+          .translate({ x: this.previewOffsetX, y: this.previewOffsetY })
+          .gesture(
+            GestureGroup(GestureMode.Parallel,
+              PinchGesture()
+                .onActionStart(() => {
+                  this.previewBaseScale = this.previewScale;
+                })
+                .onActionUpdate((event: GestureEvent) => {
+                  this.previewScale = Math.min(6, Math.max(1, this.previewBaseScale * event.scale));
+                  if (this.previewScale <= 1.01) {
+                    this.previewOffsetX = 0;
+                    this.previewOffsetY = 0;
+                  }
+                }),
+              PanGesture()
+                .onActionStart(() => {
+                  this.previewBaseX = this.previewOffsetX;
+                  this.previewBaseY = this.previewOffsetY;
+                })
+                .onActionUpdate((event: GestureEvent) => {
+                  if (this.previewScale > 1.01) {
+                    this.previewOffsetX = this.previewBaseX + event.offsetX;
+                    this.previewOffsetY = this.previewBaseY + event.offsetY;
+                  }
+                }),
+              TapGesture({ count: 2 })
+                .onAction(() => {
+                  this.previewScale = 1;
+                  this.previewOffsetX = 0;
+                  this.previewOffsetY = 0;
+                }),
+            ),
+          )
         }
       } else if (this.previewOutput.video) {
         // 首帧之上保留播放按钮；点按钮才切到内嵌播放器（按钮随之消失）。
