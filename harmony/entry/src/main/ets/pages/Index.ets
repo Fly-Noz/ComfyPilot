@@ -2502,7 +2502,7 @@ struct Index {
       node.fields.forEach((field: WorkflowFieldView) => {
         let value = '—';
         if (field.linked) {
-          value = '由连线提供';
+          value = field.fromNodeLabel !== undefined ? `由连线提供 · ${field.fromNodeLabel}` : '由连线提供';
         } else if (!field.widget) {
           value = '需要连线';
         } else if (field.valueText.length > 0) {
@@ -3686,7 +3686,7 @@ struct Index {
       .alignItems(VerticalAlign.Center)
 
       if (field.linked) {
-        Text('由连线提供')
+        Text(field.fromNodeLabel !== undefined ? `由连线提供 · ${field.fromNodeLabel}` : '由连线提供')
           .fontSize(11)
           .fontColor(this.c().textDim)
       } else if (!field.widget) {

@@ -2684,7 +2684,11 @@ private fun FieldEditor(
         }
 
         when {
-            field.linked -> Text("由连线提供", color = c.textDim, fontSize = 11.sp)
+            field.linked -> Text(
+                field.fromNodeLabel?.let { "由连线提供 · $it" } ?: "由连线提供",
+                color = c.textDim,
+                fontSize = 11.sp,
+            )
             !field.widget -> Text(
                 text = if (field.required) {
                     "需要连线；当前未连接，提交会被拒绝。"

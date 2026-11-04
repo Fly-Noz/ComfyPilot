@@ -30,6 +30,7 @@ export interface WorkflowFieldView {
   linked: boolean;
   fromNodeId?: number;
   fromSlot?: number;
+  fromNodeLabel?: string;
   widget: boolean;
   required: boolean;
   common: boolean;

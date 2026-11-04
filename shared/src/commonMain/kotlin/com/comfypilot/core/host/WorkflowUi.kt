@@ -353,6 +353,7 @@ private fun fieldJson(field: WorkflowField) = buildJsonObject {
     put("linked", field.linked)
   field.fromNodeId?.let { put("fromNodeId", it) }
   field.fromSlot?.let { put("fromSlot", it) }
+  field.fromNodeLabel?.let { put("fromNodeLabel", it) }
     put("widget", field.widget)
     put("required", field.required)
     put("common", field.common)

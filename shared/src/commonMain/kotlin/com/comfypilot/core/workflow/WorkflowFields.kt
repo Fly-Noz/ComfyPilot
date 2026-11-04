@@ -30,6 +30,8 @@ data class WorkflowField(
     /** 该输入由哪个节点驱动（穿透旁路后）；可编辑控件为 null。 */
     val fromNodeId: Int? = null,
     val fromSlot: Int? = null,
+    /** 连线来源的可读标签，如 `#330 Seed (rgthree)`；用于在「由连线提供」后面点明来源。 */
+    val fromNodeLabel: String? = null,
 ) {
     /** 没有可用值、需要用户填/连线的字段；用于把这类节点排在输入区最前面。 */
     val needsInput: Boolean
@@ -206,7 +208,23 @@ object WorkflowFields {
                 )
             }
 
-        val common = nodes.filter { it.reachable }.flatMap { it.fields }
+        val byId = graph.nodes.associateBy { it.id }
+        val labeledNodes = nodes.map { view ->
+            view.copy(
+                fields = view.fields.map { field ->
+                    val sourceId = field.fromNodeId ?: return@map field
+                    val source = byId[sourceId]
+                    val label = if (source == null) {
+                        "#$sourceId"
+                    } else {
+                        "#$sourceId " + (source.title?.takeIf { it.isNotBlank() } ?: source.type)
+                    }
+                    field.copy(fromNodeLabel = label)
+                },
+            )
+        }
+
+        val common = labeledNodes.filter { it.reachable }.flatMap { it.fields }
             .filter { it.common && it.widget && !it.linked }
             .distinctBy { it.nodeId to it.inputName }
 
@@ -215,7 +233,7 @@ object WorkflowFields {
             name = document.name,
             format = document.format,
             commonFields = common,
-            nodes = nodes,
+            nodes = labeledNodes,
             problems = problems,
         )
     }
