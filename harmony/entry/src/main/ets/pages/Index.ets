@@ -520,6 +520,15 @@ struct Index {
   @State aiCanUndo: boolean = false;
   @State aiEnabled: boolean = false;
   @State aiPageOpen: boolean = false;
+  // 网络质量检测
+  @State netCheckOpen: boolean = false;
+  @State netChecking: boolean = false;
+  @State netStage: string = '';
+  @State netVerdict: string = '';
+  @State netScore: number = 0;
+  @State netReason: string = '';
+  @State netSuggestion: string = '';
+  @State netRows: string[] = [];
   @State aiScopeOpen: boolean = false;
   @State aiChatsOpen: boolean = false;
   @State aiScopeAll: boolean = true;
@@ -9246,6 +9255,142 @@ struct Index {
       .animation({ duration: 240, curve: Curve.EaseOut }))
   }
 
+  /** 网络质量检测：延迟 8 次 + 队列，够定位「网络慢」还是「显卡忙」。 */
+  private async runNetworkCheck(): Promise<void> {
+    let base = this.baseUrl.trim();
+    while (base.length > 0 && base.endsWith('/')) {
+      base = base.substring(0, base.length - 1);
+    }
+    if (base.length === 0) {
+      this.netVerdict = '未连接';
+      this.netReason = '先连上 ComfyUI 再测。';
+      return;
+    }
+    this.netChecking = true;
+    this.netStage = '建立连接…';
+    this.netRows = [];
+    const client = http.createHttp();
+    const times: number[] = [];
+    let fails = 0;
+    try {
+      for (let i = 0; i < 8; i++) {
+        this.netStage = `测延迟 ${i + 1}/8`;
+        const started = Date.now();
+        try {
+          const res = await client.request(base + '/system_stats', {
+            method: http.RequestMethod.GET,
+            connectTimeout: 6000,
+            readTimeout: 8000,
+          });
+          if (res.responseCode >= 200 && res.responseCode < 300) {
+            times.push(Date.now() - started);
+          } else {
+            fails++;
+          }
+        } catch (err) {
+          fails++;
+        }
+        if (i < 7) {
+          await new Promise<void>((resolve) => setTimeout(() => resolve(), 200));
+        }
+      }
+      const sorted = times.slice().sort((a: number, b: number) => a - b);
+      const p50 = sorted.length > 0 ? sorted[Math.floor(sorted.length / 2)] : 0;
+      const p95 = sorted.length > 0 ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] : 0;
+      const jitter = sorted.length > 1 ? sorted[sorted.length - 1] - sorted[0] : 0;
+      this.netRows = [
+        `网络：${this.networkLabel()}`,
+        `延迟：p50 ${p50}ms · p95 ${p95}ms · 抖动 ${jitter}ms`,
+        `稳定性：${8 - fails}/8 成功`,
+      ];
+      this.netStage = '检查服务端…';
+      let running = 0;
+      let pending = 0;
+      try {
+        const q = await client.request(base + '/queue', {
+          method: http.RequestMethod.GET,
+          connectTimeout: 6000,
+          readTimeout: 8000,
+        });
+        const body = q.result as string;
+        running = (body.split('"running"')[1] ?? '').split('{').length - 1;
+        pending = (body.split('"pending"')[1] ?? '').split('{').length - 1;
+      } catch (err) {
+      }
+      this.netRows.push(`服务端：运行 ${running} · 排队 ${pending}`);
+      this.netRows.push('长连接：Harmony 端暂未统计');
+      let score = 0;
+      score += p50 <= 40 ? 35 : (p50 <= 120 ? 22 : 5);
+      score += fails === 0 ? 35 : (fails === 1 ? 15 : 0);
+      score += 20;
+      this.netScore = score;
+      this.netVerdict = score >= 85 ? '优' : (score >= 60 ? '良' : '差');
+      this.netReason = fails >= 2 ? `连接不稳定：8 次探测失败 ${fails} 次。`
+        : (p50 > 120 ? `延迟偏高：p50 ${p50}ms。` : '延迟与稳定性在可接受范围。');
+      this.netSuggestion = fails >= 2
+        ? '检查 Wi-Fi 信号或换 5G；中继不稳时优先直连。'
+        : (p50 > 120 ? '延迟高多与中继/跨网有关；同局域网应低于 40ms。'
+          : (running > 0 ? '服务端有任务在跑，慢可能是显卡忙而不是网络。' : '网络正常。'));
+    } finally {
+      client.destroy();
+      this.netChecking = false;
+    }
+  }
+
+  private networkLabel(): string {
+    return '当前连接';
+  }
+
+  @Builder
+  NetCheckDialog() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#99000000')
+        .onClick(() => { this.netCheckOpen = false; })
+      Column({ space: 10 }) {
+        Row({ space: 8 }) {
+          Text('网络质量检测').fontSize(16).fontColor(this.c().text).layoutWeight(1)
+          Text('关闭').fontSize(12).fontColor(this.c().textMuted)
+            .padding(6)
+            .onClick(() => { this.netCheckOpen = false; })
+        }
+        .width('100%')
+        if (this.netChecking) {
+          Row({ space: 10 }) {
+            LoadingProgress().width(20).height(20).color(this.c().accent)
+            Text(this.netStage).fontSize(12.5).fontColor(this.c().textMuted)
+          }
+          .width('100%')
+        } else if (this.netVerdict.length > 0) {
+          Row({ space: 8 }) {
+            Text(this.netVerdict).fontSize(22).fontColor(this.c().accent)
+            Text(`${this.netScore} 分`).fontSize(12).fontColor(this.c().textMuted)
+          }
+          .width('100%')
+          Text(this.netReason).fontSize(12.5).fontColor(this.c().text).width('100%')
+          Column({ space: 4 }) {
+            ForEach(this.netRows, (row: string, index: number) => {
+              Text(row).fontSize(11).fontColor(this.c().text).width('100%')
+            }, (row: string, index: number) => `${index}:${row}`)
+          }
+          .width('100%')
+          Text('建议：' + this.netSuggestion).fontSize(11.5).fontColor(this.c().textMuted).width('100%')
+        }
+      }
+      .width('86%')
+      .padding(18)
+      .backgroundColor(this.c().dialog)
+      .borderRadius(20)
+      .border({ width: 1, color: this.c().border })
+      .alignItems(HorizontalAlign.Start)
+    }
+    .width('100%')
+    .height('100%')
+    .position({ x: 0, y: 0 })
+  }
+
   @Builder
   AiSettingsPage() {
     Stack() {
@@ -9562,6 +9707,32 @@ struct Index {
     .borderRadius(16)
     .border({ width: 1, color: this.c().border })
     .width('100%')
+
+    // 网络质量检测入口
+    Row({ space: 8 }) {
+      Column({ space: 3 }) {
+        Text('网络质量检测').fontSize(14).fontColor(this.c().text)
+        Text('延迟、稳定性、服务端负载').fontSize(10.5).fontColor(this.c().textDim)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      Text('›').fontSize(16).fontColor(this.c().textDim)
+    }
+    .width('100%')
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .alignItems(VerticalAlign.Center)
+    .backgroundColor(this.c().card)
+    .borderRadius(16)
+    .border({ width: 1, color: this.c().border })
+    .onClick(() => {
+      this.netCheckOpen = true;
+      this.netVerdict = '';
+      this.netRows = [];
+      this.netScore = 0;
+      this.netReason = '';
+      this.netSuggestion = '';
+      this.runNetworkCheck();
+    })
 
     Row({ space: 8 }) {
       Column({ space: 3 }) {
@@ -10003,6 +10174,9 @@ struct Index {
       }
       if (this.aiPageOpen) {
         this.AiSettingsPage()
+      }
+      if (this.netCheckOpen) {
+        this.NetCheckDialog()
       }
       if (this.advancedOpen) {
         this.AdvancedPage()
