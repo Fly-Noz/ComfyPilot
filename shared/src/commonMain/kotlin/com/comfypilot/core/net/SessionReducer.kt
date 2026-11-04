@@ -518,6 +518,9 @@ class SessionReducer(
                 workflow = WorkflowSelection(loadingPath = input.path),
                 bypassedNodeIds = emptySet(),
                 enabledNodeIds = emptySet(),
+                // 每次打开工作流都重新拉一遍节点定义：服务器换过模型/节点版本时，
+                // 旧候选会让提交前的校验误判（把有效值当成失效）。
+                nodeInfoRequested = emptySet(),
             ),
             listOf(
                 SessionEffect.SendHttp(
