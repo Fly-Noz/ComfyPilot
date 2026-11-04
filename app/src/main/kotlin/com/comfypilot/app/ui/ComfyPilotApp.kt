@@ -226,6 +226,7 @@ fun ComfyPilotApp(
                     onAbout = { screen = Screen.About },
                     onDiagnostics = { screen = Screen.Diagnostics },
                     onBack = { screen = settingsReturn },
+                    state = state,
                 )
 
                 Screen.About -> AboutScreen(onBack = { screen = Screen.Settings })

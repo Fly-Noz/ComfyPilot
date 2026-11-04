@@ -60,6 +60,7 @@ fun SettingsScreen(
     onAbout: () -> Unit,
     onDiagnostics: () -> Unit,
     onBack: () -> Unit,
+    state: com.comfypilot.core.net.SessionState,
 ) {
     var page by remember { mutableStateOf(SettingsPage.Main) }
     when (page) {
@@ -70,6 +71,7 @@ fun SettingsScreen(
             onAi = { page = SettingsPage.Ai },
             onAdvanced = { page = SettingsPage.Advanced },
             onBack = onBack,
+            state = state,
         )
 
         SettingsPage.Ai -> AiSettingsPage(onBack = { page = SettingsPage.Main })
@@ -88,6 +90,7 @@ private fun SettingsMain(
     onAi: () -> Unit,
     onAdvanced: () -> Unit,
     onBack: () -> Unit,
+    state: com.comfypilot.core.net.SessionState,
 ) {
     val c = Spectrum.colors
     SpectrumScaffold(
@@ -124,6 +127,10 @@ private fun SettingsMain(
                 lineHeight = 16.sp,
                 modifier = Modifier.padding(horizontal = 2.dp),
             )
+
+            Spacer(modifier = Modifier.height(4.dp))
+            SectionLabel("网络")
+            NetworkCheckSection(state = state)
 
             Spacer(modifier = Modifier.height(4.dp))
             SectionLabel("功能")
