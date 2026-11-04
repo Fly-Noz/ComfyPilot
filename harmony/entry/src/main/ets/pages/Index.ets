@@ -7526,7 +7526,7 @@ struct Index {
       // 浅色主题下玻璃发白，改用强调色的深紫。
       this.AiGlyph(28, this.c().isDark ? '#FFFFFF' : this.c().accent, false)
       // 待处理红点：有未确认的改动、待回答的问题或报错时提示用户进去看。
-      if (this.aiPending !== null || this.aiQuestion !== null || this.aiError.length > 0) {
+      if (this.aiPending !== null || this.aiQuestion !== null) {
         Circle()
           .width(9)
           .height(9)
@@ -9313,6 +9313,7 @@ struct Index {
       ];
       this.netStage = '测下载速度…';
       let mbps = 0;
+      let ttfb = 0;
       try {
         const hist = await client.request(base + '/history?max_items=1', {
           method: http.RequestMethod.GET,
@@ -9324,21 +9325,35 @@ struct Index {
         if (match !== null) {
           const viewUrl = base + '/view?filename=' + encodeURIComponent(match[1]) +
             '&type=output&subfolder=';
-          const viewStarted = Date.now();
-          const view = await client.request(viewUrl, {
-            method: http.RequestMethod.GET,
-            connectTimeout: 6000,
-            readTimeout: 20000,
-            expectDataType: http.HttpDataType.ARRAY_BUFFER,
-            maxLimit: 8388608,
+          const downloadClient = http.createHttp();
+          let headersAt = 0;
+          downloadClient.on('headersReceive', () => {
+            if (headersAt === 0) {
+              headersAt = Date.now();
+            }
           });
-          const bytes = view.result as ArrayBuffer;
-          const seconds = Math.max(0.001, (Date.now() - viewStarted) / 1000);
-          mbps = bytes.byteLength * 8 / seconds / 1000000;
+          const viewStarted = Date.now();
+          try {
+            const view = await downloadClient.request(viewUrl, {
+              method: http.RequestMethod.GET,
+              connectTimeout: 6000,
+              readTimeout: 20000,
+              expectDataType: http.HttpDataType.ARRAY_BUFFER,
+              maxLimit: 8388608,
+            });
+            ttfb = headersAt > 0 ? headersAt - viewStarted : Date.now() - viewStarted;
+            const bytes = view.result as ArrayBuffer;
+            const seconds = Math.max(0.001, (Date.now() - viewStarted) / 1000);
+            mbps = bytes.byteLength * 8 / seconds / 1000000;
+          } finally {
+            downloadClient.destroy();
+          }
         }
       } catch (err) {
       }
-      this.netRows.push(mbps > 0 ? `下载：约 ${mbps.toFixed(1)} Mbps` : '下载：没有可测的产物，跳过');
+      this.netRows.push(mbps > 0
+        ? `下载：约 ${mbps.toFixed(1)} Mbps · TTFB ${ttfb}ms`
+        : '下载：没有可测的产物，跳过');
       this.netStage = '检查服务端…';
       let running = 0;
       let pending = 0;

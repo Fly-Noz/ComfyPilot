@@ -785,7 +785,7 @@ export class AiAssistant {
     const first = this.sendAction({
       op: 'resume',
       context: this.context(host),
-      userTurn: { role: 'user', content: answer },
+      userTurn: { role: 'user', content: this.turnText(answer) },
     });
     try {
       await this.loop(host, first, '');
@@ -926,13 +926,20 @@ export class AiAssistant {
     return { model: this.config.model, system: system, temperature: 0.2, paths: paths };
   }
 
+  /** 每条用户消息都带上当前工作流：切流后系统提示容易被历史稀释。 */
+  private turnText(text: string): string {
+    const path = this.host !== null ? this.host.currentWorkflow() : '';
+    return path.length > 0 ? `（当前工作流：${path}）\n${text}` : text;
+  }
+
   /** 用户这一轮的消息：有图时给多模态数组。 */
   private buildTurn(text: string): AiPayloadMessage {
     const images = this.pendingImages;
+    const content = this.turnText(text);
     if (images.length === 0) {
-      return { role: 'user', content: text };
+      return { role: 'user', content: content };
     }
-    const parts: AiContentPart[] = [{ type: 'text', text: text }];
+    const parts: AiContentPart[] = [{ type: 'text', text: content }];
     for (const image of images) {
       const url: AiImageUrl = { url: image.dataUrl };
       parts.push({ type: 'image_url', image_url: url });
