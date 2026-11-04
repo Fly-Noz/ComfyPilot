@@ -4,7 +4,7 @@ import { image } from '@kit.ImageKit';
 import { util } from '@kit.ArkTS';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { AnimatorOptions, AnimatorResult, promptAction } from '@kit.ArkUI';
-import { http } from '@kit.NetworkKit';
+import { http, connection } from '@kit.NetworkKit';
 import {
   BridgeCatalog,
   BridgeMonitor,
@@ -337,6 +337,8 @@ struct Index {
   @State running: boolean = false;
   @State label: string = '未连接';
   @State generation: number = 0;
+  @State wsOpens: number = 0;
+  @State wsLastFrameAtMs: number = 0;
   @State network: string = '-';
   @State tasks: BridgeTask[] = [];
   /** 队列计数：共享层状态帧里的 queueRunning / queuePending，对应 Android state.queue。 */
@@ -1098,6 +1100,8 @@ struct Index {
   private applyState(state: BridgeState): void {
     this.label = `${state.label} · 第 ${state.generation} 代 · ${state.network}`;
     this.generation = state.generation;
+    this.wsOpens = state.wsOpens ?? 0;
+    this.wsLastFrameAtMs = state.wsLastFrameAtMs ?? 0;
     this.network = state.validated ? `${state.network}（已验证）` : state.network;
     this.tasks = state.tasks;
     // 冷启动/重启后 tasks 里会带回历史终态任务；不先标记的话，切后台会把它们
@@ -9266,6 +9270,10 @@ struct Index {
       this.netReason = '先连上 ComfyUI 再测。';
       return;
     }
+    // 上一次还没跑完就再点入口：直接忽略，避免多轮结果叠在一起。
+    if (this.netChecking) {
+      return;
+    }
     this.netChecking = true;
     this.netStage = '建立连接…';
     this.netRows = [];
@@ -9299,10 +9307,38 @@ struct Index {
       const p95 = sorted.length > 0 ? sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] : 0;
       const jitter = sorted.length > 1 ? sorted[sorted.length - 1] - sorted[0] : 0;
       this.netRows = [
-        `网络：${this.networkLabel()}`,
+        `网络：${await this.networkLabel()}`,
         `延迟：p50 ${p50}ms · p95 ${p95}ms · 抖动 ${jitter}ms`,
         `稳定性：${8 - fails}/8 成功`,
       ];
+      this.netStage = '测下载速度…';
+      let mbps = 0;
+      try {
+        const hist = await client.request(base + '/history?max_items=1', {
+          method: http.RequestMethod.GET,
+          connectTimeout: 6000,
+          readTimeout: 8000,
+        });
+        const histBody = hist.result as string;
+        const match = histBody.match(/"filename"\s*:\s*"([^"]+)"/);
+        if (match !== null) {
+          const viewUrl = base + '/view?filename=' + encodeURIComponent(match[1]) +
+            '&type=output&subfolder=';
+          const viewStarted = Date.now();
+          const view = await client.request(viewUrl, {
+            method: http.RequestMethod.GET,
+            connectTimeout: 6000,
+            readTimeout: 20000,
+            expectDataType: http.HttpDataType.ARRAY_BUFFER,
+            maxLimit: 8388608,
+          });
+          const bytes = view.result as ArrayBuffer;
+          const seconds = Math.max(0.001, (Date.now() - viewStarted) / 1000);
+          mbps = bytes.byteLength * 8 / seconds / 1000000;
+        }
+      } catch (err) {
+      }
+      this.netRows.push(mbps > 0 ? `下载：约 ${mbps.toFixed(1)} Mbps` : '下载：没有可测的产物，跳过');
       this.netStage = '检查服务端…';
       let running = 0;
       let pending = 0;
@@ -9318,11 +9354,16 @@ struct Index {
       } catch (err) {
       }
       this.netRows.push(`服务端：运行 ${running} · 排队 ${pending}`);
-      this.netRows.push('长连接：Harmony 端暂未统计');
+      if (this.wsOpens === 0 || this.wsLastFrameAtMs === 0) {
+        this.netRows.push('长连接：本次未建立 WS，跳过');
+      } else {
+        const ageSec = Math.max(0, Math.floor((Date.now() - this.wsLastFrameAtMs) / 1000));
+        this.netRows.push(`长连接：最后帧 ${ageSec}s 前 · 建连 ${this.wsOpens} 次`);
+      }
       let score = 0;
       score += p50 <= 40 ? 35 : (p50 <= 120 ? 22 : 5);
       score += fails === 0 ? 35 : (fails === 1 ? 15 : 0);
-      score += 20;
+      score += mbps > 0 ? (mbps >= 8 ? 30 : (mbps >= 2 ? 16 : 4)) : 20;
       this.netScore = score;
       this.netVerdict = score >= 85 ? '优' : (score >= 60 ? '良' : '差');
       this.netReason = fails >= 2 ? `连接不稳定：8 次探测失败 ${fails} 次。`
@@ -9337,8 +9378,27 @@ struct Index {
     }
   }
 
-  private networkLabel(): string {
-    return '当前连接';
+  private async networkLabel(): Promise<string> {
+    try {
+      const net = await connection.getDefaultNet();
+      if (net === null || net.netId === 0) {
+        return '离线';
+      }
+      const caps = await connection.getNetCapabilities(net);
+      const types: connection.NetBearType[] = caps.bearerTypes;
+      if (types.includes(connection.NetBearType.BEARER_WIFI)) {
+        return 'Wi-Fi';
+      }
+      if (types.includes(connection.NetBearType.BEARER_CELLULAR)) {
+        return '蜂窝网络';
+      }
+      if (types.includes(connection.NetBearType.BEARER_ETHERNET)) {
+        return '以太网';
+      }
+      return '其他';
+    } catch (err) {
+      return '未知';
+    }
   }
 
   @Builder

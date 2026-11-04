@@ -126,6 +126,11 @@ export interface BridgeState {
   label: string;
   generation: number;
   leaseId: number;
+  /** WS 统计：建连次数、帧数、最后帧时间；旧内核可能不返回。 */
+  wsOpens?: number;
+  wsTextFrames?: number;
+  wsBinaryFrames?: number;
+  wsLastFrameAtMs?: number;
   network: string;
   validated: boolean;
   baseUrl: string;
