@@ -43,6 +43,12 @@ data class SessionState(
     val nodeInfo: Map<String, NodeDefinition> = emptyMap(),
     /** 已发出过请求的类名：成功/失败都算，避免反复打服务端。 */
     val nodeInfoRequested: Set<String> = emptySet(),
+    /** WebSocket 建连次数；>1 说明发生过重连。 */
+    val wsOpens: Long = 0,
+    val wsTextFrames: Long = 0,
+    val wsBinaryFrames: Long = 0,
+    /** 最近收到任意 WS 帧的时间；用来识别半开连接/静默断链。 */
+    val wsLastFrameAtMs: Long = 0,
     /** 最近一帧采样预览；只在内存里，不落库、不进桥协议状态帧。 */
     val preview: PreviewFrame? = null,
     /** VHS 动画预览的"当前正在收帧"状态；收到 length 帧后转成 previewAnimation。 */

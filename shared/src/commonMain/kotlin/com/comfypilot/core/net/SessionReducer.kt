@@ -157,6 +157,11 @@ class SessionReducer(
     private fun onSocketOpened(state: SessionState, input: SessionInput.SocketOpened): ReduceResult {
         val phase = state.phase as? SessionPhase.Connecting ?: return ReduceResult(state)
         if (phase.lease.leaseId != input.lease.leaseId) return ReduceResult(state)
+        val opened = state.copy(wsOpens = state.wsOpens + 1)
+        return onSocketOpenedInternal(opened, input)
+    }
+
+    private fun onSocketOpenedInternal(state: SessionState, input: SessionInput.SocketOpened): ReduceResult {
 
         val effects = mutableListOf<SessionEffect>()
         // 握手后声明能力：网页端就是靠这条让服务端发"可动"的预览（VHS 多帧 / 预览元数据）。
@@ -243,6 +248,10 @@ class SessionReducer(
 
     private fun onSocketText(state: SessionState, input: SessionInput.SocketText): ReduceResult {
         if (!isCurrent(state, input.lease)) return ReduceResult(state)
+        val state = state.copy(
+            wsTextFrames = state.wsTextFrames + 1,
+            wsLastFrameAtMs = input.nowMs,
+        )
         val event = EventDecoder.decode(input.text)
         val effects = mutableListOf<SessionEffect>()
         var next = state
@@ -388,6 +397,10 @@ class SessionReducer(
      */
     private fun onSocketBinary(state: SessionState, input: SessionInput.SocketBinary): ReduceResult {
         if (!isCurrent(state, input.lease)) return ReduceResult(state)
+        val state = state.copy(
+            wsBinaryFrames = state.wsBinaryFrames + 1,
+            wsLastFrameAtMs = input.nowMs,
+        )
         val decoded = PreviewDecoder.decode(input.bytes) ?: return ReduceResult(state)
         val promptId = decoded.promptId ?: state.activeTasks.firstOrNull()?.promptId ?: return ReduceResult(state)
         val task = findTask(state, promptId) ?: return ReduceResult(state)

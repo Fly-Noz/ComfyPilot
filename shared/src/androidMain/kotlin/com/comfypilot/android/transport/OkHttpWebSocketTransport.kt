@@ -65,7 +65,9 @@ class OkHttpWebSocketTransport(
 
     private companion object {
         fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
-            .pingInterval(20, TimeUnit.SECONDS)
+            // 15s 一个 ping：NAT/中继静默掐断时，OkHttp 会在丢 pong 后走 onFailure，
+            // 比等业务层 5 分钟没帧才发现快得多。
+            .pingInterval(15, TimeUnit.SECONDS)
             .build()
     }
 }

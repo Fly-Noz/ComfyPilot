@@ -287,7 +287,7 @@ private fun probe(
         .find(queueBody ?: "")?.groupValues?.get(1)?.count { it == '{' } ?: 0
     rows += "服务端" to "运行 $running · 排队 $pending"
 
-    val lastProgress = state.tasks.values.mapNotNull { it.lastProgressAtMs }.maxOrNull() ?: 0L
+    val lastProgress = if (state.wsOpens > 0) state.wsLastFrameAtMs else 0L
     val silent = lastProgress > 0 && System.currentTimeMillis() - lastProgress > 5 * 60_000
     rows += "长连接" to when {
         lastProgress == 0L -> "本次无采样任务，跳过"
