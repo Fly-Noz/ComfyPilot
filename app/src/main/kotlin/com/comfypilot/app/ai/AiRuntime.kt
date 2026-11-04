@@ -811,7 +811,11 @@ object AiRuntime {
         val current = question ?: return
         question = null
         messages = messages + AiChatMessage("user", answer)
-        val currentHost = host ?: return
+        // 新一轮必须以「回答」作为用户输入。之前这里沿用了上一条原始请求，
+        // 模型看到的还是旧问题，于是反复追问同一件事。
+        pendingUserText = answer
+        pendingImages = emptyList()
+        val currentHost = host ?: fallbackHost ?: return
         busy = true
         job = scope.launch {
             try {
@@ -1268,14 +1272,18 @@ object AiRuntime {
     /** 用户这一轮的消息：有图时按 OpenAI 多模态格式给 content 数组。 */
     private fun userTurn(text: String, images: List<AiImage>): JsonObject = buildJsonObject {
         put("role", "user")
+        // 每一轮都把当前工作流带在用户消息里：切流后即使系统提示被历史稀释，
+        // 模型也不会继续拿第一个打开的工作流当“当前”。
+        val currentPath = (host ?: fallbackHost)?.digest()?.path.orEmpty()
+        val content = if (currentPath.isEmpty()) text else "（当前工作流：$currentPath）\n$text"
         if (images.isEmpty()) {
-            put("content", text)
+            put("content", content)
         } else {
             putJsonArray("content") {
                 add(
                     buildJsonObject {
                         put("type", "text")
-                        put("text", text)
+                        put("text", content)
                     },
                 )
                 images.forEach { image ->

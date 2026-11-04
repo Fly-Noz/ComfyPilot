@@ -7987,7 +7987,7 @@ struct Index {
                   Text(`思考与操作 · ${this.aiActions.length} 步`)
                     .fontSize(9.5)
                     .fontFamily('monospace')
-                    .fontColor(this.c().textDim)
+                    .fontColor(this.c().textMuted)
                 }
                 .width('100%')
 
@@ -8001,9 +8001,9 @@ struct Index {
                         .backgroundColor(this.c().accent)
                         .margin({ top: 6 })
                       Text(action)
-                        .fontSize(9.5)
-                        .lineHeight(14)
-                        .fontColor(this.c().textMuted)
+                        .fontSize(10.5)
+                        .lineHeight(15)
+                        .fontColor(this.c().text)
                         .layoutWeight(1)
                     }
                     .width('100%')

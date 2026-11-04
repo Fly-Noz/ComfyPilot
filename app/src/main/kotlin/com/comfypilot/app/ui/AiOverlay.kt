@@ -120,13 +120,6 @@ fun AiFloatingOverlay(visible: Boolean) {
             modifier = Modifier
                 .size(46.dp)
                 .offsetPx(dragX, (yFraction * heightPx))
-                .clip(CircleShape)
-                .background(
-                    Brush.linearGradient(
-                        c.gradient.map { it.copy(alpha = 0.55f) },
-                    ),
-                )
-                .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
                 .pointerInput(Unit) {
                     detectDragGestures(
                         onDragStart = { dragging = true },
@@ -145,18 +138,32 @@ fun AiFloatingOverlay(visible: Boolean) {
                     }
                 }
                 .clickableNoRipple { open = true },
-            contentAlignment = Alignment.Center,
         ) {
-            // 球是半透明渐变：深色主题下用白（强调色压在紫红上几乎看不见），
-            // 浅色主题下玻璃发白，改用强调色的深紫。
-            AiGlyph(size = 28.dp, tint = if (c.isDark) Color.White else c.accent)
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(CircleShape)
+                    .background(
+                        Brush.linearGradient(
+                            c.gradient.map { it.copy(alpha = 0.55f) },
+                        ),
+                    )
+                    .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                // 球是半透明渐变：深色主题下用白（强调色压在紫红上几乎看不见），
+                // 浅色主题下玻璃发白，改用强调色的深紫。
+                AiGlyph(size = 28.dp, tint = if (c.isDark) Color.White else c.accent)
+            }
             if (!open && (AiRuntime.pending != null || AiRuntime.question != null)) {
+                // 红点画在圆形裁剪之外：之前父 Box 整体 clip 成圆形，角上的点被裁成一条边。
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .size(9.dp)
+                        .size(10.dp)
                         .clip(CircleShape)
-                        .background(c.err),
+                        .background(c.err)
+                        .border(1.5.dp, c.dialog, CircleShape),
                 )
             }
         }
@@ -422,7 +429,7 @@ fun AiChatDialog(onDismiss: () -> Unit) {
                         .fillMaxWidth()
                         .padding(horizontal = 14.dp)
                         .clip(RoundedCornerShape(14.dp))
-                        .background(c.accentSoft)
+                        .background(c.dialog)
                         .border(1.dp, c.accentBorder, RoundedCornerShape(14.dp))
                         .padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(5.dp),
@@ -1123,7 +1130,7 @@ private fun AiStepLog(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(c.card.copy(alpha = 0.55f))
+            .background(c.card.copy(alpha = 0.85f))
             .border(1.dp, c.border, RoundedCornerShape(12.dp))
             .clickableNoRipple(onToggle)
             .animateContentSize()
@@ -1135,7 +1142,7 @@ private fun AiStepLog(
             androidx.compose.foundation.layout.Spacer(Modifier.width(5.dp))
             Text(
                 text = "思考与操作 · ${actions.size} 步",
-                color = c.textDim,
+                color = c.textMuted,
                 fontSize = 9.5.sp,
                 fontFamily = SpectrumMono,
             )
@@ -1151,7 +1158,7 @@ private fun AiStepLog(
                             .background(c.accent.copy(alpha = 0.55f)),
                     )
                     androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
-                    Text(action, color = c.textMuted, fontSize = 9.5.sp, lineHeight = 14.sp)
+                    Text(action, color = c.text, fontSize = 10.5.sp, lineHeight = 15.sp)
                 }
             }
         }

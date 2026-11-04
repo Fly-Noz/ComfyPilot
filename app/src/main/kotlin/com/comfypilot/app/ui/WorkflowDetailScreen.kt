@@ -388,15 +388,27 @@ private fun DetailBody(
     // 打开工作流时清掉失效的草稿覆盖：字段已删除，或已变成连线/非控件输入。
     // 不清理的话，旧草稿会一直把提交挡在“字段由连线提供，不能覆盖”上。
     LaunchedEffect(fields, analysis.pendingNodeClasses) {
-        if (analysis.pendingNodeClasses.isNotEmpty() || fields.nodes.isEmpty() || overrides.isEmpty()) {
+        // 定义没到齐时不能判断字段是否失效：缺失定义的节点字段为空，
+        // 这时候清理会把用户刚改的参数当成「已删除字段」全部丢掉。
+        if (analysis.pendingNodeClasses.isNotEmpty() ||
+            fields.nodes.isEmpty() ||
+            overrides.isEmpty() ||
+            fields.nodes.any { it.missing }
+        ) {
             return@LaunchedEffect
         }
-        val editable = fields.nodes.associate { node ->
-            node.id to node.fields.filter { it.widget && !it.linked }.map { it.inputName }.toSet()
-        }
+        val editable = fields.nodes
+            .filter { !it.missing }
+            .associate { node ->
+                node.id to node.fields.filter { it.widget && !it.linked }.map { it.inputName }.toSet()
+            }
         var dropped = 0
         val kept = overrides.mapNotNull { (nodeId, values) ->
+            val node = fields.nodes.firstOrNull { it.id == nodeId }
+            // 节点整个不在工作流里才算删除；定义还没到、字段暂时为零时先保留。
+            if (node == null) return@mapNotNull null
             val allowed = editable[nodeId] ?: emptySet()
+            if (allowed.isEmpty()) return@mapNotNull nodeId to values
             val filtered = values.filterKeys { it in allowed }
             dropped += values.size - filtered.size
             if (filtered.isEmpty()) null else nodeId to filtered
