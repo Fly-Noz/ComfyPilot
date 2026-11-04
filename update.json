@@ -1,8 +1,8 @@
 {
-  "versionCode": 6,
-  "versionName": "0.3.2",
-  "publishedAt": "2026-11-03",
-  "notes": "• 修复 Power Lora Loader 参数改不了：开关、名称、权重现在可编辑\n• 修复首次打开工作流时 LoRA 候选只剩一项\n• 下拉菜单适配深色模式，长名称不再截断",
+  "versionCode": 7,
+  "versionName": "0.3.3",
+  "publishedAt": "2026-11-04",
+  "notes": "• 修复节点参数修改可能丢失的问题\n• 新增网络质量检测：延迟、稳定性、下载速度与服务端负载\n• 修复 AI 待确认列表无法滚动、反复追问、切流后不认识当前工作流\n• 提交时不再把失效候选静默替换成别的模型",
   "android": {
     "github": "https://github.com/Fly-Noz/ComfyPilot/releases/latest",
     "gitee": "https://gitee.com/Fly-Noz/ComfyPilot/releases"
