@@ -689,15 +689,12 @@ internal object WidgetValueReader {
                 out[name] = value
                 continue
             }
-            val fallback = def.defaultValue?.takeIf { it !is JsonNull }
-                ?: def.options.firstOrNull()?.let { JsonPrimitive(it) }
-            if (fallback == null) {
-                problems += BuildProblem(node.id, node.type, "字段 $name 的值「$text」不在候选列表里")
-            } else {
-                out[name] = fallback
-                val shown = (fallback as? JsonPrimitive)?.contentOrNull ?: fallback.toString()
-                warnings += "节点 ${node.title}（#${node.id}）的 $name 旧值「$text」已不在候选里，改用了「$shown」"
-            }
+            // 不自动替换：候选可能来自尚未刷新完的 object_info，也可能是另一台服务器；
+            // 静默换成第一个候选会让用户拿错模型/文件名提交。保留原值并明确告知，
+            // 服务端拒绝时用户能看到真实错误，再自己重新选。
+            out[name] = value
+            warnings += "节点 ${node.title}（#${node.id}）的 $name 值「$text」不在当前候选里，" +
+                "仍按原值提交；若服务端拒绝，请重新选择（候选可能尚未加载完整）"
         }
         return out
     }
