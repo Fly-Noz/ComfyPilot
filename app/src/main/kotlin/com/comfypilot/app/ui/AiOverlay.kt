@@ -1130,7 +1130,7 @@ private fun AiStepLog(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
-            .background(c.card.copy(alpha = 0.85f))
+            .background(c.dialog)
             .border(1.dp, c.border, RoundedCornerShape(12.dp))
             .clickableNoRipple(onToggle)
             .animateContentSize()
@@ -1142,8 +1142,8 @@ private fun AiStepLog(
             androidx.compose.foundation.layout.Spacer(Modifier.width(5.dp))
             Text(
                 text = "思考与操作 · ${actions.size} 步",
-                color = c.textMuted,
-                fontSize = 9.5.sp,
+                color = c.text,
+                fontSize = 10.5.sp,
                 fontFamily = SpectrumMono,
             )
         }
@@ -1158,7 +1158,7 @@ private fun AiStepLog(
                             .background(c.accent.copy(alpha = 0.55f)),
                     )
                     androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
-                    Text(action, color = c.text, fontSize = 10.5.sp, lineHeight = 15.sp)
+                    Text(action, color = c.text, fontSize = 11.sp, lineHeight = 16.sp)
                 }
             }
         }
