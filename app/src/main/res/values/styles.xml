@@ -6,6 +6,9 @@
     <style name="AppTheme" parent="@android:style/Theme.Material.NoActionBar">
         <item name="android:windowBackground">#0A0B10</item>
         <item name="android:colorBackground">#0A0B10</item>
+        <!-- 浮层必须有实底：部分兼容层会把 FloatingToolbar 画成透明。 -->
+        <item name="android:colorBackgroundFloating">@color/popup_surface</item>
+        <item name="android:popupBackground">@color/popup_surface</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
