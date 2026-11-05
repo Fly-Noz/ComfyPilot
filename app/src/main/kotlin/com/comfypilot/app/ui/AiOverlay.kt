@@ -1299,6 +1299,7 @@ fun AiConfigEditor(
     var apiKey by remember { mutableStateOf(initial.apiKey) }
     var autoSubmit by remember { mutableStateOf(initial.autoSubmit) }
     var maxRounds by remember { mutableStateOf(initial.maxRounds.coerceIn(2, 20)) }
+    var modelCompression by remember { mutableStateOf(initial.modelCompression) }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1342,6 +1343,13 @@ fun AiConfigEditor(
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
+                    Text("上下文用模型压缩", color = c.textMuted, fontSize = 11.sp)
+                    Text("关闭：本地机械摘要（免费、确定）；开启：超预算时多一次模型总结", color = c.textDim, fontSize = 9.5.sp)
+                }
+                Switch(checked = modelCompression, onCheckedChange = { modelCompression = it })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text("单轮工具轮数上限", color = c.textMuted, fontSize = 11.sp)
                     Text("默认 8；切流 + 查节点 + 改 + 提交通常够用", color = c.textDim, fontSize = 9.5.sp)
                 }
@@ -1362,6 +1370,7 @@ fun AiConfigEditor(
                                 enabled = enabled,
                                 autoSubmit = autoSubmit,
                                 maxRounds = maxRounds,
+                                modelCompression = modelCompression,
                             ),
                         )
                     }

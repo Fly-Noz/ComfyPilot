@@ -68,6 +68,8 @@ data class AiConfig(
     val autoSubmit: Boolean = false,
     /** 单轮最多几次模型往返；设置页可调，默认 8。 */
     val maxRounds: Int = 8,
+    /** true：上下文超预算时让模型总结旧对话；false：本地机械摘要。 */
+    val modelCompression: Boolean = false,
 ) {
     val ready: Boolean get() = baseUrl.isNotBlank() && model.isNotBlank() && apiKey.isNotBlank()
 }
@@ -191,6 +193,7 @@ class AiSecretStore(context: Context) {
             enabled = prefs.getBoolean("enabled", false),
             autoSubmit = prefs.getBoolean("auto_submit", false),
             maxRounds = prefs.getInt("max_rounds", 8),
+            modelCompression = prefs.getBoolean("model_compression", false),
         )
     }
 
@@ -202,6 +205,7 @@ class AiSecretStore(context: Context) {
             .putBoolean("enabled", config.enabled)
             .putBoolean("auto_submit", config.autoSubmit)
             .putInt("max_rounds", config.maxRounds.coerceIn(2, 20))
+            .putBoolean("model_compression", config.modelCompression)
             .apply()
     }
 
@@ -629,7 +633,7 @@ object AiRuntime {
         persistConversation()
         job = scope.launch {
             try {
-                runLoop(currentHost, historyForModel(messages.dropLast(1)))
+                runLoop(currentHost, messages.dropLast(1))
             } catch (err: Throwable) {
                 error = err.message ?: "AI 请求失败"
             } finally {
@@ -834,7 +838,7 @@ object AiRuntime {
         busy = true
         job = scope.launch {
             try {
-                runLoop(currentHost, historyForModel(messages.dropLast(1)))
+                runLoop(currentHost, messages.dropLast(1))
             } catch (err: Throwable) {
                 error = err.message ?: "AI 请求失败"
             } finally {
@@ -861,10 +865,10 @@ object AiRuntime {
      */
     private suspend fun runLoop(
         currentHost: AiWorkflowHost,
-        history: List<JsonObject>,
+        history: List<AiChatMessage>,
     ) {
         val loop = AiLoopState(maxRounds = config.maxRounds.coerceIn(2, 20))
-        loop.start(userTurn(pendingUserText, pendingImages), history)
+        loop.start(userTurn(pendingUserText, pendingImages), historyForModel(history))
         var step: AiLoopStep = loop.nextRequest(contextFor(currentHost))
         while (true) {
             when (step) {
@@ -968,7 +972,7 @@ object AiRuntime {
     }
 
     /** 发给模型的历史：最近 16 条 / 约 6000 字；被裁掉的旧消息压成一段要点。 */
-    private fun historyForModel(history: List<AiChatMessage>): List<JsonObject> {
+    private suspend fun historyForModel(history: List<AiChatMessage>): List<JsonObject> {
         val usable = history.filter { it.role == "user" || it.role == "assistant" }
         val kept = ArrayDeque<AiChatMessage>()
         var chars = 0
@@ -980,25 +984,38 @@ object AiRuntime {
         val dropped = usable.subList(0, usable.size - kept.size)
         val out = mutableListOf<JsonObject>()
         if (dropped.isNotEmpty()) {
-            val bullets = mutableListOf<String>()
-            for (message in dropped.asReversed()) {
-                val line = when {
-                    message.role == "user" ->
-                        "用户：" + message.content.take(120).replace("\n", " ")
-                    message.content.startsWith("已应用") ->
-                        message.content.take(120).replace("\n", " ")
-                    else -> null
-                } ?: continue
-                if (line !in bullets) bullets += line
-                if (bullets.size >= 6) break
+            // 用户可选：模型总结（多一次请求）或本地机械摘要。
+            val modelSummary = if (config.modelCompression) {
+                runCatching { summarizeWithModel(dropped) }.getOrNull()
+            } else {
+                null
             }
-            if (bullets.isNotEmpty()) {
+            if (!modelSummary.isNullOrBlank()) {
                 out += buildJsonObject {
                     put("role", "system")
-                    put(
-                        "content",
-                        "早前对话摘要（已压缩，供参考）：\n" + bullets.joinToString("\n") { "• $it" },
-                    )
+                    put("content", "早前对话摘要（模型压缩，供参考）：\n$modelSummary")
+                }
+            } else {
+                val bullets = mutableListOf<String>()
+                for (message in dropped.asReversed()) {
+                    val line = when {
+                        message.role == "user" ->
+                            "用户：" + message.content.take(120).replace("\n", " ")
+                        message.content.startsWith("已应用") ->
+                            message.content.take(120).replace("\n", " ")
+                        else -> null
+                    } ?: continue
+                    if (line !in bullets) bullets += line
+                    if (bullets.size >= 6) break
+                }
+                if (bullets.isNotEmpty()) {
+                    out += buildJsonObject {
+                        put("role", "system")
+                        put(
+                            "content",
+                            "早前对话摘要（已压缩，供参考）：\n" + bullets.joinToString("\n") { "• $it" },
+                        )
+                    }
                 }
             }
         }
@@ -1009,6 +1026,35 @@ object AiRuntime {
             }
         }
         return out
+    }
+
+    /** 用一次非流式请求总结被裁掉的旧对话；失败返回 null，调用方退回机械摘要。 */
+    private fun summarizeWithModel(messages: List<AiChatMessage>): String? {
+        val payload = buildJsonObject {
+            put("model", config.model)
+            put("stream", false)
+            put("temperature", 0.2)
+            put("max_tokens", 400)
+            putJsonArray("messages") {
+                add(
+                    buildJsonObject {
+                        put("role", "system")
+                        put("content", "用不超过 6 条要点总结这段对话：用户目标、已确认决定、已应用修改、待办。只输出要点。")
+                    },
+                )
+                messages.takeLast(24).forEach { message ->
+                    add(
+                        buildJsonObject {
+                            put("role", message.role)
+                            put("content", message.content.take(500))
+                        },
+                    )
+                }
+            }
+        }.toString()
+        val response = postModel(payload, allowStream = false)
+        return response["choices"]?.jsonArray?.firstOrNull()
+            ?.jsonObject?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull
     }
 
     /** 网络类 / 5xx / 429 自动重试一次；其余错误原样抛出，避免重复扣费。 */
@@ -1393,9 +1439,9 @@ object AiRuntime {
     }
 
     /** 只负责发：请求体由共享层的状态机拼好，这里不做消息拼装。 */
-    private fun postModel(payload: String): JsonObject {
+    private fun postModel(payload: String, allowStream: Boolean = true): JsonObject {
         // 先试流式：正文能边生成边显示；不支持就退回整段，别因为流式挂了就不回话。
-        streamModel(payload)?.let { return it }
+        if (allowStream) streamModel(payload)?.let { return it }
         val endpoint = config.baseUrl.trimEnd('/') + "/chat/completions"
         val request = Request.Builder()
             .url(endpoint)

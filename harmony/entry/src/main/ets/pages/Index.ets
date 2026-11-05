@@ -562,6 +562,7 @@ struct Index {
   @State aiKey: string = '';
   @State aiAutoSubmit: boolean = false;
   @State aiMaxRounds: number = 8;
+  @State aiModelCompression: boolean = false;
   @State aiProviderIndex: number = AI_PROVIDER_PRESETS.length - 1;
   @State aiProviderMenuOpen: boolean = false;
   // 下拉候选菜单（替代 ArkUI Select：它的弹层底色跟系统走，深色下会发白）
@@ -7308,6 +7309,7 @@ struct Index {
     this.aiAutoSubmit = this.ai.config.autoSubmit;
     this.aiProviderIndex = this.matchAiProvider(this.ai.config.baseUrl);
     this.aiMaxRounds = this.ai.roundLimit();
+    this.aiModelCompression = this.ai.config.modelCompression === true;
     this.syncAi();
   }
 
@@ -8417,6 +8419,14 @@ struct Index {
       }
       .width('100%')
       Row({ space: 8 }) {
+        Text('上下文用模型压缩').fontSize(10.5).fontColor(this.c().textMuted)
+        Toggle({ type: ToggleType.Switch, isOn: this.aiModelCompression })
+          .onChange((value: boolean) => { this.aiModelCompression = value; })
+      }
+      .width('100%')
+      Text('关闭：本地机械摘要（免费、确定）；开启：超预算时多一次模型总结。')
+        .fontSize(9).fontColor(this.c().textDim)
+      Row({ space: 8 }) {
         Text('单轮工具轮数上限').fontSize(10.5).fontColor(this.c().textMuted).layoutWeight(1)
         Text('−')
           .fontSize(14).fontColor(this.c().accent)
@@ -8441,6 +8451,7 @@ struct Index {
             enabled: this.ai.config.enabled,
             autoSubmit: this.aiAutoSubmit,
             maxRounds: this.aiMaxRounds,
+            modelCompression: this.aiModelCompression,
           };
           this.ai.saveConfig(next);
           this.aiSettingsOpen = false;

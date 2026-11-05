@@ -30,6 +30,8 @@ export interface AiConfig {
   autoSubmit: boolean;
   /** 单轮工具轮数上限；缺省 8，设置页可调（2–20）。 */
   maxRounds?: number;
+  /** true：上下文超预算时调用模型总结旧对话；false：本地机械摘要。 */
+  modelCompression?: boolean;
 }
 
 export interface AiChatMessage {
@@ -37,6 +39,19 @@ export interface AiChatMessage {
   content: string;
   /** 气泡里给用户看的正文；为空时用 content。content 里可能带「附了 N 张图…」这类内部说明。 */
   display?: string;
+}
+
+interface SummaryMessage {
+  role: string;
+  content: string;
+}
+
+interface SummaryPayload {
+  model: string;
+  stream: boolean;
+  temperature: number;
+  max_tokens: number;
+  messages: SummaryMessage[];
 }
 
 /**
@@ -251,6 +266,7 @@ export class AiAssistant {
         enabled: this.store.getSync('enabled', false) as boolean,
         autoSubmit: this.store.getSync('auto_submit', false) as boolean,
         maxRounds: this.store.getSync('max_rounds', 8) as number,
+        modelCompression: this.store.getSync('model_compression', false) as boolean,
       });
       this.visionOffModel = this.store.getSync('vision_off_model', '') as string;
       this.loadSessions();
@@ -445,6 +461,7 @@ export class AiAssistant {
     store.putSync('enabled', gated.enabled);
     store.putSync('auto_submit', gated.autoSubmit);
     store.putSync('max_rounds', gated.maxRounds ?? 8);
+    store.putSync('model_compression', gated.modelCompression === true);
     this.secrets.save(gated.apiKey);
     store.flush();
   }
@@ -531,7 +548,7 @@ export class AiAssistant {
     // 第一条用户消息落地，这轮对话才算真的用过；bump 会顺带落盘。
     this.materializeDraft();
     this.bump();
-    const history = this.historyForModel();
+    const history = await this.historyForModel();
     const first = this.startAction(host, history, this.buildTurn(prompt));
     try {
       await this.loop(host, first, prompt);
@@ -813,7 +830,7 @@ export class AiAssistant {
    */
   private async loop(host: AiHost, first: AiLoopAction, userText: string): Promise<void> {
     // 重试用：重开一轮时要拿「这条用户消息之前」的对话，不能把提示语混进去。
-    const history = this.historyForModel();
+    const history = await this.historyForModel();
     let action = first;
     let httpSeen = 0;
     while (true) {
@@ -975,7 +992,7 @@ export class AiAssistant {
   }
 
   /** 最近 16 条 / 约 6000 字；更早的消息压成一段要点，避免长会话越界。 */
-  private historyForModel(): AiChatMessage[] {
+  private async historyForModel(): Promise<AiChatMessage[]> {
     const all = this.messages.slice(0, this.messages.length - 1)
       .filter((message: AiChatMessage) => message.role === 'user' || message.role === 'assistant');
     const kept: AiChatMessage[] = [];
@@ -991,27 +1008,67 @@ export class AiAssistant {
     const dropped = all.slice(0, all.length - kept.length);
     const result: AiChatMessage[] = [];
     if (dropped.length > 0) {
-      const bullets: string[] = [];
-      for (let i = dropped.length - 1; i >= 0 && bullets.length < 6; i--) {
-        const message = dropped[i];
-        let line: string = '';
-        if (message.role === 'user') {
-          line = '用户：' + message.content.substring(0, 120).replace(/\n/g, ' ');
-        } else if (message.content.startsWith('已应用')) {
-          line = message.content.substring(0, 120).replace(/\n/g, ' ');
-        }
-        if (line.length > 0 && !bullets.includes(line)) {
-          bullets.push(line);
-        }
+      let modelSummary: string = '';
+      if (this.config.modelCompression === true) {
+        modelSummary = await this.summarize(dropped);
       }
-      if (bullets.length > 0) {
+      if (modelSummary.length > 0) {
         result.push({
           role: 'system',
-          content: '早前对话摘要（已压缩，供参考）：\n' + bullets.map((line: string) => '• ' + line).join('\n'),
+          content: '早前对话摘要（模型压缩，供参考）：\n' + modelSummary,
         });
+      } else {
+        const bullets: string[] = [];
+        for (let i = dropped.length - 1; i >= 0 && bullets.length < 6; i--) {
+          const message = dropped[i];
+          let line: string = '';
+          if (message.role === 'user') {
+            line = '用户：' + message.content.substring(0, 120).replace(/\n/g, ' ');
+          } else if (message.content.startsWith('已应用')) {
+            line = message.content.substring(0, 120).replace(/\n/g, ' ');
+          }
+          if (line.length > 0 && !bullets.includes(line)) {
+            bullets.push(line);
+          }
+        }
+        if (bullets.length > 0) {
+          result.push({
+            role: 'system',
+            content: '早前对话摘要（已压缩，供参考）：\n' + bullets.map((line: string) => '• ' + line).join('\n'),
+          });
+        }
       }
     }
     return result.concat(kept);
+  }
+
+  /** 用一次非流式请求总结被裁掉的旧对话；失败返回空串，调用方退回机械摘要。 */
+  private async summarize(messages: AiChatMessage[]): Promise<string> {
+    try {
+      const summaryMessages: SummaryMessage[] = [
+        {
+          role: 'system',
+          content: '用不超过 6 条要点总结这段对话：用户目标、已确认决定、已应用修改、待办。只输出要点。',
+        },
+      ];
+      for (const message of messages.slice(-24)) {
+        summaryMessages.push({
+          role: message.role,
+          content: message.content.substring(0, 500),
+        });
+      }
+      const payload: SummaryPayload = {
+        model: this.config.model,
+        stream: false,
+        temperature: 0.2,
+        max_tokens: 400,
+        messages: summaryMessages,
+      };
+      const response = await this.requestOnce(JSON.stringify(payload));
+      return response.content ?? '';
+    } catch (err) {
+      return '';
+    }
   }
 
   /** 每条用户消息都带上当前工作流：切流后系统提示容易被历史稀释。 */
