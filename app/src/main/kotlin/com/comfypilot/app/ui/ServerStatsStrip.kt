@@ -28,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -69,6 +70,9 @@ fun ServerStatsStrip(
     monitor: MonitorSample? = null,
 ) {
     val c = Spectrum.colors
+    val context = LocalContext.current
+    // 弱网下状态条不用 2 秒一刷：15 秒足够，还能少抢带宽。
+    val weakNetwork = remember { WeakNetworkPrefs.isEnabled(context) }
     var stats by remember(baseUrl) { mutableStateOf<SystemStats?>(null) }
     var queue by remember(baseUrl) { mutableStateOf<QueueSnapshot?>(null) }
     var crystools by remember(baseUrl) { mutableStateOf<CrystoolsMetrics?>(null) }
@@ -118,7 +122,7 @@ fun ServerStatsStrip(
                     }
                 }
             }
-            delay(2_000)
+            delay(if (weakNetwork) 15_000 else 2_000)
         }
     }
 

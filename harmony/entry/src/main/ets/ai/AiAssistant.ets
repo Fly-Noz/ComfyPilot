@@ -195,6 +195,9 @@ export interface AiHost {
  * Key 存在系统 Asset Store，只在请求头里使用，不写日志。
  */
 export class AiAssistant {
+  /** 弱网模式下强制本地机械摘要，不再额外调模型。 */
+  forceMechanical: boolean = false;
+  /** 保存配置时的持久化开关。 */
   config: AiConfig = { baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash', apiKey: '', enabled: false, autoSubmit: false };
   messages: AiChatMessage[] = [];
   actions: string[] = [];
@@ -1009,7 +1012,7 @@ export class AiAssistant {
     const result: AiChatMessage[] = [];
     if (dropped.length > 0) {
       let modelSummary: string = '';
-      if (this.config.modelCompression === true) {
+      if (this.config.modelCompression === true && !this.forceMechanical) {
         modelSummary = await this.summarize(dropped);
       }
       if (modelSummary.length > 0) {

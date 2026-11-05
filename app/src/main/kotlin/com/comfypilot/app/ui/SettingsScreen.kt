@@ -267,6 +267,29 @@ private fun AdvancedSettingsPage(
                 }
             }
             Spacer(modifier = Modifier.height(4.dp))
+            SectionLabel("网络")
+            GlassCard(padding = PaddingValues(12.dp)) {
+                var weakNetwork by remember { mutableStateOf(WeakNetworkPrefs.isEnabled(context)) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("弱网模式", color = c.text, fontSize = 13.sp)
+                        Text(
+                            "状态轮询降到 15 秒；AI 上下文强制走本地摘要",
+                            color = c.textDim,
+                            fontSize = 10.5.sp,
+                            lineHeight = 15.sp,
+                        )
+                    }
+                    Switch(
+                        checked = weakNetwork,
+                        onCheckedChange = {
+                            weakNetwork = it
+                            WeakNetworkPrefs.setEnabled(context, it)
+                        },
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
             SectionLabel("工作流参数")
             GlassCard(padding = PaddingValues(6.dp)) {
                 SpectrumLinkRow(

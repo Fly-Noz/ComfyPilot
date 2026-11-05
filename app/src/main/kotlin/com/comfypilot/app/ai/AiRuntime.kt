@@ -985,7 +985,9 @@ object AiRuntime {
         val out = mutableListOf<JsonObject>()
         if (dropped.isNotEmpty()) {
             // 用户可选：模型总结（多一次请求）或本地机械摘要。
-            val modelSummary = if (config.modelCompression) {
+            val modelSummary = if (config.modelCompression &&
+                prefs?.getBoolean("weak_network", false) != true
+            ) {
                 runCatching { summarizeWithModel(dropped) }.getOrNull()
             } else {
                 null

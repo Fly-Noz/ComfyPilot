@@ -31,6 +31,7 @@ import { AddressEntry, AddressStore } from '../bridge/AddressStore';
 import { DismissedErrorStore } from '../bridge/DismissedErrorStore';
 import { AppearanceStore } from '../bridge/AppearanceStore';
 import { SubmitPrefs } from '../bridge/SubmitPrefs';
+import { WeakNetworkPrefs } from '../bridge/WeakNetworkPrefs';
 import { ClientIdStore } from '../bridge/ClientIdStore';
 import { TaskNotifier } from '../notify/TaskNotifier';
 import { emptyServerStats, fetchServerStats, sameServerStats, ServerStats } from '../bridge/ServerStats';
@@ -475,8 +476,10 @@ struct Index {
   private addressStore: AddressStore = new AddressStore();
   private appearanceStore: AppearanceStore = new AppearanceStore();
   private submitPrefs: SubmitPrefs = new SubmitPrefs();
+  private weakPrefs: WeakNetworkPrefs = new WeakNetworkPrefs();
   /** 忽略本地校验，强制提交：请求里带给共享层。 */
   @State forceSubmit: boolean = false;
+  @State weakNetwork: boolean = false;
   private clientIdStore: ClientIdStore = new ClientIdStore();
   private notifier: TaskNotifier = new TaskNotifier();
   /** 页面是否可见：只有切到后台才需要进度/完成通知。 */
@@ -1059,6 +1062,8 @@ struct Index {
     }
     // 强制提交开关也落盘：默认关闭，恢复原来的严格校验。
     this.forceSubmit = await this.submitPrefs.load(context);
+    this.weakNetwork = await this.weakPrefs.load(context);
+    this.ai.forceMechanical = this.weakNetwork;
     if (workflowPinsReady) {
       this.pinnedWorkflowPaths = this.pinnedWorkflowStore.load();
     }
@@ -1533,7 +1538,7 @@ struct Index {
     }
     this.statsTimer = setInterval(() => {
       this.pollServerStats();
-    }, STATS_POLL_MS);
+    }, this.weakNetwork ? 15000 : STATS_POLL_MS);
     // 首帧不等 2 秒，连上就显示。 
     this.pollServerStats();
   }
@@ -8479,6 +8484,15 @@ struct Index {
   }
 
   /** 强制提交开关：内存生效 + 落盘，并立刻重算一次视图（按钮可用性跟着变）。 */
+  private setWeakNetwork(value: boolean): void {
+    this.weakNetwork = value;
+    this.ai.forceMechanical = value;
+    this.weakPrefs.save(getContext(this) as common.Context, value);
+    // 已连上时立刻按新模式重启状态轮询。
+    this.stopStatsPolling();
+    this.startStatsPolling();
+  }
+
   private setForceSubmit(value: boolean): void {
     this.forceSubmit = value;
     this.submitPrefs.save(getContext(this) as common.Context, value);
@@ -9627,6 +9641,14 @@ struct Index {
                 }
                 .width('100%')
                 Row({ space: 8 }) {
+                  Text('上下文用模型压缩').fontSize(10.5).fontColor(this.c().textMuted).layoutWeight(1)
+                  Toggle({ type: ToggleType.Switch, isOn: this.aiModelCompression })
+                    .onChange((value: boolean) => { this.aiModelCompression = value; })
+                }
+                .width('100%')
+                Text('关闭：本地机械摘要（免费、确定）；开启：超预算时多一次模型总结。')
+                  .fontSize(9).fontColor(this.c().textDim).width('100%')
+                Row({ space: 8 }) {
                   Text('单轮工具轮数上限').fontSize(10.5).fontColor(this.c().textMuted).layoutWeight(1)
                   Text('−')
                     .fontSize(14).fontColor(this.c().accent)
@@ -9650,6 +9672,7 @@ struct Index {
                       enabled: true,
                       autoSubmit: this.aiAutoSubmit,
                       maxRounds: this.aiMaxRounds,
+                      modelCompression: this.aiModelCompression,
                     };
                     this.ai.saveConfig(next);
                     this.aiEnabled = true;
@@ -9724,6 +9747,23 @@ struct Index {
           .layoutWeight(1)
           Toggle({ type: ToggleType.Switch, isOn: this.forceSubmit })
             .onChange((value: boolean) => { this.setForceSubmit(value); })
+        }
+        .width('100%')
+        .padding(14)
+        .backgroundColor(this.c().card)
+        .borderRadius(16)
+        .border({ width: 1, color: this.c().border })
+
+        Row({ space: 8 }) {
+          Column({ space: 3 }) {
+            Text('弱网模式').fontSize(14).fontColor(this.c().text)
+            Text('状态轮询降到 15 秒；AI 上下文强制走本地摘要')
+              .fontSize(10.5).fontColor(this.c().textDim)
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+          Toggle({ type: ToggleType.Switch, isOn: this.weakNetwork })
+            .onChange((value: boolean) => { this.setWeakNetwork(value); })
         }
         .width('100%')
         .padding(14)
