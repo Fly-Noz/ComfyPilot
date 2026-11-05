@@ -967,23 +967,48 @@ object AiRuntime {
         return AiLoopContext(model = config.model, system = system)
     }
 
-    /** 发给模型的历史：最近 16 条、约 6000 字预算，从旧到新裁剪。 */
+    /** 发给模型的历史：最近 16 条 / 约 6000 字；被裁掉的旧消息压成一段要点。 */
     private fun historyForModel(history: List<AiChatMessage>): List<JsonObject> {
         val usable = history.filter { it.role == "user" || it.role == "assistant" }
-        val kept = ArrayDeque<JsonObject>()
+        val kept = ArrayDeque<AiChatMessage>()
         var chars = 0
         for (message in usable.asReversed()) {
-            val content = message.content
-            if (kept.isNotEmpty() && chars + content.length > 6000) break
-            kept.addFirst(
-                buildJsonObject {
-                    put("role", message.role)
-                    put("content", content)
-                },
-            )
-            chars += content.length
+            if (kept.isNotEmpty() && (kept.size >= 16 || chars + message.content.length > 6000)) break
+            kept.addFirst(message)
+            chars += message.content.length
         }
-        return kept.toList()
+        val dropped = usable.subList(0, usable.size - kept.size)
+        val out = mutableListOf<JsonObject>()
+        if (dropped.isNotEmpty()) {
+            val bullets = mutableListOf<String>()
+            for (message in dropped.asReversed()) {
+                val line = when {
+                    message.role == "user" ->
+                        "用户：" + message.content.take(120).replace("\n", " ")
+                    message.content.startsWith("已应用") ->
+                        message.content.take(120).replace("\n", " ")
+                    else -> null
+                } ?: continue
+                if (line !in bullets) bullets += line
+                if (bullets.size >= 6) break
+            }
+            if (bullets.isNotEmpty()) {
+                out += buildJsonObject {
+                    put("role", "system")
+                    put(
+                        "content",
+                        "早前对话摘要（已压缩，供参考）：\n" + bullets.joinToString("\n") { "• $it" },
+                    )
+                }
+            }
+        }
+        kept.forEach { message ->
+            out += buildJsonObject {
+                put("role", message.role)
+                put("content", message.content)
+            }
+        }
+        return out
     }
 
     /** 网络类 / 5xx / 429 自动重试一次；其余错误原样抛出，避免重复扣费。 */

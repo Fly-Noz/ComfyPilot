@@ -531,7 +531,7 @@ export class AiAssistant {
     // 第一条用户消息落地，这轮对话才算真的用过；bump 会顺带落盘。
     this.materializeDraft();
     this.bump();
-    const history = this.messages.slice(0, this.messages.length - 1);
+    const history = this.historyForModel();
     const first = this.startAction(host, history, this.buildTurn(prompt));
     try {
       await this.loop(host, first, prompt);
@@ -813,7 +813,7 @@ export class AiAssistant {
    */
   private async loop(host: AiHost, first: AiLoopAction, userText: string): Promise<void> {
     // 重试用：重开一轮时要拿「这条用户消息之前」的对话，不能把提示语混进去。
-    const history = this.messages.slice(0, this.messages.length - 1);
+    const history = this.historyForModel();
     let action = first;
     let httpSeen = 0;
     while (true) {
@@ -972,6 +972,46 @@ export class AiAssistant {
       system.push(`可切换的工作流（open_workflow 用）：${paths.slice(0, 60).join('、')}`);
     }
     return { model: this.config.model, system: system, temperature: 0.2, paths: paths };
+  }
+
+  /** 最近 16 条 / 约 6000 字；更早的消息压成一段要点，避免长会话越界。 */
+  private historyForModel(): AiChatMessage[] {
+    const all = this.messages.slice(0, this.messages.length - 1)
+      .filter((message: AiChatMessage) => message.role === 'user' || message.role === 'assistant');
+    const kept: AiChatMessage[] = [];
+    let chars: number = 0;
+    for (let i = all.length - 1; i >= 0; i--) {
+      const message = all[i];
+      if (kept.length > 0 && (kept.length >= 16 || chars + message.content.length > 6000)) {
+        break;
+      }
+      kept.unshift(message);
+      chars += message.content.length;
+    }
+    const dropped = all.slice(0, all.length - kept.length);
+    const result: AiChatMessage[] = [];
+    if (dropped.length > 0) {
+      const bullets: string[] = [];
+      for (let i = dropped.length - 1; i >= 0 && bullets.length < 6; i--) {
+        const message = dropped[i];
+        let line: string = '';
+        if (message.role === 'user') {
+          line = '用户：' + message.content.substring(0, 120).replace(/\n/g, ' ');
+        } else if (message.content.startsWith('已应用')) {
+          line = message.content.substring(0, 120).replace(/\n/g, ' ');
+        }
+        if (line.length > 0 && !bullets.includes(line)) {
+          bullets.push(line);
+        }
+      }
+      if (bullets.length > 0) {
+        result.push({
+          role: 'system',
+          content: '早前对话摘要（已压缩，供参考）：\n' + bullets.map((line: string) => '• ' + line).join('\n'),
+        });
+      }
+    }
+    return result.concat(kept);
   }
 
   /** 每条用户消息都带上当前工作流：切流后系统提示容易被历史稀释。 */
