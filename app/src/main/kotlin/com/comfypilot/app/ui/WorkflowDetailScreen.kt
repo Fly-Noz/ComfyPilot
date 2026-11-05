@@ -628,7 +628,9 @@ private fun DetailBody(
                     } ?: uri.lastPathSegment ?: "image.png"
                     val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                         ?: error("读不到图片内容")
-                    name to bytes
+                    // 弱网/大图先压缩再传：手机上原图动辄 5–10MB，上传时间主要花在这里。
+                    val weak = WeakNetworkPrefs.isEnabled(context)
+                    name to compressForUpload(bytes, weak)
                 }
             }
             if (loaded.isFailure) {
@@ -2904,6 +2906,41 @@ private fun shortOptionName(name: String): String {
 }
 
 /** 上传后的本地预览：只解码一张缩略图，不把原图整张留在内存里。 */
+/** 上传前压缩：长边超过阈值才缩放，JPEG 85；小图原样返回。 */
+private fun compressForUpload(bytes: ByteArray, weak: Boolean): ByteArray {
+    val maxSide = if (weak) 1536 else 2048
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth <= maxSide && bounds.outHeight <= maxSide && bytes.size < 1_500_000) {
+        return bytes
+    }
+    var sample = 1
+    while (bounds.outWidth / (sample * 2) >= maxSide || bounds.outHeight / (sample * 2) >= maxSide) {
+        sample *= 2
+    }
+    val decoded = BitmapFactory.decodeByteArray(
+        bytes, 0, bytes.size,
+        BitmapFactory.Options().apply { inSampleSize = sample },
+    ) ?: return bytes
+    val scale = minOf(1f, maxSide.toFloat() / maxOf(decoded.width, decoded.height))
+    val scaled = if (scale < 1f) {
+        Bitmap.createScaledBitmap(
+            decoded,
+            (decoded.width * scale).toInt().coerceAtLeast(1),
+            (decoded.height * scale).toInt().coerceAtLeast(1),
+            true,
+        )
+    } else {
+        decoded
+    }
+    val out = java.io.ByteArrayOutputStream()
+    scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
+    if (scaled !== decoded) scaled.recycle()
+    decoded.recycle()
+    val compressed = out.toByteArray()
+    return if (compressed.size < bytes.size) compressed else bytes
+}
+
 private fun decodePreview(bytes: ByteArray, maxSide: Int = 512): Bitmap? {
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
