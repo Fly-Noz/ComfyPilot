@@ -350,7 +350,7 @@ object AiRuntime {
     }
 
     /** 上一次 AI 修改前的编辑状态；用于「撤销这次修改」。 */
-    private var undoState: AiEditState? = null
+    private val undoStack = ArrayDeque<AiEditState>()
     private var canUndo: Boolean = false
 
     /** 历史会话；当前会话的 messages/actions 在持久化时同步进来。 */
@@ -629,7 +629,7 @@ object AiRuntime {
         persistConversation()
         job = scope.launch {
             try {
-                runLoop(currentHost)
+                runLoop(currentHost, historyForModel(messages.dropLast(1)))
             } catch (err: Throwable) {
                 error = err.message ?: "AI 请求失败"
             } finally {
@@ -682,6 +682,17 @@ object AiRuntime {
             error = result.errors.joinToString("\n")
             return
         }
+        // 按工作流记住最近改过什么：下次进来模型不用重新问一遍背景。
+        runCatching {
+            val key = "ai_wf_mem_${view.path.hashCode()}"
+            val previous = prefs?.getString(key, null).orEmpty()
+            val merged = (listOf(edit.summary) + previous.split('\n'))
+                .filter { it.isNotBlank() }
+                .distinct()
+                .take(5)
+                .joinToString("\n")
+            prefs?.edit()?.putString(key, merged)?.apply()
+        }
         // 保障层：回读校验只做「同步可读」的部分。
         // 节点开关走 SessionState，回调是异步的，立刻回读会读到旧值——
         // 之前因此把成功误报成「改动没有生效」。
@@ -700,8 +711,11 @@ object AiRuntime {
         if (dropped.isNotEmpty()) {
             error = "这些改动没有生效：${dropped.joinToString()}（工作流可能已刷新，请重试）"
         }
-        undoState = edit.baseState
-        canUndo = edit.baseState != null
+        edit.baseState?.let { base ->
+            undoStack.addLast(base)
+            while (undoStack.size > 10) undoStack.removeFirst()
+        }
+        canUndo = undoStack.isNotEmpty()
         actions = actions + edit.changes.map { it.label }
         messages = messages + AiChatMessage(
             "assistant",
@@ -776,14 +790,15 @@ object AiRuntime {
     /** 撤销上一次 AI 修改：把提案前的编辑状态原样写回。 */
     fun undoLast(): Boolean {
         val currentHost = host ?: return false
-        val state = undoState ?: return false
-        undoState = null
-        canUndo = false
+        val state = undoStack.removeLastOrNull() ?: return false
         val result = currentHost.applyEdit(state)
         if (!result.ok) {
+            // 撤销失败时把状态放回去，别丢。
+            undoStack.addLast(state)
             error = "撤销失败：${result.errors.joinToString("；")}"
             return false
         }
+        canUndo = undoStack.isNotEmpty()
         actions = actions + "撤销上一次修改"
         messages = messages + AiChatMessage("assistant", "已撤销上一次 AI 修改")
         persistConversation()
@@ -819,7 +834,8 @@ object AiRuntime {
         busy = true
         job = scope.launch {
             try {
-                runLoop(currentHost)            } catch (err: Throwable) {
+                runLoop(currentHost, historyForModel(messages.dropLast(1)))
+            } catch (err: Throwable) {
                 error = err.message ?: "AI 请求失败"
             } finally {
                 busy = false
@@ -843,9 +859,12 @@ object AiRuntime {
      * 一轮用户输入对应的工具循环。状态机在共享层（[AiLoopState]），这里只做三件事：
      * 发请求、执行工具、把结果交回去。
      */
-    private suspend fun runLoop(currentHost: AiWorkflowHost) {
+    private suspend fun runLoop(
+        currentHost: AiWorkflowHost,
+        history: List<JsonObject>,
+    ) {
         val loop = AiLoopState(maxRounds = config.maxRounds.coerceIn(2, 20))
-        loop.start(userTurn(pendingUserText, pendingImages))
+        loop.start(userTurn(pendingUserText, pendingImages), history)
         var step: AiLoopStep = loop.nextRequest(contextFor(currentHost))
         while (true) {
             when (step) {
@@ -856,7 +875,7 @@ object AiRuntime {
                     // 继续用开跑时捕获的那个会被 toolkit 当成「工作流已关闭」。
                     val active = host ?: fallbackHost ?: currentHost
                     val message = try {
-                        postModel(step.body)
+                        postModelWithRetry(step.body)
                     } catch (err: Throwable) {
                         // 模型不认图片时退回纯文本，并记住这个模型，下次不再带图。
                         if (loop.round == 1 && pendingImages.isNotEmpty()) {
@@ -938,8 +957,55 @@ object AiRuntime {
             if (guide.isNotEmpty()) {
                 add("生成提示词规范（写 text/prompt 字段时必须遵守）：$guide")
             }
+            if (path.isNotEmpty()) {
+                val memory = prefs?.getString("ai_wf_mem_${path.hashCode()}", null)
+                if (!memory.isNullOrBlank()) {
+                    add("这个工作流最近由你改过（仅供参考，不要重复追问）：$memory")
+                }
+            }
         }
         return AiLoopContext(model = config.model, system = system)
+    }
+
+    /** 发给模型的历史：最近 16 条、约 6000 字预算，从旧到新裁剪。 */
+    private fun historyForModel(history: List<AiChatMessage>): List<JsonObject> {
+        val usable = history.filter { it.role == "user" || it.role == "assistant" }
+        val kept = ArrayDeque<JsonObject>()
+        var chars = 0
+        for (message in usable.asReversed()) {
+            val content = message.content
+            if (kept.isNotEmpty() && chars + content.length > 6000) break
+            kept.addFirst(
+                buildJsonObject {
+                    put("role", message.role)
+                    put("content", content)
+                },
+            )
+            chars += content.length
+        }
+        return kept.toList()
+    }
+
+    /** 网络类 / 5xx / 429 自动重试一次；其余错误原样抛出，避免重复扣费。 */
+    private fun postModelWithRetry(payload: String): JsonObject {
+        var last: Throwable? = null
+        repeat(2) { attempt ->
+            try {
+                return postModel(payload)
+            } catch (err: Throwable) {
+                last = err
+                val message = (err.message ?: "").lowercase()
+                val retryable = err is java.io.IOException ||
+                    listOf("timeout", "connection", "502", "503", "504", "429").any { message.contains(it) }
+                if (attempt == 0 && retryable) {
+                    aiLog("模型请求失败，重试一次：${err.message}")
+                    Thread.sleep(800)
+                } else {
+                    throw err
+                }
+            }
+        }
+        throw last ?: IllegalStateException("模型请求失败")
     }
 
     private fun aiLog(message: String) {
