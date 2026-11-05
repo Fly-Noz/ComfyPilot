@@ -1342,6 +1342,11 @@ struct Index {
       console.info(`CPANIM decoded=${decoded.length}`);
       // 只停定时器，不清 animationKey：清了会让下一帧又触发一次重载，形成死循环
       this.stopPreviewAnimation(false);
+      // 弱网下不播多帧动画：释放已解码帧，只保留单帧预览。
+      if (this.weakNetwork) {
+        decoded.forEach((pixel: image.PixelMap) => pixel.release());
+        return;
+      }
       this.animationFrames = decoded;
       let index = 0;
       const rate = Math.max(1, payload.rate ?? meta.animationRate ?? 8);
