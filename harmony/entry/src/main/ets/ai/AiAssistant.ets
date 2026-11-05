@@ -223,7 +223,7 @@ export class AiAssistant {
   /** 明确拒绝过图片的模型名；下次直接跳过图片，省一次失败请求。 */
   private visionOffModel: string = '';
   /** 上一次 AI 修改的反向补丁 JSON；用于「撤销这次修改」。 */
-  private lastUndoJson: string = '';
+  private undoStack: string[] = [];
   /** 全部会话；当前会话的 messages/actions 在 persist 时同步进来。 */
   private sessions: AiSession[] = [];
   private activeId: string = '';
@@ -580,7 +580,14 @@ export class AiAssistant {
       }
     }
     this.pending = null;
-    this.lastUndoJson = this.buildInverse(proposalJson, pending.oldValuesJson);
+    // 多步撤销：保留最近 10 个反向补丁。
+    const inverse = this.buildInverse(proposalJson, pending.oldValuesJson);
+    if (inverse.length > 0) {
+      this.undoStack.push(inverse);
+      while (this.undoStack.length > 10) {
+        this.undoStack.shift();
+      }
+    }
     const outcome = host.applyProposal(proposalJson);
     if (!outcome.ok) {
       this.error = outcome.errors.join('；');
@@ -593,7 +600,7 @@ export class AiAssistant {
     if (outcome.changes.length > 0 && outcome.editCount === 0 && this.setInputKeys(proposalJson).length > 0) {
       this.error = '这些改动没有生效（桥没有写回任何字段），请重试';
     }
-    this.canUndo = this.lastUndoJson.length > 0;
+    this.canUndo = this.undoStack.length > 0;
     this.actions = [...this.actions, ...outcome.changes].slice(-50);
     const suffix = skipped.length > 0 ? `（跳过你期间改过的：${skipped.join('、')}）` : '';
     this.messages = [...this.messages, { role: 'assistant', content: `已应用：${pending.summary}${suffix}` }];
@@ -667,14 +674,15 @@ export class AiAssistant {
   /** 撤销上一次 AI 修改：用提案前记下的旧值构造反向补丁。 */
   undoLast(): boolean {
     const host = this.host;
-    const inverse = this.lastUndoJson;
+    const inverse = this.undoStack.length > 0 ? this.undoStack.pop() ?? '' : '';
     if (host === null || inverse.length === 0) {
       return false;
     }
-    this.lastUndoJson = '';
-    this.canUndo = false;
+    this.canUndo = this.undoStack.length > 0;
     const outcome = host.applyProposal(inverse);
     if (!outcome.ok) {
+      this.undoStack.push(inverse);
+      this.canUndo = this.undoStack.length > 0;
       this.error = `撤销失败：${outcome.errors.join('；')}`;
       this.bump();
       return false;
@@ -893,7 +901,7 @@ export class AiAssistant {
   closeWorkflow(): void {
     this.pending = null;
     this.question = null;
-    this.lastUndoJson = '';
+    this.undoStack = [];
     this.canUndo = false;
     this.pendingImages = [];
     this.knownLocalImages = [];
@@ -1394,6 +1402,24 @@ export class AiAssistant {
    * 不能因为流式挂了整个助手就不回话。
    */
   private async request(body: string): Promise<AiResponseMessage> {
+    try {
+      return await this.requestOnceOrStream(body);
+    } catch (err) {
+      const message = (err as Error).message.toLowerCase();
+      const retryable = message.includes('timeout') || message.includes('connection') ||
+        message.includes('502') || message.includes('503') || message.includes('504') ||
+        message.includes('429') || message.includes('network');
+      if (!retryable) {
+        throw new Error((err as Error).message);
+      }
+      this.activity = '网络抖动，正在重试…';
+      this.bump();
+      await new Promise<void>((resolve) => setTimeout(() => resolve(), 800));
+      return await this.requestOnceOrStream(body);
+    }
+  }
+
+  private async requestOnceOrStream(body: string): Promise<AiResponseMessage> {
     const streamed = await this.requestStream(body);
     if (streamed !== null) {
       return streamed;
