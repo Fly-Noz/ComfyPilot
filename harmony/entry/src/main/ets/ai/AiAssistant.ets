@@ -601,6 +601,7 @@ export class AiAssistant {
       this.error = '这些改动没有生效（桥没有写回任何字段），请重试';
     }
     this.canUndo = this.undoStack.length > 0;
+    this.rememberWorkflow(host.currentWorkflow(), pending.summary);
     this.actions = [...this.actions, ...outcome.changes].slice(-50);
     const suffix = skipped.length > 0 ? `（跳过你期间改过的：${skipped.join('、')}）` : '';
     this.messages = [...this.messages, { role: 'assistant', content: `已应用：${pending.summary}${suffix}` }];
@@ -908,6 +909,41 @@ export class AiAssistant {
     this.bump();
   }
 
+  private memoryKey(path: string): string {
+    let hash = 0;
+    for (let i = 0; i < path.length; i++) {
+      hash = (hash * 31 + path.charCodeAt(i)) | 0;
+    }
+    return 'wf_mem_' + Math.abs(hash).toString();
+  }
+
+  private rememberWorkflow(path: string, summary: string): void {
+    if (this.store === null || path.length === 0 || summary.length === 0) {
+      return;
+    }
+    const key = this.memoryKey(path);
+    let list: string[] = [];
+    try {
+      list = JSON.parse(this.store.getSync(key, '[]') as string) as string[];
+    } catch (err) {
+      list = [];
+    }
+    list = [summary, ...list.filter((item: string) => item !== summary)].slice(0, 5);
+    this.store.putSync(key, JSON.stringify(list));
+  }
+
+  private memoryFor(path: string): string {
+    if (this.store === null || path.length === 0) {
+      return '';
+    }
+    try {
+      const list = JSON.parse(this.store.getSync(this.memoryKey(path), '[]') as string) as string[];
+      return list.length > 0 ? list.join('；') : '';
+    } catch (err) {
+      return '';
+    }
+  }
+
   private context(host: AiHost): AiLoopContextRequest {
     const digest = host.digestJson();
     this.tokens = Math.floor(digest.length / 4);
@@ -915,6 +951,10 @@ export class AiAssistant {
     const currentPath = host.currentWorkflow();
     if (currentPath.length > 0) {
       system.push(`用户当前停留的工作流是：${currentPath}`);
+      const memory = this.memoryFor(currentPath);
+      if (memory.length > 0) {
+        system.push(`这个工作流最近由你改过（仅供参考，不要重复追问）：${memory}`);
+      }
     }
     if (digest.length > 0) {
       system.push(`当前工作流摘要：${digest}`);
