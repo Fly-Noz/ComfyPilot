@@ -1063,6 +1063,7 @@ struct Index {
     // 强制提交开关也落盘：默认关闭，恢复原来的严格校验。
     this.forceSubmit = await this.submitPrefs.load(context);
     this.weakNetwork = await this.weakPrefs.load(context);
+    this.imageUploader.weakNetwork = this.weakNetwork;
     this.ai.forceMechanical = this.weakNetwork;
     if (workflowPinsReady) {
       this.pinnedWorkflowPaths = this.pinnedWorkflowStore.load();
@@ -8488,8 +8489,8 @@ struct Index {
     }
   }
 
-  /** 强制提交开关：内存生效 + 落盘，并立刻重算一次视图（按钮可用性跟着变）。 */
   private setWeakNetwork(value: boolean): void {
+    this.imageUploader.weakNetwork = value;
     this.weakNetwork = value;
     this.ai.forceMechanical = value;
     this.weakPrefs.save(getContext(this) as common.Context, value);

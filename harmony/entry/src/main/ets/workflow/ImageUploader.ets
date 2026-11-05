@@ -38,6 +38,9 @@ interface UploadImageResponse {
  */
 export class ImageUploader {
 
+  /** 弱网模式：上传压缩更狠（长边 1536 / JPEG 85）。 */
+  weakNetwork: boolean = false;
+
   async pick(): Promise<PickedImage | null> {
     const list = await this.pickMany(1);
     return list.length > 0 ? list[0] : null;
@@ -120,16 +123,17 @@ export class ImageUploader {
       const width = info.size.width;
       const height = info.size.height;
       const maxSide = Math.max(width, height);
-      if (original.length <= 2 * 1024 * 1024 && maxSide <= 2048) {
+      const limit = this.weakNetwork ? 1536 : 2048;
+      if (original.length <= 2 * 1024 * 1024 && maxSide <= limit) {
         return { name: baseName, bytes: original };
       }
-      const scale = maxSide > 2048 ? 2048 / maxSide : 1;
+      const scale = maxSide > limit ? limit / maxSide : 1;
       const targetWidth = Math.max(1, Math.round(width * scale));
       const targetHeight = Math.max(1, Math.round(height * scale));
       const size: image.Size = { width: targetWidth, height: targetHeight };
       const options: image.DecodingOptions = { desiredSize: size };
       pixelMap = await source.createPixelMap(options);
-      const packOption: image.PackingOption = { format: 'image/jpeg', quality: 90 };
+      const packOption: image.PackingOption = { format: 'image/jpeg', quality: this.weakNetwork ? 85 : 90 };
       const data = await packer.packToData(pixelMap, packOption);
       const bytes = new Uint8Array(data);
       const dot = baseName.lastIndexOf('.');
