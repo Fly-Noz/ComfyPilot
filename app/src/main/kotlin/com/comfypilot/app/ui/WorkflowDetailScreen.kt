@@ -2267,6 +2267,7 @@ private fun PreviewPane(
     onCancel: (String) -> Unit,
     onTasks: () -> Unit,
 ) {
+    val weakNetwork = WeakNetworkPrefs.isEnabled(LocalContext.current)
     val active = state.tasks.values
         .filter { it.isActive && it.workflowPath == workflowPath }
         .maxByOrNull { it.createdAtMs }
@@ -2275,7 +2276,8 @@ private fun PreviewPane(
             task = active,
             preview = state.preview,
             baseUrl = state.lease?.baseUrl,
-            animation = state.previewAnimation,
+            // 弱网下不播 VHS 多帧动画：少下载、少解码，保留单帧预览。
+            animation = if (weakNetwork) null else state.previewAnimation,
             onCancel = onCancel,
         )
         return
