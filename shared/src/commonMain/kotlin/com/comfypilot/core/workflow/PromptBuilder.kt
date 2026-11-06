@@ -49,8 +49,31 @@ sealed interface PromptBuild {
 private fun matchComboOption(options: List<String>, text: String): String? {
     options.firstOrNull { it == text }?.let { return it }
     val normalized = text.replace('\\', '/').trim()
-    return options.firstOrNull {
+    options.firstOrNull {
         it.replace('\\', '/').trim().equals(normalized, ignoreCase = true)
+    }?.let { return it }
+    // 模型/LoRA 的候选可能带子目录前缀，服务器也能按文件名解析：按 basename 再试一次。
+    val name = normalized.substringAfterLast('/')
+    return options.firstOrNull {
+        it.replace('\\', '/').trim().substringAfterLast('/').equals(name, ignoreCase = true)
+    }
+}
+
+private val FILE_LIKE_SUFFIXES = listOf(
+    ".safetensors", ".ckpt", ".pt", ".pth", ".gguf", ".bin", ".onnx", ".sft",
+)
+
+/**
+ * 模型文件类候选（ckpt/lora/unet/vae/clip…）的列表经常滞后于服务器实际文件，
+ * 而且服务端本身会按文件名解析；这类值不匹配时不再提示，避免每次提交都弹一大段。
+ */
+private fun isFileLikeOption(name: String, options: List<String>, text: String): Boolean {
+    if (name.endsWith("_name")) return true
+    val lower = text.lowercase()
+    if (FILE_LIKE_SUFFIXES.any { lower.endsWith(it) }) return true
+    return options.any { option ->
+        val opt = option.lowercase()
+        FILE_LIKE_SUFFIXES.any { opt.endsWith(it) }
     }
 }
 
@@ -336,9 +359,11 @@ object PromptBuilder {
                     continue
                 }
                 // 候选可能来自尚未刷新完的 object_info，也可能是另一台服务器：
-                // 不替换，保留原值，只给一条短提示。
+                // 不替换，保留原值。模型文件类字段不提示（候选列表常滞后），其余给一行提示。
                 inputs[declared.name] = value
-                warnings += "节点 #${node.id} 的 ${declared.name}「${text.take(40)}」不在候选里，按原值提交"
+                if (!isFileLikeOption(declared.name, declared.options, text)) {
+                    warnings += "节点 #${node.id} 的 ${declared.name}「${text.take(40)}」不在候选里，按原值提交"
+                }
                 continue
             }
             inputs[declared.name] = value
@@ -703,9 +728,12 @@ internal object WidgetValueReader {
                 continue
             }
             // 不自动替换：候选可能来自尚未刷新完的 object_info，也可能是另一台服务器；
-            // 静默换成第一个候选会让用户拿错模型/文件名提交。保留原值并短提示。
+            // 静默换成第一个候选会让用户拿错模型/文件名提交。模型文件类字段直接保留原值，
+            // 其余字段保留原值并给一行提示。
             out[name] = value
-            warnings += "节点 #${node.id} 的 $name「${text.take(40)}」不在候选里，按原值提交"
+            if (!isFileLikeOption(name, def.options, text)) {
+                warnings += "节点 #${node.id} 的 $name「${text.take(40)}」不在候选里，按原值提交"
+            }
         }
         return out
     }
