@@ -270,6 +270,7 @@ private fun AdvancedSettingsPage(
             SectionLabel("网络")
             GlassCard(padding = PaddingValues(12.dp)) {
                 var weakNetwork by remember { mutableStateOf(WeakNetworkPrefs.isEnabled(context)) }
+                var showWeakConfirm by remember { mutableStateOf(false) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("弱网模式", color = c.text, fontSize = 13.sp)
@@ -283,10 +284,35 @@ private fun AdvancedSettingsPage(
                     Switch(
                         checked = weakNetwork,
                         onCheckedChange = {
-                            weakNetwork = it
-                            WeakNetworkPrefs.setEnabled(context, it)
+                            if (it) {
+                                showWeakConfirm = true
+                            } else {
+                                weakNetwork = false
+                                WeakNetworkPrefs.setEnabled(context, false)
+                            }
                         },
                     )
+                }
+                if (showWeakConfirm) {
+                    SpectrumDialog(
+                        title = "开启弱网模式？",
+                        onDismiss = { showWeakConfirm = false },
+                        confirmText = "开启",
+                        dismissText = "取消",
+                        onConfirm = {
+                            weakNetwork = true
+                            WeakNetworkPrefs.setEnabled(context, true)
+                            showWeakConfirm = false
+                        },
+                    ) {
+                        Text("开启后以下行为会改变：", color = c.text, fontSize = 12.5.sp)
+                        Text("· 状态轮询从 2 秒降到 15 秒", color = c.textMuted, fontSize = 11.5.sp)
+                        Text("· AI 上下文强制用本地机械摘要（不额外调模型）", color = c.textMuted, fontSize = 11.5.sp)
+                        Text("· 不再播放多帧采样动画，只保留单帧预览", color = c.textMuted, fontSize = 11.5.sp)
+                        Text("· 上传图片压缩更狠（长边 1536）", color = c.textMuted, fontSize = 11.5.sp)
+                        Text("· 下载超时放宽，失败自动重试", color = c.textMuted, fontSize = 11.5.sp)
+                        Text("随时可以在同一位置关闭。", color = c.textDim, fontSize = 10.5.sp)
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(4.dp))

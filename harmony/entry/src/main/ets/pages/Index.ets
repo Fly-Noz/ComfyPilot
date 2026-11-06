@@ -480,6 +480,7 @@ struct Index {
   /** 忽略本地校验，强制提交：请求里带给共享层。 */
   @State forceSubmit: boolean = false;
   @State weakNetwork: boolean = false;
+  @State weakDialogOpen: boolean = false;
   private clientIdStore: ClientIdStore = new ClientIdStore();
   private notifier: TaskNotifier = new TaskNotifier();
   /** 页面是否可见：只有切到后台才需要进度/完成通知。 */
@@ -9719,6 +9720,55 @@ struct Index {
   }
 
   @Builder
+  WeakNetworkConfirm() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#99000000')
+        .onClick(() => { this.weakDialogOpen = false; })
+      Column({ space: 8 }) {
+        Text('开启弱网模式？').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.c().text)
+        Text('开启后以下行为会改变：').fontSize(12.5).fontColor(this.c().text)
+        Text('· 状态轮询从 2 秒降到 15 秒').fontSize(11.5).fontColor(this.c().textMuted)
+        Text('· AI 上下文强制用本地机械摘要（不额外调模型）').fontSize(11.5).fontColor(this.c().textMuted)
+        Text('· 不再播放多帧采样动画，只保留单帧预览').fontSize(11.5).fontColor(this.c().textMuted)
+        Text('· 上传图片压缩更狠（长边 1536）').fontSize(11.5).fontColor(this.c().textMuted)
+        Text('· 下载超时放宽，失败自动重试').fontSize(11.5).fontColor(this.c().textMuted)
+        Text('随时可以在同一位置关闭。').fontSize(10.5).fontColor(this.c().textDim)
+        Row({ space: 10 }) {
+          Text('取消')
+            .fontSize(12.5).fontColor(this.c().textMuted)
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .backgroundColor(this.c().card).borderRadius(10)
+            .onClick(() => { this.weakDialogOpen = false; })
+          Text('开启')
+            .fontSize(12.5).fontColor('#FFFFFF')
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+            .borderRadius(10)
+            .onClick(() => {
+              this.weakDialogOpen = false;
+              this.setWeakNetwork(true);
+            })
+        }
+        .width('100%')
+        .margin({ top: 6 })
+        .justifyContent(FlexAlign.End)
+      }
+      .width('86%')
+      .padding(18)
+      .backgroundColor(this.c().dialog)
+      .borderRadius(20)
+      .border({ width: 1, color: this.c().border })
+      .alignItems(HorizontalAlign.Start)
+    }
+    .width('100%')
+    .height('100%')
+    .position({ x: 0, y: 0 })
+  }
+
+  @Builder
   AdvancedPage() {
     Stack() {
       this.OverlayBackdrop()
@@ -9771,7 +9821,13 @@ struct Index {
           .alignItems(HorizontalAlign.Start)
           .layoutWeight(1)
           Toggle({ type: ToggleType.Switch, isOn: this.weakNetwork })
-            .onChange((value: boolean) => { this.setWeakNetwork(value); })
+            .onChange((value: boolean) => {
+              if (value) {
+                this.weakDialogOpen = true;
+              } else {
+                this.setWeakNetwork(false);
+              }
+            })
         }
         .width('100%')
         .padding(14)
@@ -10360,6 +10416,9 @@ struct Index {
       }
       if (this.advancedOpen) {
         this.AdvancedPage()
+      }
+      if (this.weakDialogOpen) {
+        this.WeakNetworkConfirm()
       }
       if (this.promptConfirmOpen) {
         this.PromptConfirm()
