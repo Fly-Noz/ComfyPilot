@@ -311,9 +311,12 @@ object PromptBuilder {
                 continue
             }
             // 会话里存下来的旧值可能已经不在候选里（换模型/换节点版本）：换回默认值并告警，
-            // 别让一条历史覆盖把整次提交卡死。
+            // 别让一条历史覆盖把整次提交卡死。图片上传字段例外：刚上传的文件本来就不在
+            // 打开工作流时抓到的候选快照里，替换成别的图会让第二个 LoadImage 用错文件。
             val text = (value as? JsonPrimitive)?.contentOrNull
-            if (declared.options.isNotEmpty() && text != null && text !in declared.options) {
+            if (!declared.imageUpload && !declared.dynamic &&
+                declared.options.isNotEmpty() && text != null && text !in declared.options
+            ) {
                 val fallback = declared.defaultValue?.takeIf { it !is JsonNull }
                     ?: declared.options.firstOrNull()?.let { JsonPrimitive(it) }
                 if (fallback == null) {
