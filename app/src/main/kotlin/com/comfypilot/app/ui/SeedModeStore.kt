@@ -74,6 +74,8 @@ object SeedModeStore {
     ): Map<Int, Map<String, JsonElement>> {
         val next = overrides.mapValuesTo(mutableMapOf()) { (_, v) -> v.toMutableMap() }
         for (node in nodes) {
+            // 只处理真正会提交的节点：关闭/不可达的节点改了种子也没意义。
+            if (!node.reachable || !node.enabled) continue
             for (field in node.fields) {
                 if (!isSeedField(field) || field.linked) continue
                 val current = next[node.id]?.get(field.inputName) ?: field.value

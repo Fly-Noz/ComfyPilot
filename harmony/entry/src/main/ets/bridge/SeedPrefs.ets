@@ -33,7 +33,7 @@ export class SeedPrefs {
 
   lastSeed(path: string, nodeId: number): number {
     const value = this.readMap(KEY_LAST)[`${path}|${nodeId}`];
-    return typeof value === 'number' ? value : 0;
+    return typeof value === 'number' ? value : -1;
   }
 
   rememberSeed(path: string, nodeId: number, seed: number): void {
@@ -60,6 +60,7 @@ export class SeedPrefs {
     }
     try {
       this.store.putSync(key, JSON.stringify(map));
+      this.store.flush().then(() => {}).catch(() => {});
     } catch (err) {
       // 内存里已生效，仅影响下次启动。
     }

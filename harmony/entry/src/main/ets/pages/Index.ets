@@ -9740,6 +9740,10 @@ struct Index {
   /** 提交前按“每次随机”改写种子，并记录本次实际值。 */
   private prepareSeeds(): void {
     this.view.nodes.forEach((node: WorkflowNodeView) => {
+      // 关闭或不可达的节点不会提交，跳过。
+      if (!node.reachable || !node.enabled) {
+        return;
+      }
       node.fields.forEach((field: WorkflowFieldView) => {
         if (!this.isSeedField(field)) {
           return;
@@ -9751,6 +9755,9 @@ struct Index {
           this.seedPrefs.rememberSeed(this.selectedPath, node.id, seed);
         } else {
           const raw = this.edits.has(key) ? this.edits.get(key) : field.value;
+          if (raw === null || raw === undefined) {
+            return;
+          }
           const value = typeof raw === 'number' ? raw : Number(raw);
           if (!Number.isNaN(value)) {
             this.seedPrefs.rememberSeed(this.selectedPath, node.id, value);
@@ -9773,7 +9780,7 @@ struct Index {
         .backgroundColor(this.c().accentSoft).borderRadius(8)
         .onClick(() => {
           const last = this.seedPrefs.lastSeed(this.selectedPath, field.nodeId);
-          if (last > 0) {
+          if (last >= 0) {
             this.setFieldText(field, `${last}`);
           }
         })
