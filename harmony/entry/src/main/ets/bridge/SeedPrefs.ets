@@ -22,7 +22,10 @@ export class SeedPrefs {
   }
 
   isEvery(path: string, nodeId: number): boolean {
-    return this.readMap(KEY_EVERY)[`${path}|${nodeId}`] === 1;
+    const key = `${path}|${nodeId}`;
+    const map = this.readMap(KEY_EVERY);
+    // 默认开启；只有用户明确关过（存 0）才关闭。
+    return map[key] === undefined ? true : map[key] === 1;
   }
 
   setEvery(path: string, nodeId: number, value: boolean): void {

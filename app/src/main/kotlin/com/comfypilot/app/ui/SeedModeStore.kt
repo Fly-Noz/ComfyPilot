@@ -29,7 +29,9 @@ object SeedModeStore {
 
     fun isEveryRandom(context: Context, nodeId: Int): Boolean {
         val raw = context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(KEY_EVERY, null)
-        return readLongMap(raw)[key(nodeId)] == 1L
+        val map = readLongMap(raw)
+        // 默认开启「每次随机」；只有用户明确关过（存 0）才关闭。
+        return map[key(nodeId)]?.let { it != 0L } ?: true
     }
 
     fun setEveryRandom(context: Context, nodeId: Int, value: Boolean) {
