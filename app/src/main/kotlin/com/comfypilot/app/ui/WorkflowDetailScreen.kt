@@ -2154,13 +2154,13 @@ private fun NodeInputCard(
                         },
                         onChange = { value -> onChange(node.id, field.inputName, value) },
                     )
+                    }
                     if (node.reachable && enabled && SeedModeStore.isSeedField(field)) {
                         SeedActions(
                             nodeId = node.id,
                             field = field,
                             onChange = onChange,
                         )
-                    }
                     }
                 }
                 if (node.fields.isEmpty()) {
