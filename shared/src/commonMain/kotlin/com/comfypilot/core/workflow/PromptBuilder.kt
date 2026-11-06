@@ -397,6 +397,25 @@ object PromptBuilder {
             inputs["filename_prefix"] = JsonPrimitive("${base}_$token")
         }
 
+        // 工作流里的控件值可能是字符串（例如 bit_depth 存成 "8"），服务端按类型校验会
+        // 直接拒绝。按字段定义把 INT/FLOAT/BOOLEAN 的字符串字面量转成真正的数字/布尔。
+        for ((name, value) in inputs.toList()) {
+            val type = declaredByName[name]?.type ?: continue
+            val text = (value as? JsonPrimitive)?.contentOrNull ?: continue
+            when (type) {
+                "INT" -> (text.toLongOrNull() ?: text.toDoubleOrNull()?.toLong())
+                    ?.let { inputs[name] = JsonPrimitive(it) }
+                "FLOAT" -> text.toDoubleOrNull()?.let {
+                    // 整数浮点写成 7 而不是 7.0，服务端与旧测试都按数字处理。
+                    inputs[name] = if (it % 1.0 == 0.0) JsonPrimitive(it.toLong()) else JsonPrimitive(it)
+                }
+                "BOOLEAN" -> when (text.lowercase()) {
+                    "true" -> inputs[name] = JsonPrimitive(true)
+                    "false" -> inputs[name] = JsonPrimitive(false)
+                }
+            }
+        }
+
         return buildJsonObject {
             put("class_type", definition.className)
             put("inputs", JsonObject(inputs))
