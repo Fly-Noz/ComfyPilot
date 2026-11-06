@@ -32,6 +32,7 @@ import { DismissedErrorStore } from '../bridge/DismissedErrorStore';
 import { AppearanceStore } from '../bridge/AppearanceStore';
 import { SubmitPrefs } from '../bridge/SubmitPrefs';
 import { WeakNetworkPrefs } from '../bridge/WeakNetworkPrefs';
+import { SeedPrefs } from '../bridge/SeedPrefs';
 import { ClientIdStore } from '../bridge/ClientIdStore';
 import { TaskNotifier } from '../notify/TaskNotifier';
 import { emptyServerStats, fetchServerStats, sameServerStats, ServerStats } from '../bridge/ServerStats';
@@ -477,10 +478,12 @@ struct Index {
   private appearanceStore: AppearanceStore = new AppearanceStore();
   private submitPrefs: SubmitPrefs = new SubmitPrefs();
   private weakPrefs: WeakNetworkPrefs = new WeakNetworkPrefs();
+  private seedPrefs: SeedPrefs = new SeedPrefs();
   /** 忽略本地校验，强制提交：请求里带给共享层。 */
   @State forceSubmit: boolean = false;
   @State weakNetwork: boolean = false;
   @State weakDialogOpen: boolean = false;
+  @State seedTick: number = 0;
   private clientIdStore: ClientIdStore = new ClientIdStore();
   private notifier: TaskNotifier = new TaskNotifier();
   /** 页面是否可见：只有切到后台才需要进度/完成通知。 */
@@ -1064,6 +1067,7 @@ struct Index {
     // 强制提交开关也落盘：默认关闭，恢复原来的严格校验。
     this.forceSubmit = await this.submitPrefs.load(context);
     this.weakNetwork = await this.weakPrefs.load(context);
+    await this.seedPrefs.load(context);
     this.imageUploader.weakNetwork = this.weakNetwork;
     this.bridge.weakNetwork = this.weakNetwork;
     this.ai.forceMechanical = this.weakNetwork;
@@ -3014,6 +3018,7 @@ struct Index {
       return;
     }
     this.submitting = true;
+    this.prepareSeeds();
     this.submitNotice = '';
     this.notice = '';
     try {
@@ -3748,6 +3753,10 @@ struct Index {
           .width('100%')
           .padding({ left: 12, right: 12 })
           .onChange((value: string) => this.setFieldText(field, value))
+      }
+
+      if (this.isSeedField(field)) {
+        this.SeedActions(field)
       }
 
       if (field.required && field.widget && !field.linked &&
@@ -9717,6 +9726,71 @@ struct Index {
     }
     .width('100%')
     .height('100%')
+  }
+
+  private isSeedField(field: WorkflowFieldView): boolean {
+    return field.widget && !field.linked && field.type === 'INT' &&
+      field.inputName.toLowerCase().indexOf('seed') >= 0;
+  }
+
+  private randomSeed(): number {
+    return Math.floor(Math.random() * 2147483646) + 1;
+  }
+
+  /** 提交前按“每次随机”改写种子，并记录本次实际值。 */
+  private prepareSeeds(): void {
+    this.view.nodes.forEach((node: WorkflowNodeView) => {
+      node.fields.forEach((field: WorkflowFieldView) => {
+        if (!this.isSeedField(field)) {
+          return;
+        }
+        const key = this.editKey(node.id, field.inputName);
+        if (this.seedPrefs.isEvery(this.selectedPath, node.id)) {
+          const seed = this.randomSeed();
+          this.edits.set(key, seed);
+          this.seedPrefs.rememberSeed(this.selectedPath, node.id, seed);
+        } else {
+          const raw = this.edits.has(key) ? this.edits.get(key) : field.value;
+          const value = typeof raw === 'number' ? raw : Number(raw);
+          if (!Number.isNaN(value)) {
+            this.seedPrefs.rememberSeed(this.selectedPath, node.id, value);
+          }
+        }
+      });
+    });
+    this.editTick++;
+  }
+
+  @Builder
+  SeedActions(field: WorkflowFieldView) {
+    Row({ space: 8 }) {
+      Text('随机').fontSize(10).fontColor(this.c().accent)
+        .padding({ left: 9, right: 9, top: 5, bottom: 5 })
+        .backgroundColor(this.c().accentSoft).borderRadius(8)
+        .onClick(() => { this.setFieldText(field, `${this.randomSeed()}`); })
+      Text('使用上次').fontSize(10).fontColor(this.c().accent)
+        .padding({ left: 9, right: 9, top: 5, bottom: 5 })
+        .backgroundColor(this.c().accentSoft).borderRadius(8)
+        .onClick(() => {
+          const last = this.seedPrefs.lastSeed(this.selectedPath, field.nodeId);
+          if (last > 0) {
+            this.setFieldText(field, `${last}`);
+          }
+        })
+      Blank()
+      Text('每次随机').fontSize(10).fontColor(this.c().textMuted)
+      Toggle({ type: ToggleType.Switch,
+        isOn: this.seedPrefs.isEvery(this.selectedPath, field.nodeId) })
+        .enabled(this.nodeFieldEnabled(field.nodeId))
+        .selectedColor(this.c().accent)
+        .switchPointColor(this.c().accentInk)
+        .onChange((value: boolean) => {
+          this.seedPrefs.setEvery(this.selectedPath, field.nodeId, value);
+          this.seedTick++;
+        })
+    }
+    .width('100%')
+    .id(`seed-${field.nodeId}-${field.inputName}-${this.seedTick}`)
   }
 
   @Builder

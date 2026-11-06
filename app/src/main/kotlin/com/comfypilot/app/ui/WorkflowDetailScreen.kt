@@ -180,6 +180,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlin.random.Random
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
@@ -196,6 +197,9 @@ fun WorkflowDetailScreen(
     onOpenWorkflow: (String) -> Unit,
 ) {
     val document = state.workflow.document
+    LaunchedEffect(document?.path) {
+        SeedModeStore.workflowPath = document?.path.orEmpty()
+    }
 
     SpectrumScaffold(
         topBar = {
@@ -679,9 +683,12 @@ private fun DetailBody(
     fun submit(force: Boolean = false) {
         // 和鸿蒙侧一致：每次提交给保存节点追加唯一后缀，避免工作流前缀不唯一时
         // （例如 ComfyUI 不支持的 %date:...%）后一次产物覆盖前一次。
+        // 种子节点：提交前按“每次随机”生成新值，并记住本次实际用了什么。
+        val seededOverrides = SeedModeStore.prepareForSubmit(context, overrides, analysis.fields.nodes)
+        if (seededOverrides != overrides) overrides = seededOverrides
         val decision = WorkflowDecisions.decide(
             analysis = analysis,
-            overrides = overrides,
+            overrides = seededOverrides,
             runToken = UUID.randomUUID().toString().replace("-", "").take(10),
             // 用户明确开了「忽略本地校验」就按强制模式构建；否则维持原来的严格校验。
             forceSubmit = force || ForceSubmitPrefs.isEnabled(context),
@@ -2147,6 +2154,13 @@ private fun NodeInputCard(
                         },
                         onChange = { value -> onChange(node.id, field.inputName, value) },
                     )
+                    if (node.reachable && enabled && SeedModeStore.isSeedField(field)) {
+                        SeedActions(
+                            nodeId = node.id,
+                            field = field,
+                            onChange = onChange,
+                        )
+                    }
                     }
                 }
                 if (node.fields.isEmpty()) {
@@ -3170,4 +3184,58 @@ private fun VhsAnimationPlayback(
     } else {
         androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize())
     }
+}
+/** 种子字段下的快捷操作：随机、使用上次、每次随机。 */
+@Composable
+private fun SeedActions(
+    nodeId: Int,
+    field: WorkflowField,
+    onChange: (Int, String, JsonElement) -> Unit,
+) {
+    val c = Spectrum.colors
+    val context = LocalContext.current
+    var every by remember(nodeId, field.inputName) {
+        mutableStateOf(SeedModeStore.isEveryRandom(context, nodeId))
+    }
+    val last = SeedModeStore.lastSeed(context, nodeId)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SeedChip("随机") {
+            onChange(nodeId, field.inputName, JsonPrimitive(Random.nextLong(1, 2_147_483_647L)))
+        }
+        SeedChip("使用上次") {
+            last?.let { onChange(nodeId, field.inputName, JsonPrimitive(it)) }
+        }
+        Spacer(Modifier.weight(1f))
+        Text("每次随机", color = c.textMuted, fontSize = 10.sp)
+        Switch(
+            checked = every,
+            onCheckedChange = {
+                every = it
+                SeedModeStore.setEveryRandom(context, nodeId, it)
+            },
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = c.accentInk,
+                checkedTrackColor = c.accent,
+            ),
+        )
+    }
+}
+
+@Composable
+private fun SeedChip(text: String, onClick: () -> Unit) {
+    val c = Spectrum.colors
+    Text(
+        text = text,
+        color = c.accent,
+        fontSize = 10.sp,
+        modifier = Modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(c.accentSoft)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+    )
 }
