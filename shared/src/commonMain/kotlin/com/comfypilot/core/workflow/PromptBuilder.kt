@@ -42,6 +42,18 @@ sealed interface PromptBuild {
  * - 只提交 `/object_info` 声明过的输入；自动增长输入保留 `name.sub` 扁平键；
  * - 上游是服务端没有的节点时直接报错，不猜它的值。
  */
+/**
+ * 候选匹配忽略路径分隔符与大小写：Windows 工作流里常是 `krea2\角色\x.safetensors`，
+ * 而服务端 object_info 往往返回 `krea2/角色/x.safetensors`。
+ */
+private fun matchComboOption(options: List<String>, text: String): String? {
+    options.firstOrNull { it == text }?.let { return it }
+    val normalized = text.replace('\\', '/').trim()
+    return options.firstOrNull {
+        it.replace('\\', '/').trim().equals(normalized, ignoreCase = true)
+    }
+}
+
 object PromptBuilder {
 
     /**
@@ -315,21 +327,18 @@ object PromptBuilder {
             // 打开工作流时抓到的候选快照里，替换成别的图会让第二个 LoadImage 用错文件。
             val text = (value as? JsonPrimitive)?.contentOrNull
             if (!declared.imageUpload && !declared.dynamic &&
-                declared.options.isNotEmpty() && text != null && text !in declared.options
+                declared.options.isNotEmpty() && text != null
             ) {
-                val fallback = declared.defaultValue?.takeIf { it !is JsonNull }
-                    ?: declared.options.firstOrNull()?.let { JsonPrimitive(it) }
-                if (fallback == null) {
-                    problems += BuildProblem(
-                        node.id,
-                        node.type,
-                        "字段 ${declared.name} 的值「$text」不在候选列表里（候选：${declared.options.take(6).joinToString("、")}）",
-                    )
+                val matched = matchComboOption(declared.options, text)
+                if (matched != null) {
+                    // Windows 工作流常用反斜杠，服务端候选常用正斜杠；匹配上就用候选的写法。
+                    inputs[declared.name] = JsonPrimitive(matched)
                     continue
                 }
-                val shown = (fallback as? JsonPrimitive)?.contentOrNull ?: fallback.toString()
-                warnings += "节点 ${node.title}（#${node.id}）的 ${declared.name} 旧值「$text」已不在候选里，提交时改用「$shown」"
-                inputs[declared.name] = fallback
+                // 候选可能来自尚未刷新完的 object_info，也可能是另一台服务器：
+                // 不替换，保留原值，只给一条短提示。
+                inputs[declared.name] = value
+                warnings += "节点 #${node.id} 的 ${declared.name}「${text.take(40)}」不在候选里，按原值提交"
                 continue
             }
             inputs[declared.name] = value
@@ -685,19 +694,18 @@ internal object WidgetValueReader {
             val text = (value as? JsonPrimitive)?.contentOrNull
             // imageUpload 的候选是服务器当前的文件列表，本来就会超出定义里的快照；
             // dynamic 附加控件的候选也随当前选项变化，两者都不能拿旧候选去卡。
+            val matched = if (def == null) null else text?.let { matchComboOption(def.options, it) }
             if (
                 def == null || def.options.isEmpty() || def.imageUpload || def.dynamic ||
-                text == null || text in def.options
+                text == null || matched != null
             ) {
-                out[name] = value
+                out[name] = if (matched != null) JsonPrimitive(matched) else value
                 continue
             }
             // 不自动替换：候选可能来自尚未刷新完的 object_info，也可能是另一台服务器；
-            // 静默换成第一个候选会让用户拿错模型/文件名提交。保留原值并明确告知，
-            // 服务端拒绝时用户能看到真实错误，再自己重新选。
+            // 静默换成第一个候选会让用户拿错模型/文件名提交。保留原值并短提示。
             out[name] = value
-            warnings += "节点 ${node.title}（#${node.id}）的 $name 值「$text」不在当前候选里，" +
-                "仍按原值提交；若服务端拒绝，请重新选择（候选可能尚未加载完整）"
+            warnings += "节点 #${node.id} 的 $name「${text.take(40)}」不在候选里，按原值提交"
         }
         return out
     }
