@@ -9726,7 +9726,7 @@ struct Index {
         .width('100%')
         .height('100%')
         .backgroundColor('#99000000')
-        .onClick(() => { this.weakDialogOpen = false; })
+        .onClick(() => { this.weakNetwork = false; this.weakDialogOpen = false; })
       Column({ space: 8 }) {
         Text('开启弱网模式？').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.c().text)
         Text('开启后以下行为会改变：').fontSize(12.5).fontColor(this.c().text)
@@ -9741,7 +9741,7 @@ struct Index {
             .fontSize(12.5).fontColor(this.c().textMuted)
             .padding({ left: 14, right: 14, top: 8, bottom: 8 })
             .backgroundColor(this.c().card).borderRadius(10)
-            .onClick(() => { this.weakDialogOpen = false; })
+            .onClick(() => { this.weakNetwork = false; this.weakDialogOpen = false; })
           Text('开启')
             .fontSize(12.5).fontColor('#FFFFFF')
             .padding({ left: 14, right: 14, top: 8, bottom: 8 })
@@ -9823,6 +9823,7 @@ struct Index {
           Toggle({ type: ToggleType.Switch, isOn: this.weakNetwork })
             .onChange((value: boolean) => {
               if (value) {
+                this.weakNetwork = true;
                 this.weakDialogOpen = true;
               } else {
                 this.setWeakNetwork(false);

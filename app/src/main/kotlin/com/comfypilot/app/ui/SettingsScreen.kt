@@ -296,7 +296,10 @@ private fun AdvancedSettingsPage(
                 if (showWeakConfirm) {
                     SpectrumDialog(
                         title = "开启弱网模式？",
-                        onDismiss = { showWeakConfirm = false },
+                        onDismiss = {
+                            weakNetwork = false
+                            showWeakConfirm = false
+                        },
                         confirmText = "开启",
                         dismissText = "取消",
                         onConfirm = {
