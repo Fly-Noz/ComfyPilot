@@ -1064,6 +1064,7 @@ struct Index {
     this.forceSubmit = await this.submitPrefs.load(context);
     this.weakNetwork = await this.weakPrefs.load(context);
     this.imageUploader.weakNetwork = this.weakNetwork;
+    this.bridge.weakNetwork = this.weakNetwork;
     this.ai.forceMechanical = this.weakNetwork;
     if (workflowPinsReady) {
       this.pinnedWorkflowPaths = this.pinnedWorkflowStore.load();
@@ -8491,6 +8492,7 @@ struct Index {
 
   private setWeakNetwork(value: boolean): void {
     this.imageUploader.weakNetwork = value;
+    this.bridge.weakNetwork = value;
     this.weakNetwork = value;
     this.ai.forceMechanical = value;
     this.weakPrefs.save(getContext(this) as common.Context, value);

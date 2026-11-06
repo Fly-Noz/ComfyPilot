@@ -76,6 +76,34 @@ export class ArtifactDownloader {
     tempPath: string,
     title: string,
   ): Promise<void> {
+    // 弱网/代理抖动时重试两次；每次从头下，失败的临时文件先删掉。
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await this.downloadOnce(context, base, output, tempPath, title);
+        return;
+      } catch (err) {
+        lastError = err as Error;
+        try {
+          fileIo.unlinkSync(tempPath);
+        } catch (ignored) {
+          // 文件不存在时忽略。
+        }
+        if (attempt < 2) {
+          await new Promise<void>((resolve) => setTimeout(() => resolve(), 500 * (attempt + 1)));
+        }
+      }
+    }
+    throw lastError ?? new Error('下载失败');
+  }
+
+  private async downloadOnce(
+    context: common.UIAbilityContext,
+    base: string,
+    output: BridgeOutput,
+    tempPath: string,
+    title: string,
+  ): Promise<void> {
     const task = await request.downloadFile(context, {
       url: base + output.path,
       filePath: tempPath,

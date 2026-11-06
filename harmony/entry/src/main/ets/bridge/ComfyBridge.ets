@@ -236,6 +236,8 @@ function trace(line: string): void {
 }
 
 export class ComfyBridge {
+  /** 弱网模式：HTTP 超时放宽到至少 40s。 */
+  weakNetwork: boolean = false;
   onState: (state: BridgeState) => void = () => {};
   onNotice: (text: string) => void = () => {};
   onLog: (line: string) => void = () => {};
@@ -637,11 +639,13 @@ export class ComfyBridge {
       });
     }
     const timeout: number = command.timeoutMs ?? 20000;
+    // 弱网下放宽 HTTP 超时，避免大 JSON/慢代理直接判失败。
+    const effectiveTimeout = this.weakNetwork ? Math.max(timeout, 40000) : timeout;
     const options: http.HttpRequestOptions = {
       method: command.method === 'POST' ? http.RequestMethod.POST : http.RequestMethod.GET,
       header: header,
-      connectTimeout: timeout,
-      readTimeout: timeout,
+      connectTimeout: effectiveTimeout,
+      readTimeout: effectiveTimeout,
       expectDataType: http.HttpDataType.STRING,
       usingCache: false,
     };

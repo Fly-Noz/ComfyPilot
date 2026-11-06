@@ -11,12 +11,14 @@ import com.comfypilot.core.api.ApiPaths
 import com.comfypilot.core.api.ArtifactNames
 import com.comfypilot.core.api.TaskOutput
 import com.comfypilot.core.api.ViewRequest
+import com.comfypilot.app.ui.WeakNetworkPrefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
@@ -42,6 +44,15 @@ class ArtifactDownloader(
         if (baseUrl.isBlank()) return@withContext ArtifactDownloadResult.Failed("未连接 ComfyUI")
 
         val appContext = context.applicationContext
+        // 弱网下放宽下载超时：大视频在慢链路上 60s 读超时不够。
+        val weak = WeakNetworkPrefs.isEnabled(context)
+        val activeClient = client.newBuilder().apply {
+            if (weak) {
+                connectTimeout(20, TimeUnit.SECONDS)
+                readTimeout(180, TimeUnit.SECONDS)
+                writeTimeout(180, TimeUnit.SECONDS)
+            }
+        }.build()
         val filename = ArtifactNames.sanitize(output.filename)
         val mimeType = ArtifactNames.mimeType(filename)
         val url = ApiPaths.viewUrl(
@@ -49,24 +60,48 @@ class ArtifactDownloader(
             ViewRequest(output.filename, output.subfolder, output.type),
         )
 
+        // 先落到缓存临时文件：支持中断后按 Range 续传，再写系统下载目录。
+        val temp = File.createTempFile("comfypilot-", ".part", appContext.cacheDir)
         try {
-            client.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
-                if (!response.isSuccessful) {
-                    return@withContext ArtifactDownloadResult.Failed("HTTP ${response.code}")
-                }
-                val body = response.body
-                body.byteStream().use { input ->
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                        saveToMediaStore(appContext, filename, mimeType, input)
-                    } else {
-                        saveToLegacyDownloads(appContext, filename, mimeType, input)
-                    }
+            fetchToFile(activeClient, url, temp)
+            temp.inputStream().use { input ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    saveToMediaStore(appContext, filename, mimeType, input)
+                } else {
+                    saveToLegacyDownloads(appContext, filename, mimeType, input)
                 }
             }
         } catch (t: Throwable) {
             ArtifactDownloadResult.Failed(
                 t.message?.takeIf { it.isNotBlank() } ?: t::class.simpleName ?: "下载失败",
             )
+        } finally {
+            temp.delete()
+        }
+    }
+
+    /** 最多 3 次；已有数据就用 Range 续传，服务端不支持时从头覆盖。 */
+    private fun fetchToFile(client: OkHttpClient, url: String, temp: File) {
+        var attempt = 0
+        while (true) {
+            val have = if (temp.exists()) temp.length() else 0L
+            val request = Request.Builder().url(url)
+                .apply { if (have > 0) header("Range", "bytes=$have-") }
+                .get()
+                .build()
+            try {
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) throw IOException("HTTP ${response.code}")
+                    val append = have > 0 && response.code == 206
+                    val sink = FileOutputStream(temp, append)
+                    sink.use { copy(response.body.byteStream(), it) }
+                    return
+                }
+            } catch (t: Throwable) {
+                attempt += 1
+                if (attempt >= 3) throw t
+                Thread.sleep(500L * attempt)
+            }
         }
     }
 
