@@ -413,6 +413,23 @@ object PromptBuilder {
                     "true" -> inputs[name] = JsonPrimitive(true)
                     "false" -> inputs[name] = JsonPrimitive(false)
                 }
+                // 有些下拉是混合类型（如 bit_depth: [auto, 8, 10]）：
+                // 工作流存的是字符串 "8"，服务端按数字校验会拒绝，这里按候选类型还原成数字。
+                "COMBO" -> {
+                    val number = text.toLongOrNull()
+                    val numericOption = number != null && declaredByName[name]?.options
+                        ?.any { it.trim().toLongOrNull() == number } == true
+                    if (number != null && numericOption) {
+                        inputs[name] = JsonPrimitive(number)
+                    }
+                }
+            }
+            // 兜底：定义类型没标成 INT/COMBO，但候选里确实有同名数字时，也按数字发送。
+            val numeric = text.toLongOrNull()
+            val hasNumericOption = declaredByName[name]?.options
+                ?.any { it.trim().toLongOrNull() == numeric } == true
+            if (numeric != null && hasNumericOption) {
+                inputs[name] = JsonPrimitive(numeric)
             }
         }
 
