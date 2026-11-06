@@ -1,8 +1,8 @@
 {
-  "versionCode": 7,
-  "versionName": "0.3.3",
-  "publishedAt": "2026-11-04",
-  "notes": "• 修复节点参数修改可能丢失的问题\n• 新增网络质量检测：延迟、稳定性、下载速度与服务端负载\n• 修复 AI 待确认列表无法滚动、反复追问、切流后不认识当前工作流\n• 提交时不再把失效候选静默替换成别的模型",
+  "versionCode": 8,
+  "versionName": "0.3.4",
+  "publishedAt": "2026-11-06",
+  "notes": "• 新增弱网模式与种子节点快捷操作\n• 新增产物图片双指缩放与拖动\n• 修复多图片提交、字符串数字校验与 LoRA 候选误报\n• AI 支持上下文压缩、失败重试与 10 步撤销",
   "android": {
     "github": "https://github.com/Fly-Noz/ComfyPilot/releases/latest",
     "gitee": "https://gitee.com/Fly-Noz/ComfyPilot/releases"
