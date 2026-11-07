@@ -197,6 +197,14 @@ App 里填 `http://<主机IP>:8188`，主机 IP 用启动脚本打印的那个�
 - 卸载即删除；参数草稿可在「设置 → 工作流参数」里恢复默认；
 - 隐私政策模板见 [docs/release/privacy-policy.zh-CN.md](docs/release/privacy-policy.zh-CN.md)。
 
+## 支持项目
+
+如果 ComfyPilot 对你有帮助，可以通过爱发电支持后续开发：
+
+- **爱发电**：https://afdian.com/a/Fly-Noz
+
+赞助用于测试设备、服务器与版本维护，不影响功能、授权或更新。项目仍以 GPL-3.0 开源。
+
 ## 已知限制
 
 - 只支持 HTTP 直连，跨公网请自备 VPN/内网穿透；
