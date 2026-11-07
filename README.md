@@ -1,6 +1,12 @@
 <div align="center">
 
-<a href="https://github.com/Fly-Noz/ComfyPilot"><img src="docs/assets/readme/banner.webp" width="100%" alt="ComfyPilot：ComfyUI 的移动客户端，连上你自己的主机" /></a>
+<img src="docs/design/app-icon/master_1024.png" width="132" alt="ComfyPilot" />
+
+<h1>ComfyPilot</h1>
+
+<p><b>ComfyUI 的移动客户端：Android + HarmonyOS NEXT，共享一套 Kotlin 核心。</b></p>
+
+<p>连上你自己的 ComfyUI，就能在手机上看进度、调参数、收结果。</p>
 
 <p>
   <a href="https://github.com/Fly-Noz/ComfyPilot/releases"><img src="https://img.shields.io/github/v/release/Fly-Noz/ComfyPilot?include_prereleases&label=release&color=7c5cff" alt="Release"></a>
@@ -34,14 +40,10 @@
 - 连线提供的字段会标出来源节点（如 `#330 Seed (rgthree)`）
 - 提交前按字段定义转换类型，避免 `"8"` 这类字符串数字被服务端拒绝
 
-<p align="center"><img src="docs/assets/detail.jpg" width="300" alt="工作流详情：节点参数与开关"></p>
-
 ### 采样预览
 
 - 服务端装了 [VideoHelperSuite](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) 时，采样过程能看到循环动画，随采样推进逐轮变清晰；未安装时退化为单帧预览
 - 断线重连后保留最后一帧，并标注它有多旧，不假装实时
-
-<p align="center"><img src="https://cdn.jsdelivr.net/gh/Fly-Noz/ComfyPilot@main/docs/assets/demo.gif" width="220" alt="采样动画预览"></p>
 
 ### 任务与通知
 
@@ -49,14 +51,10 @@
 - 切后台/锁屏可以收到进度与完成通知，回前台自动撤掉
 - 自动重连、后台保活；任务超过 60 秒没进度会提示「主机可能正在加载模型」
 
-<p align="center"><img src="docs/assets/tasks.jpg" width="320" alt="任务列表与状态"></p>
-
 ### 产物
 
 - 图片 / 视频 / GIF 预览，保存到相册或下载目录
 - 大图支持双指缩放、拖动，双击在 1x / 2x 间切换
-
-<p align="center"><img src="docs/assets/output.jpg" width="320" alt="产物预览"></p>
 
 ### 主题
 
@@ -218,6 +216,8 @@ App 里填 `http://<主机IP>:8188`，主机 IP 用启动脚本打印的那个�
 - 子图展开后的合成节点 id 可能变化，按节点 id 存的本地状态（如“上次种子”）可能对不上；
 - HarmonyOS 发布包需要 AGC 签名，仓库里的 HAP 仅供调试/自签名；
 - 鸿蒙端保存到相册的图片会转成 8-bit RGB PNG（绕过系统相册对 RGBA PNG 的预览色块问题），动图会保存为静态图。
+
+<p align="center"><img src="docs/assets/readme/banner.webp" width="100%" alt="ComfyPilot：ComfyUI 的移动客户端，连上你自己的主机"></p>
 
 ## 许可证与声明
 
