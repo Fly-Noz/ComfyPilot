@@ -77,6 +77,8 @@
 
 <p align="center"><img src="docs/assets/readme/ai.webp" width="100%" alt="AI 助手：说一句要什么，改完先看 diff"></p>
 
+<p align="center"><img src="docs/assets/readme/ai-demo.gif" width="100%" alt="AI 助手：先问路线，再一轮轮修改"></p>
+
 <p align="center"><sub>详见 <a href="docs/ai-assistant.md">docs/ai-assistant.md</a></sub></p>
 
 ### 监控
@@ -91,6 +93,8 @@
 - AI 上下文强制使用本地摘要，不额外调用模型
 
 ## 支持范围
+
+<p align="center"><img src="docs/assets/readme/dual.webp" width="100%" alt="HarmonyOS 与 Android 两端原生界面，共享同一套 Kotlin 核心"></p>
 
 | 平台 | 要求 | 包名 |
 |---|---|---|
