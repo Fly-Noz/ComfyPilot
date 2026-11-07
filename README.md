@@ -1,3 +1,5 @@
+<p align="right"><a href="README.en.md">English</a> · <b>简体中文</b></p>
+
 <div align="center">
 
 <img src="docs/design/app-icon/master_1024.png" width="132" alt="ComfyPilot" />
@@ -214,7 +216,7 @@ App 里填 `http://<主机IP>:8188`，主机 IP 用启动脚本打印的那个�
 - 鸿蒙端暂未做 WS 主动心跳与 VPN 标识；
 - `PrimitiveNode` 作为“值节点”参与连线仍不支持；
 - 子图展开后的合成节点 id 可能变化，按节点 id 存的本地状态（如“上次种子”）可能对不上；
-- HarmonyOS 发布包需要 AGC 签名，仓库里的 HAP 仅供调试/自签名；
+- HarmonyOS 发布包需要 AGC 签名；Releases 里的 HAP 是未签名包，仅供调试或自行签名；
 - 鸿蒙端保存到相册的图片会转成 8-bit RGB PNG（绕过系统相册对 RGBA PNG 的预览色块问题），动图会保存为静态图。
 
 <p align="center"><img src="docs/assets/readme/banner.webp" width="100%" alt="ComfyPilot：ComfyUI 的移动客户端，连上你自己的主机"></p>
