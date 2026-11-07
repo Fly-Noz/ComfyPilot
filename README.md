@@ -14,6 +14,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-3da639" alt="License"></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-3ddc84?logo=android&logoColor=white" alt="Android">
   <img src="https://img.shields.io/badge/HarmonyOS-NEXT-0a59f7" alt="HarmonyOS">
+  <a href="https://afdian.com/a/Fly-Noz"><img src="https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E8%B5%9E%E5%8A%A9%E6%94%AF%E6%8C%81-946ce6" alt="爱发电"></a>
   <a href="https://github.com/Fly-Noz/ComfyPilot/stargazers"><img src="https://img.shields.io/github/stars/Fly-Noz/ComfyPilot?style=social" alt="Stars"></a>
 </p>
 
