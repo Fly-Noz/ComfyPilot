@@ -66,5 +66,11 @@ keystore.properties
 agconnect-services.json
 
 # 本机会话产物（AI 助手的记忆目录，不进版本库）
-.workbuddy/
+.agent-memory/
 .scratch/*.mjs
+
+# 备案材料已外迁至 E:\ComfyPilot-备案\，不再放仓库内
+.scratch/shots/
+
+# 签名配置备份（build-profile 内含 certpath 与口令）
+.scratch/build-profile.json5.bak*

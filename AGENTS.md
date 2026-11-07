@@ -1,7 +1,7 @@
 # AGENTS.md
 
 本文件是 ComfyPilot 的长期协作约定。新会话先读这里，再读 `README.md` 与 `docs/agents/`。
-更细的会话记录在 `.workbuddy/memory/`（本机、未入库），但**以本文件为准**。
+更细的会话记录在 `.agent-memory/`（本机、未入库），但**以本文件为准**。
 
 ## 项目概览
 
@@ -113,6 +113,6 @@ Single-context (`GLOSSARY.md` + `docs/adr/` at the repo root). See `docs/agents/
 ### 会话记忆
 
 - 长期约定写在**本文件**（随仓库走）；
-- 当天工作记录可写 `.workbuddy/memory/YYYY-MM-DD.md`（本机、不入库）；
+- 当天工作记录可写 `.agent-memory/YYYY-MM-DD.md`（本机、不入库）；
 - 切换 AI/工具前，先让当前 Agent 把交接摘要写进 memory，或直接更新本文件；
 - 修复类改动完成后，优先补测试或说明验证方式。
