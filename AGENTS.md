@@ -113,6 +113,7 @@ Single-context (`GLOSSARY.md` + `docs/adr/` at the repo root). See `docs/agents/
 ### 会话记忆
 
 - 长期约定写在**本文件**（随仓库走）；
-- 当天工作记录可写 `.agent-memory/YYYY-MM-DD.md`（本机、不入库）；
-- 切换 AI/工具前，先让当前 Agent 把交接摘要写进 memory，或直接更新本文件；
+- 当前状态、最近改动与交接写在 `.agent-memory/MEMORY.md`（本机、不入库，换 AI 时先读它）；
+- 早期过程日志归档到 `E:\ComfyPilot-notes\agent-memory-archive\`，不要继续堆在项目里；
+- 每次会话结束更新 `MEMORY.md` 的“当前状态 / 最近完成 / 已知问题”三节，并写清日期与提交号；
 - 修复类改动完成后，优先补测试或说明验证方式。
