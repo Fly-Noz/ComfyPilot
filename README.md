@@ -1,12 +1,6 @@
 <div align="center">
 
-<img src="docs/design/app-icon/master_1024.png" width="132" alt="ComfyPilot" />
-
-<h1>ComfyPilot</h1>
-
-<p><b>ComfyUI 的移动客户端：Android + HarmonyOS NEXT，共享一套 Kotlin 核心。</b></p>
-
-<p>连上你自己的 ComfyUI，就能在手机上看进度、调参数、收结果。</p>
+<a href="https://github.com/Fly-Noz/ComfyPilot"><img src="docs/assets/readme/banner.webp" width="100%" alt="ComfyPilot：ComfyUI 的移动客户端，连上你自己的主机" /></a>
 
 <p>
   <a href="https://github.com/Fly-Noz/ComfyPilot/releases"><img src="https://img.shields.io/github/v/release/Fly-Noz/ComfyPilot?include_prereleases&label=release&color=7c5cff" alt="Release"></a>
@@ -28,6 +22,8 @@
 > 演示截图中的图片均由 AI 生成，非真实人物。
 
 ## 功能
+
+<p align="center"><img src="docs/assets/readme/overview.webp" width="100%" alt="调参数、看采样、收结果"></p>
 
 ### 工作流与参数
 
@@ -79,6 +75,8 @@
 - 会按工作流记住最近几次改动，切换工作流后仍知道当前上下文
 - Key 只存本机（Android Keystore / 鸿蒙 Asset Store），不经过任何中转
 
+<p align="center"><img src="docs/assets/readme/ai.webp" width="100%" alt="AI 助手：说一句要什么，改完先看 diff"></p>
+
 <p align="center"><sub>详见 <a href="docs/ai-assistant.md">docs/ai-assistant.md</a></sub></p>
 
 ### 监控
@@ -103,21 +101,7 @@
 
 ## 架构
 
-```
-┌──────────────────────┐      ┌──────────────────────────┐
-│ Android (Compose)    │      │ HarmonyOS (ArkTS/ArkUI)  │
-│  app/                │      │  harmony/                │
-└──────────┬───────────┘      └────────────┬─────────────┘
-           │ Kotlin 直接调用                 │ C ABI（napi）
-           ▼                                 ▼
-┌──────────────────────────────────────────────────────────┐
-│ shared/  Kotlin Multiplatform 核心                        │
-│  会话状态机、WebSocket/HTTP、工作流解析、提示词构建、      │
-│  任务状态、预览帧解码、桥协议                              │
-└──────────────────────────────────────────────────────────┘
-                                             ▲
-                              ohos/  Kotlin/Native → libcomfypilot_core.so
-```
+<p align="center"><img src="docs/assets/readme/architecture.webp" width="100%" alt="Android 与 HarmonyOS 共用 Kotlin Multiplatform 核心"></p>
 
 Android 直接依赖 `shared`；鸿蒙通过 `ohos/` 把共享层编译成 `.so`，ArkTS 用 C ABI 调用，网络与文件系统仍由 ArkTS 宿主执行。
 
