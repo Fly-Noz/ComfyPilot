@@ -32,6 +32,7 @@ import { DismissedErrorStore } from '../bridge/DismissedErrorStore';
 import { AppearanceStore } from '../bridge/AppearanceStore';
 import { SubmitPrefs } from '../bridge/SubmitPrefs';
 import { WeakNetworkPrefs } from '../bridge/WeakNetworkPrefs';
+import { UpdatePrefs, UPDATE_MODE_ONCE } from '../bridge/UpdatePrefs';
 import { SeedPrefs } from '../bridge/SeedPrefs';
 import { ClientIdStore } from '../bridge/ClientIdStore';
 import { TaskNotifier } from '../notify/TaskNotifier';
@@ -485,11 +486,16 @@ struct Index {
   private appearanceStore: AppearanceStore = new AppearanceStore();
   private submitPrefs: SubmitPrefs = new SubmitPrefs();
   private weakPrefs: WeakNetworkPrefs = new WeakNetworkPrefs();
+  private updatePrefs: UpdatePrefs = new UpdatePrefs();
   private seedPrefs: SeedPrefs = new SeedPrefs();
   /** 忽略本地校验，强制提交：请求里带给共享层。 */
   @State forceSubmit: boolean = false;
   @State weakNetwork: boolean = false;
   @State weakDialogOpen: boolean = false;
+  /** 更新提醒模式：always（每次启动）/ once（每个版本一次）。 */
+  @State updateMode: string = 'always';
+  @State updateModeOpen: boolean = false;
+  @State updateModeDraft: string = 'always';
   @State seedTick: number = 0;
   private clientIdStore: ClientIdStore = new ClientIdStore();
   private notifier: TaskNotifier = new TaskNotifier();
@@ -1079,6 +1085,7 @@ struct Index {
     // 强制提交开关也落盘：默认关闭，恢复原来的严格校验。
     this.forceSubmit = await this.submitPrefs.load(context);
     this.weakNetwork = await this.weakPrefs.load(context);
+    this.updateMode = await this.updatePrefs.loadMode(context);
     await this.seedPrefs.load(context);
     this.imageUploader.weakNetwork = this.weakNetwork;
     this.bridge.weakNetwork = this.weakNetwork;
@@ -3464,13 +3471,24 @@ struct Index {
     if (!result.available) {
       return;
     }
+    const context = getContext(this) as common.Context;
+    const mode = await this.updatePrefs.loadMode(context);
+    if (mode === UPDATE_MODE_ONCE) {
+      const dismissed = await this.updatePrefs.loadDismissed(context);
+      if (result.versionCode <= dismissed) {
+        return;
+      }
+    }
     this.updateNote = result.message;
     this.update = result;
     this.updateOpen = true;
   }
 
-  /** 「稍后」：只关掉这一次，不记录——下次打开还会提醒。 */
+  /** 「稍后」：按设置决定是否记住这个版本；手动检查仍会重新弹出。 */
   private dismissUpdate(): void {
+    if (this.updateMode === UPDATE_MODE_ONCE && this.update.versionCode > 0) {
+      this.updatePrefs.markDismissed(getContext(this) as common.Context, this.update.versionCode);
+    }
     this.updateOpen = false;
   }
 
@@ -9922,6 +9940,80 @@ struct Index {
   }
 
   @Builder
+  UpdateModeOption(value: string, title: string, desc: string) {
+    Row({ space: 8 }) {
+      Column({ space: 2 }) {
+        Text(title).fontSize(13).fontColor(this.c().text)
+        Text(desc).fontSize(10.5).lineHeight(15).fontColor(this.c().textDim)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      Text(this.updateModeDraft === value ? '●' : '○')
+        .fontSize(14)
+        .fontColor(this.updateModeDraft === value ? this.c().accent : this.c().textDim)
+    }
+    .width('100%')
+    .padding({ left: 6, right: 6, top: 9, bottom: 9 })
+    .borderRadius(10)
+    .onClick(() => { this.updateModeDraft = value; })
+  }
+
+  @Builder
+  UpdateModeDialog() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#99000000')
+        .onClick(() => { this.updateModeOpen = false; })
+      Column({ space: 8 }) {
+        Text('更新提醒').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.c().text)
+        Text('选择启动时如何提示新版本，手动检查始终会给出结果。')
+          .fontSize(11.5).fontColor(this.c().textMuted)
+        this.UpdateModeOption(
+          'always',
+          '每次启动都提示',
+          '有新版就弹，和现在的行为一致',
+        )
+        this.UpdateModeOption(
+          'once',
+          '每个版本只提示一次',
+          '点过稍后后，同一版本不再提示；出现更新版本或手动检查仍会提示',
+        )
+        Row({ space: 10 }) {
+          Text('取消')
+            .fontSize(12.5).fontColor(this.c().textMuted)
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .backgroundColor(this.c().card).borderRadius(10)
+            .onClick(() => { this.updateModeOpen = false; })
+          Text('保存')
+            .fontSize(12.5).fontColor('#FFFFFF')
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+            .borderRadius(10)
+            .onClick(() => {
+              this.updateMode = this.updateModeDraft;
+              this.updatePrefs.saveMode(getContext(this) as common.Context, this.updateModeDraft);
+              this.updateModeOpen = false;
+            })
+        }
+        .width('100%')
+        .margin({ top: 6 })
+        .justifyContent(FlexAlign.End)
+      }
+      .width('86%')
+      .padding(18)
+      .backgroundColor(this.c().dialog)
+      .borderRadius(20)
+      .border({ width: 1, color: this.c().border })
+      .alignItems(HorizontalAlign.Start)
+    }
+    .width('100%')
+    .height('100%')
+    .position({ x: 0, y: 0 })
+  }
+
+  @Builder
   FreeMemoryDialog() {
     Stack() {
       Column()
@@ -10345,6 +10437,27 @@ struct Index {
     .border({ width: 1, color: this.c().border })
     .onClick(() => { this.advancedOpen = true; })
 
+    Row({ space: 8 }) {
+      Column({ space: 3 }) {
+        Text('更新提醒').fontSize(14).fontColor(this.c().text)
+        Text(this.updateMode === UPDATE_MODE_ONCE ? '每个版本只提示一次' : '每次启动都提示')
+          .fontSize(10.5).fontColor(this.c().textDim)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      Text('›').fontSize(16).fontColor(this.c().textDim)
+    }
+    .width('100%')
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .alignItems(VerticalAlign.Center)
+    .backgroundColor(this.c().card)
+    .borderRadius(16)
+    .border({ width: 1, color: this.c().border })
+    .onClick(() => {
+      this.updateModeDraft = this.updateMode;
+      this.updateModeOpen = true;
+    })
+
     // 设置页底部的「关于」入口；点进去后 aboutOpen 打开关于页，返回仍回到设置。 
     Row({ space: 8 }) {
       Text('关于')
@@ -10765,6 +10878,9 @@ struct Index {
       }
       if (this.freeDialogOpen) {
         this.FreeMemoryDialog()
+      }
+      if (this.updateModeOpen) {
+        this.UpdateModeDialog()
       }
       if (this.promptConfirmOpen) {
         this.PromptConfirm()

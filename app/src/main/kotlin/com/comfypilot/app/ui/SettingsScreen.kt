@@ -41,6 +41,7 @@ import com.comfypilot.app.ui.theme.SpectrumMono
 import com.comfypilot.app.ui.theme.SpectrumScaffold
 import com.comfypilot.app.ui.theme.SpectrumTopBar
 import com.comfypilot.app.ui.theme.ThemeMode
+import com.comfypilot.app.update.UpdatePrefs
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -93,6 +94,9 @@ private fun SettingsMain(
     state: com.comfypilot.core.net.SessionState,
 ) {
     val c = Spectrum.colors
+    val context = LocalContext.current
+    var updateDialog by remember { mutableStateOf(false) }
+    var updateMode by remember { mutableStateOf(UpdatePrefs.mode(context)) }
     SpectrumScaffold(
         topBar = { SpectrumTopBar(title = "设置", onBack = onBack) },
     ) { padding ->
@@ -149,6 +153,14 @@ private fun SettingsMain(
                     value = "诊断日志、参数重置",
                     onClick = onAdvanced,
                 )
+                SpectrumLinkRow(
+                    label = "更新提醒",
+                    value = updateMode.label,
+                    onClick = {
+                        updateMode = UpdatePrefs.mode(context)
+                        updateDialog = true
+                    },
+                )
             }
 
             Spacer(modifier = Modifier.height(4.dp))
@@ -159,6 +171,54 @@ private fun SettingsMain(
                     value = "版本、作者与开源许可",
                     onClick = onAbout,
                 )
+            }
+        }
+    }
+
+    if (updateDialog) {
+        SpectrumDialog(
+            title = "更新提醒",
+            onDismiss = { updateDialog = false },
+            confirmText = "保存",
+            dismissText = "取消",
+            onConfirm = {
+                UpdatePrefs.setMode(context, updateMode)
+                updateDialog = false
+            },
+        ) {
+            UpdatePrefs.Mode.entries.forEach { option ->
+                val description = when (option) {
+                    UpdatePrefs.Mode.ALWAYS -> "每次打开应用都检查；有新版就提示（当前行为）"
+                    UpdatePrefs.Mode.ONCE_PER_VERSION -> "点过稍后后，同一版本不再提示；出现更新版本或手动检查仍会提示"
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable { updateMode = option }
+                        .padding(vertical = 9.dp, horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = option.label,
+                            color = c.text,
+                            fontSize = 13.sp,
+                        )
+                        Text(
+                            text = description,
+                            color = c.textDim,
+                            fontSize = 10.5.sp,
+                            lineHeight = 15.sp,
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = if (updateMode == option) "●" else "○",
+                        color = if (updateMode == option) c.accent else c.textDim,
+                        fontSize = 14.sp,
+                    )
+                }
             }
         }
     }

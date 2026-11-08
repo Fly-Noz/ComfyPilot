@@ -24,8 +24,9 @@ import java.util.concurrent.TimeUnit
  *
  * 判定口径在共享层 `UpdateCheck`，这里只负责发请求、开浏览器。
  *
- * 不记「用户已经跳过哪个版本」：每次冷启动都重新查，有新版就弹，没有就一声不响。
- * 点「稍后」只是关掉这一次，下次打开还会提——这是有意的，免得用户错过版本。
+ * 不记「用户已经跳过哪个版本」时，每次冷启动都重新查，有新版就弹；默认行为。
+ * 用户可在设置里改成「每个版本只提示一次」：点过稍后的版本，后续启动不再弹；
+ * 只有出现更高 versionCode，或用户手动检查时才继续提示。
  */
 object UpdateCenter {
     private const val GITEE = "https://gitee.com/Fly-Noz/ComfyPilot/raw/main/update.json"
@@ -61,6 +62,14 @@ object UpdateCenter {
         checking = false
         when (verdict) {
             is UpdateVerdict.Available -> {
+                // 静默检查：选了「每个版本只提示一次」且这个版本已经点过稍后，就不再弹。
+                // 手动检查不受影响；出现更高 versionCode 时 dismissedVersion 会小于它，照常弹。
+                if (!manual &&
+                    UpdatePrefs.mode(app) == UpdatePrefs.Mode.ONCE_PER_VERSION &&
+                    verdict.manifest.versionCode <= UpdatePrefs.dismissedVersion(app)
+                ) {
+                    return
+                }
                 val prompt = UpdatePrompt(
                     versionCode = verdict.manifest.versionCode,
                     versionName = verdict.manifest.versionName,
@@ -78,8 +87,12 @@ object UpdateCenter {
         }
     }
 
-    /** 关掉弹窗但不记住版本：下次冷启动还会提。 */
-    fun dismiss() {
+    /** 关掉弹窗；「每个版本只提示一次」模式下记住这个版本，后续启动不再弹。 */
+    fun dismiss(context: Context) {
+        val current = pending
+        if (current != null && UpdatePrefs.mode(context.applicationContext) == UpdatePrefs.Mode.ONCE_PER_VERSION) {
+            UpdatePrefs.markDismissed(context.applicationContext, current.versionCode)
+        }
         pending = null
     }
 

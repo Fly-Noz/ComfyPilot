@@ -255,8 +255,8 @@ fun ComfyPilotApp(
             UpdateCenter.pending?.let { prompt ->
                 UpdateDialog(
                     prompt = prompt,
-                    onDismiss = { UpdateCenter.dismiss() },
-                    onLater = { UpdateCenter.dismiss() },
+                    onDismiss = { UpdateCenter.dismiss(context) },
+                    onLater = { UpdateCenter.dismiss(context) },
                     onOpen = { UpdateCenter.open(context, it) },
                 )
             }
