@@ -138,13 +138,22 @@ fun ServerStatsStrip(
     var expanded by rememberSaveable { mutableStateOf(false) }
     var freeDialog by remember { mutableStateOf(false) }
     var freeing by remember { mutableStateOf(false) }
+    var cooldown by remember { mutableStateOf(false) }
     var freeNote by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
+    // 服务端只回 200/空 body，不会告诉实际释放了多少；30 秒内不再允许重复请求。
+    LaunchedEffect(cooldown) {
+        if (cooldown) {
+            delay(30_000)
+            cooldown = false
+        }
+    }
     val queueBusy = ((queue?.running?.size ?: 0) + (queue?.pending?.size ?: 0)) > 0
     // 只展示一个原因，按优先级取第一条；空闲时为 null。
     val blockReason = when {
         baseUrl == null -> "连接主机后才能释放"
         freeing -> "正在请求释放…"
+        cooldown -> "刚释放过，请 30 秒后再试"
         localBusy -> "任务刚提交，等结果出来后再释放"
         queueBusy -> "主机队列还有任务，空闲后可释放"
         else -> null
@@ -340,6 +349,7 @@ fun ServerStatsStrip(
                 if (target == null) {
                     freeNote = "连接主机后才能释放"
                 } else {
+                    cooldown = true
                     scope.launch {
                         freeing = true
                         freeNote = null

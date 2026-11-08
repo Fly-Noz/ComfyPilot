@@ -321,6 +321,7 @@ struct Index {
   /** 释放主机显存：确认框、请求中、结果提示。 */
   @State freeDialogOpen: boolean = false;
   @State freeing: boolean = false;
+  @State freeCooldown: boolean = false;
   @State freeNote: string = '';
   /** 进度条轨道实测宽度（vp）；填充按它算绝对宽度，不用百分比。 */
   @State progressTrackWidth: number = 0;
@@ -583,6 +584,7 @@ struct Index {
   /** 性能条复用一个 HttpRequest 句柄，页面离场时 destroy()。 */
   private statsRequest: http.HttpRequest | null = null;
   private statsTimer: number = -1;
+  private freeCooldownTimer: number = -1;
   private statsBusy: boolean = false;
   private statsPaused: boolean = false;
   private notes: Map<number, string> = new Map();
@@ -678,6 +680,10 @@ struct Index {
     if (this.submitFlashTimer !== -1) {
       clearTimeout(this.submitFlashTimer);
       this.submitFlashTimer = -1;
+    }
+    if (this.freeCooldownTimer !== -1) {
+      clearTimeout(this.freeCooldownTimer);
+      this.freeCooldownTimer = -1;
     }
     // 先停掉性能轮询和复用的 HTTP 句柄，再走原来的离场逻辑。 
     this.stopStatsPolling();
@@ -1814,13 +1820,16 @@ struct Index {
     });
   }
 
-  /** 只返回一个原因：未连接 → 正在释放 → 本地任务 → 主机队列。 */
+  /** 只返回一个原因：未连接 → 正在释放 → 30 秒冷却 → 本地任务 → 主机队列。 */
   private freeBlockReason(): string {
     if (!this.running) {
       return '连接主机后才能释放';
     }
     if (this.freeing) {
       return '正在请求释放…';
+    }
+    if (this.freeCooldown) {
+      return '刚释放过，请 30 秒后再试';
     }
     if (this.hasLocalActiveTask()) {
       return '任务刚提交，等结果出来后再释放';
@@ -1829,6 +1838,18 @@ struct Index {
       return '主机队列还有任务，空闲后可释放';
     }
     return '';
+  }
+
+  /** 服务端只回 200/空 body，不会告诉实际释放量；30 秒内禁止重复请求。 */
+  private startFreeCooldown(): void {
+    this.freeCooldown = true;
+    if (this.freeCooldownTimer !== -1) {
+      clearTimeout(this.freeCooldownTimer);
+    }
+    this.freeCooldownTimer = setTimeout(() => {
+      this.freeCooldown = false;
+      this.freeCooldownTimer = -1;
+    }, 30000);
   }
 
   private async freeHostMemory(): Promise<void> {
@@ -9927,6 +9948,7 @@ struct Index {
             .borderRadius(10)
             .onClick(() => {
               this.freeDialogOpen = false;
+              this.startFreeCooldown();
               this.freeHostMemory();
             })
         }
