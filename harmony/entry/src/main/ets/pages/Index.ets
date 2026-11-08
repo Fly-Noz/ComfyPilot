@@ -10120,6 +10120,22 @@ struct Index {
 
         Row({ space: 8 }) {
           Column({ space: 3 }) {
+            Text('诊断日志').fontSize(14).fontColor(this.c().text)
+            Text('连接、任务与错误事件').fontSize(10.5).fontColor(this.c().textDim)
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+          Text('›').fontSize(16).fontColor(this.c().textDim)
+        }
+        .width('100%')
+        .padding(14)
+        .backgroundColor(this.c().card)
+        .borderRadius(16)
+        .border({ width: 1, color: this.c().border })
+        .onClick(() => { this.diagnosticsOpen = true; })
+
+        Row({ space: 8 }) {
+          Column({ space: 3 }) {
             Text('忽略本地校验，强制提交').fontSize(14).fontColor(this.c().text)
             Text('本地有报错也照样发给服务器，由 ComfyUI 判定')
               .fontSize(10.5).fontColor(this.c().textDim)
@@ -10315,7 +10331,7 @@ struct Index {
     Row({ space: 8 }) {
       Column({ space: 3 }) {
         Text('高级').fontSize(14).fontColor(this.c().text)
-        Text('强制提交、弱网与参数重置').fontSize(10.5).fontColor(this.c().textDim)
+        Text('诊断日志、参数重置').fontSize(10.5).fontColor(this.c().textDim)
       }
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
