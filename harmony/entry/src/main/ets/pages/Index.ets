@@ -318,6 +318,10 @@ struct Index {
   @State monitor: BridgeMonitor | null = null;
   /** 性能条展开/收起；收起时只剩一行标题，纯界面状态，不进 summaryKey。 */
   @State statsExpanded: boolean = false;
+  /** 释放主机显存：确认框、请求中、结果提示。 */
+  @State freeDialogOpen: boolean = false;
+  @State freeing: boolean = false;
+  @State freeNote: string = '';
   /** 进度条轨道实测宽度（vp）；填充按它算绝对宽度，不用百分比。 */
   @State progressTrackWidth: number = 0;
   @State taskTrackWidth: number = 0;
@@ -1801,6 +1805,66 @@ struct Index {
       }
     } finally {
       this.statsBusy = false;
+    }
+  }
+
+  private hasLocalActiveTask(): boolean {
+    return this.tasks.some((task: BridgeTask) => {
+      return task.state === 'Submitting' || task.state === 'Queued' || task.state === 'Running';
+    });
+  }
+
+  /** 只返回一个原因：未连接 → 正在释放 → 本地任务 → 主机队列。 */
+  private freeBlockReason(): string {
+    if (!this.running) {
+      return '连接主机后才能释放';
+    }
+    if (this.freeing) {
+      return '正在请求释放…';
+    }
+    if (this.hasLocalActiveTask()) {
+      return '任务刚提交，等结果出来后再释放';
+    }
+    if (this.queueRunning + this.queuePending > 0) {
+      return '主机队列还有任务，空闲后可释放';
+    }
+    return '';
+  }
+
+  private async freeHostMemory(): Promise<void> {
+    const base = this.normalizedBaseUrl();
+    if (base.length === 0) {
+      this.freeNote = '连接主机后才能释放';
+      return;
+    }
+    this.freeing = true;
+    this.freeNote = '';
+    const client = http.createHttp();
+    try {
+      const response = await client.request(`${base}/free`, {
+        method: http.RequestMethod.POST,
+        header: { 'Content-Type': 'application/json' },
+        extraData: '{"unload_models":true,"free_memory":true}',
+        connectTimeout: 5000,
+        readTimeout: 10000,
+      });
+      if (response.responseCode === 404) {
+        this.freeNote = '当前 ComfyUI 不支持远程释放显存';
+      } else if (response.responseCode < 200 || response.responseCode >= 300) {
+        this.freeNote = `释放失败（HTTP ${response.responseCode}）`;
+      } else {
+        this.freeNote = '已请求释放，显存可能稍后下降';
+        this.pollServerStats();
+      }
+    } catch (err) {
+      this.freeNote = '释放失败，请检查连接';
+    } finally {
+      this.freeing = false;
+      try {
+        client.destroy();
+      } catch (err) {
+        // 句柄可能已销毁，忽略。
+      }
     }
   }
 
@@ -5085,6 +5149,40 @@ struct Index {
           .transition(TransitionEffect.OPACITY
             .combine(TransitionEffect.translate({ y: -6 }))
             .animation({ duration: 200, curve: Curve.EaseOut }))
+          Row({ space: 8 }) {
+            Text(this.freeing ? '正在释放…' : '释放主机显存')
+              .fontSize(10.5)
+              .fontColor(this.freeBlockReason().length === 0 ? this.c().accent : this.c().textDim)
+              .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+              .backgroundColor(this.freeBlockReason().length === 0 ? this.c().accentSoft : this.c().card)
+              .borderRadius(9)
+              .border({ width: 1, color: this.freeBlockReason().length === 0 ? this.c().accent : this.c().border })
+              .onClick(() => {
+                const reason = this.freeBlockReason();
+                if (reason.length > 0) {
+                  promptAction.showToast({ message: reason, duration: 1600 });
+                } else {
+                  this.freeDialogOpen = true;
+                }
+              })
+            if (this.freeBlockReason().length > 0) {
+              Text(this.freeBlockReason())
+                .fontSize(9.5)
+                .fontColor(this.c().textDim)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .layoutWeight(1)
+            } else if (this.freeNote.length > 0) {
+              Text(this.freeNote)
+                .fontSize(9.5)
+                .fontColor(this.c().textDim)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .layoutWeight(1)
+            }
+          }
+          .width('100%')
+          .padding({ left: 10, right: 10, top: 2, bottom: 8 })
         }
       }
       .width('100%')
@@ -9801,6 +9899,54 @@ struct Index {
   }
 
   @Builder
+  FreeMemoryDialog() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#99000000')
+        .onClick(() => { this.freeDialogOpen = false; })
+      Column({ space: 8 }) {
+        Text('释放主机显存？').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.c().text)
+        Text('会卸载 ComfyUI 当前加载的模型、LoRA、VAE 等，释放显存和内存。')
+          .fontSize(12).fontColor(this.c().text)
+        Text('不会影响已保存的工作流、参数和产物。下次生成需要重新加载模型，第一轮会明显变慢。')
+          .fontSize(11.5).fontColor(this.c().textMuted)
+        Text('如果主机上还有别的客户端在用，也会受影响。')
+          .fontSize(11.5).fontColor(this.c().textMuted)
+        Row({ space: 10 }) {
+          Text('取消')
+            .fontSize(12.5).fontColor(this.c().textMuted)
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .backgroundColor(this.c().card).borderRadius(10)
+            .onClick(() => { this.freeDialogOpen = false; })
+          Text('释放')
+            .fontSize(12.5).fontColor('#FFFFFF')
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+            .borderRadius(10)
+            .onClick(() => {
+              this.freeDialogOpen = false;
+              this.freeHostMemory();
+            })
+        }
+        .width('100%')
+        .margin({ top: 6 })
+        .justifyContent(FlexAlign.End)
+      }
+      .width('86%')
+      .padding(18)
+      .backgroundColor(this.c().dialog)
+      .borderRadius(20)
+      .border({ width: 1, color: this.c().border })
+      .alignItems(HorizontalAlign.Start)
+    }
+    .width('100%')
+    .height('100%')
+    .position({ x: 0, y: 0 })
+  }
+
+  @Builder
   WeakNetworkConfirm() {
     Stack() {
       Column()
@@ -10501,6 +10647,9 @@ struct Index {
       }
       if (this.weakDialogOpen) {
         this.WeakNetworkConfirm()
+      }
+      if (this.freeDialogOpen) {
+        this.FreeMemoryDialog()
       }
       if (this.promptConfirmOpen) {
         this.PromptConfirm()

@@ -3,6 +3,7 @@ package com.comfypilot.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,7 +26,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import android.widget.Toast
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -35,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.comfypilot.android.transport.OkHttpHttpTransport
 import com.comfypilot.app.ui.theme.Spectrum
+import com.comfypilot.app.ui.theme.SpectrumDialog
 import com.comfypilot.app.ui.theme.SpectrumMono
 import com.comfypilot.core.api.ApiCall
 import com.comfypilot.core.api.ApiCodec
@@ -47,6 +51,7 @@ import com.comfypilot.core.transport.HttpTransport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -68,6 +73,7 @@ import kotlin.math.roundToInt
 fun ServerStatsStrip(
     baseUrl: String?,
     monitor: MonitorSample? = null,
+    localBusy: Boolean = false,
 ) {
     val c = Spectrum.colors
     val context = LocalContext.current
@@ -130,6 +136,19 @@ fun ServerStatsStrip(
     val metrics = crystools
     val live = monitor
     var expanded by rememberSaveable { mutableStateOf(false) }
+    var freeDialog by remember { mutableStateOf(false) }
+    var freeing by remember { mutableStateOf(false) }
+    var freeNote by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val queueBusy = ((queue?.running?.size ?: 0) + (queue?.pending?.size ?: 0)) > 0
+    // 只展示一个原因，按优先级取第一条；空闲时为 null。
+    val blockReason = when {
+        baseUrl == null -> "连接主机后才能释放"
+        freeing -> "正在请求释放…"
+        localBusy -> "任务刚提交，等结果出来后再释放"
+        queueBusy -> "主机队列还有任务，空闲后可释放"
+        else -> null
+    }
     val shape = RoundedCornerShape(16.dp)
 
         // 百分比短，窄屏不会像 "8.5 GB / 16 GB" 那样被裁掉。总量为 0 视为未知，
@@ -247,6 +266,45 @@ fun ServerStatsStrip(
                             if (rowCells.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val idle = blockReason == null
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(9.dp))
+                                .background(if (idle) c.accentSoft else c.card)
+                                .border(1.dp, if (idle) c.accent.copy(alpha = 0.35f) else c.border, RoundedCornerShape(9.dp))
+                                .clickable {
+                                    if (blockReason != null) {
+                                        Toast.makeText(context, blockReason, Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        freeDialog = true
+                                    }
+                                }
+                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                        ) {
+                            Text(
+                                text = if (freeing) "正在释放…" else "释放主机显存",
+                                color = if (idle) c.accent else c.textDim,
+                                fontSize = 10.5.sp,
+                            )
+                        }
+                        val hint = blockReason ?: freeNote
+                        if (hint != null) {
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = hint,
+                                color = c.textDim,
+                                fontSize = 9.5.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                 }
             }
 
@@ -269,6 +327,52 @@ fun ServerStatsStrip(
                 )
             }
         }
+
+    if (freeDialog) {
+        SpectrumDialog(
+            title = "释放主机显存？",
+            onDismiss = { freeDialog = false },
+            confirmText = "释放",
+            dismissText = "取消",
+            onConfirm = {
+                freeDialog = false
+                val target = baseUrl
+                if (target == null) {
+                    freeNote = "连接主机后才能释放"
+                } else {
+                    scope.launch {
+                        freeing = true
+                        freeNote = null
+                        val response = runCatching {
+                            http.execute(
+                                HttpRequest(
+                                    method = "POST",
+                                    url = "${target.trimEnd('/')}/free",
+                                    body = """{"unload_models":true,"free_memory":true}""".toByteArray(),
+                                    contentType = "application/json",
+                                    timeoutMs = 10_000,
+                                ),
+                            )
+                        }.getOrNull()
+                        freeNote = when {
+                            response == null -> "释放失败，请检查连接"
+                            response.status == 404 -> "当前 ComfyUI 不支持远程释放显存"
+                            response.status !in 200..299 -> "释放失败（HTTP ${response.status}）"
+                            else -> "已请求释放，显存可能稍后下降"
+                        }
+                        freeing = false
+                    }
+                }
+            },
+        ) {
+            Text(
+                text = "会卸载当前加载的模型、LoRA、VAE 等，释放显存和内存。\n\n" +
+                    "不会影响已保存的工作流、参数和产物。下次生成需要重新加载模型，第一轮会明显变慢。",
+                color = c.textDim,
+                fontSize = 12.sp,
+            )
+        }
+    }
 }
 
 /** 一个格子的内容；未知的指标不进列表，因此不会渲染空占位。 */

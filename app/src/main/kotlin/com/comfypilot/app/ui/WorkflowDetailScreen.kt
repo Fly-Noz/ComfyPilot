@@ -866,6 +866,7 @@ private fun DetailBody(
             ServerStatsStrip(
                 baseUrl = state.lease?.baseUrl,
                 monitor = state.monitor,
+                localBusy = state.activeTasks.isNotEmpty(),
             )
         }
 
