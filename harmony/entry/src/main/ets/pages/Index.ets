@@ -9973,7 +9973,7 @@ struct Index {
         this.UpdateModeOption(
           'always',
           '每次启动都提示',
-          '有新版就弹，和现在的行为一致',
+          '有新版就弹',
         )
         this.UpdateModeOption(
           'once',

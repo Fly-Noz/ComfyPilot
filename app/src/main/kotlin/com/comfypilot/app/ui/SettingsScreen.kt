@@ -188,7 +188,7 @@ private fun SettingsMain(
         ) {
             UpdatePrefs.Mode.entries.forEach { option ->
                 val description = when (option) {
-                    UpdatePrefs.Mode.ALWAYS -> "每次打开应用都检查；有新版就提示（当前行为）"
+                    UpdatePrefs.Mode.ALWAYS -> "每次打开应用都检查；有新版就提示"
                     UpdatePrefs.Mode.ONCE_PER_VERSION -> "点过稍后后，同一版本不再提示；出现更新版本或手动检查仍会提示"
                 }
                 Row(
