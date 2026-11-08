@@ -204,14 +204,6 @@ fun ComfyPilotApp(
                 )
 
                 Screen.Diagnostics -> DebugScreen(
-                    state = state,
-                    initialUrl = initialUrl,
-                    notice = notice,
-                    onConnect = onConnect,
-                    onDisconnect = onDisconnect,
-                    onReconnect = onReconnect,
-                    onSubmit = onSubmitSample,
-                    onCancel = onCancel,
                     onBack = {
                         screen = if (state.lease != null) Screen.Catalog else Screen.Connect
                     },

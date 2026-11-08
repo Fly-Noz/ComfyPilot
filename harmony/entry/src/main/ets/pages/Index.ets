@@ -422,6 +422,8 @@ struct Index {
   @State tasksOpen: boolean = false;
   @State connectView: boolean = false;
   @State settingsOpen: boolean = false;
+  /** 诊断日志独立一页，不再并进设置/高级。 */
+  @State diagnosticsOpen: boolean = false;
   /** 关于页：从设置进入，返回时回到设置。 */
   @State aboutOpen: boolean = false;
   /** 关于页内的许可证说明浮层。 */
@@ -8797,7 +8799,7 @@ struct Index {
           .borderRadius(8)
           .onClick(() => {
             this.goPage(true, () => {
-              this.settingsOpen = true;
+              this.diagnosticsOpen = true;
             });
           })
       }
@@ -10017,6 +10019,81 @@ struct Index {
     .position({ x: 0, y: 0 })
   }
 
+  private copyDiagnosticsLogs(): void {
+    if (this.logs.length === 0) {
+      promptAction.showToast({ message: '暂无日志', duration: 1600 });
+      return;
+    }
+    try {
+      const data: pasteboard.PasteData =
+        pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, this.logs.join('\n'));
+      pasteboard.getSystemPasteboard().setDataSync(data);
+      promptAction.showToast({ message: '已复制日志', duration: 1600 });
+    } catch (err) {
+      promptAction.showToast({ message: this.errorText(err), duration: 1600 });
+    }
+  }
+
+  private clearDiagnosticsLogs(): void {
+    this.logs = [];
+    promptAction.showToast({ message: '已清空日志', duration: 1600 });
+  }
+
+  @Builder
+  DiagnosticsPage() {
+    Stack() {
+      this.OverlayBackdrop()
+      Column({ space: 10 }) {
+        Row({ space: 2 }) {
+          Text('‹ 返回')
+            .fontSize(13)
+            .fontColor(this.c().textDim)
+            .padding({ left: 7, right: 7, top: 7, bottom: 7 })
+            .borderRadius(8)
+            .onClick(() => {
+              this.goPage(false, () => {
+                this.diagnosticsOpen = false;
+              });
+            })
+          Text('诊断')
+            .fontSize(15)
+            .fontWeight(FontWeight.Bold)
+            .letterSpacing(-0.2)
+            .fontColor(this.c().text)
+            .layoutWeight(1)
+          Text('复制')
+            .fontSize(12)
+            .fontColor(this.c().textMuted)
+            .padding({ left: 7, right: 7, top: 7, bottom: 7 })
+            .borderRadius(8)
+            .onClick(() => { this.copyDiagnosticsLogs(); })
+          Text('清空')
+            .fontSize(12)
+            .fontColor(this.c().textMuted)
+            .padding({ left: 7, right: 7, top: 7, bottom: 7 })
+            .borderRadius(8)
+            .onClick(() => { this.clearDiagnosticsLogs(); })
+        }
+        .width('100%')
+        .constraintSize({ minHeight: 46 })
+        .alignItems(VerticalAlign.Center)
+        .padding({ left: 4, right: 4 })
+
+        this.LogsTab()
+      }
+      .padding({
+        left: 14,
+        right: 14,
+        top: 14 + px2vp(this.statusBarPx),
+        bottom: 14 + px2vp(this.navBarPx),
+      })
+      .width('100%')
+      .height('100%')
+    }
+    .width('100%')
+    .height('100%')
+  }
+
   @Builder
   AdvancedPage() {
     Stack() {
@@ -10040,9 +10117,6 @@ struct Index {
         .constraintSize({ minHeight: 46 })
         .alignItems(VerticalAlign.Center)
         .padding({ left: 4, right: 4 })
-
-        Text('诊断日志').fontSize(11).fontColor(this.c().textDim).width('100%')
-        this.LogsTab()
 
         Row({ space: 8 }) {
           Column({ space: 3 }) {
@@ -10241,7 +10315,7 @@ struct Index {
     Row({ space: 8 }) {
       Column({ space: 3 }) {
         Text('高级').fontSize(14).fontColor(this.c().text)
-        Text('诊断日志、参数重置').fontSize(10.5).fontColor(this.c().textDim)
+        Text('强制提交、弱网与参数重置').fontSize(10.5).fontColor(this.c().textDim)
       }
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
@@ -10666,6 +10740,9 @@ struct Index {
       }
       if (this.advancedOpen) {
         this.AdvancedPage()
+      }
+      if (this.diagnosticsOpen) {
+        this.DiagnosticsPage()
       }
       if (this.weakDialogOpen) {
         this.WeakNetworkConfirm()
