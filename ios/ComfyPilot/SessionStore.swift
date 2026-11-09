@@ -168,6 +168,15 @@ final class SessionStore: ObservableObject {
         bridge?.send(["t": "reconcile"])
     }
 
+    /// 关闭/重新启用单个节点。改动只存在会话内存里，不写回服务器文件。
+    /// 共享层收下命令后要等下一拍才重算，所以这里延后一点再拉视图。
+    func setNodeBypassed(nodeId: Int, bypassed: Bool) {
+        bridge?.send(["t": "bypass", "nodeId": nodeId, "bypassed": bypassed ? 1 : 0])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            self?.reloadWorkflow()
+        }
+    }
+
     func cancel(_ task: TaskRow) {
         guard !task.promptId.isEmpty else { return }
         bridge?.send(["t": "cancel", "promptId": task.promptId])

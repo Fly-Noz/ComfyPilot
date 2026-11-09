@@ -276,6 +276,9 @@ sealed interface HostMessage {
     /** 回到前台/手动刷新时的对账：查 /history 与 /queue，不重连。 */
     data object Reconcile : HostMessage
 
+    /** 关闭/重新启用单个节点；只改会话内存，不写回服务器上的工作流文件。 */
+    data class Bypass(val nodeId: Int, val bypassed: Boolean) : HostMessage
+
     /** 提交工作流；`name/path` 可选，旧宿主不传时任务只显示 promptId。 */
     data class Submit(
         val workflowJson: String,
@@ -339,6 +342,11 @@ sealed interface HostMessage {
                 "stop" -> Stop
                 "reconnect" -> Reconnect
                 "reconcile" -> Reconcile
+                "bypass" -> Bypass(
+                    nodeId = (obj.longOrNull("nodeId") ?: return null).toInt(),
+                    bypassed = obj.stringOrNull("bypassed")?.toBooleanStrictOrNull()
+                        ?: (obj.longOrNull("bypassed") == 1L),
+                )
                 "submit" -> Submit(
                     workflowJson = obj.stringOrNull("workflow") ?: return null,
                     workflowName = obj.stringOrNull("workflowName"),

@@ -1,44 +1,91 @@
 import SwiftUI
 
-enum Screen: String {
+/// 导航模型照抄 ComfyPilotApp.kt：没有常驻底栏，全靠页面栈 + 顶栏返回。
+/// Connect(0) → Catalog(1) → Detail(2)；Tasks / Settings 是同级覆盖页。
+enum AppRoute: Equatable {
     case connect
-    case workflow
+    case catalog
+    case detail(String)
     case tasks
     case settings
 
-    static func from(_ raw: String) -> Screen {
-        Screen(rawValue: raw) ?? .connect
+    var depth: Int {
+        switch self {
+        case .connect: return 0
+        case .catalog, .settings: return 1
+        case .detail, .tasks: return 2
+        }
+    }
+
+    static func initial() -> AppRoute {
+        if let path = LaunchOptions.workflowPath, !path.isEmpty {
+            return .detail(path)
+        }
+        switch LaunchOptions.screen {
+        case "workflow": return .catalog
+        case "tasks": return .tasks
+        case "settings": return .settings
+        default: return .connect
+        }
     }
 }
 
 struct RootView: View {
     @EnvironmentObject private var store: SessionStore
     @Environment(\.colorScheme) private var scheme
-    @State private var screen: Screen = Screen.from(LaunchOptions.screen)
+    @State private var route: AppRoute = AppRoute.initial()
+    @State private var settingsReturn: AppRoute = .connect
 
     var body: some View {
         let palette = Spectrum.palette(for: scheme)
-        TabView(selection: $screen) {
-            ConnectScreen(palette: palette)
-                .tabItem { Label("连接", systemImage: "antenna.radiowaves.left.and.right") }
-                .tag(Screen.connect)
-            WorkflowTab(palette: palette)
-                .tabItem { Label("工作流", systemImage: "square.on.square") }
-                .tag(Screen.workflow)
-            TasksScreen(palette: palette)
-                .tabItem { Label("任务", systemImage: "square.stack.3d.up") }
-                .tag(Screen.tasks)
-            SettingsScreen(palette: palette)
-                .tabItem { Label("设置", systemImage: "gearshape") }
-                .tag(Screen.settings)
-        }
-        .tint(palette.accent)
-        .preferredColorScheme(preferredScheme)
-        .onAppear { store.boot() }
-        .onChange(of: store.pendingScreen) { _, target in
-            if let raw = target, let next = Screen(rawValue: raw) {
-                screen = next
+        content(palette)
+            .preferredColorScheme(preferredScheme)
+            .onAppear { store.boot() }
+            .onChange(of: store.pendingScreen) { _, target in
+                if target == "tasks" { route = .tasks }
             }
+            .onChange(of: store.snapshot.isConnected) { _, connected in
+                // 连上后自动进工作流列表。显式指定首屏时不抢方向盘（截图用）。
+                if connected, route == .connect, LaunchOptions.screenOverride == nil {
+                    store.refreshWorkflows()
+                    route = .catalog
+                }
+            }
+    }
+
+    @ViewBuilder
+    private func content(_ palette: SpectrumPalette) -> some View {
+        switch route {
+        case .connect:
+            ConnectScreen(
+                palette: palette,
+                onSettings: {
+                    settingsReturn = .connect
+                    route = .settings
+                },
+                onCatalog: {
+                    store.refreshWorkflows()
+                    route = .catalog
+                }
+            )
+        case .catalog:
+            WorkflowListScreen(
+                palette: palette,
+                onBack: { route = .connect },
+                onOpen: { path in route = .detail(path) },
+                onTasks: { route = .tasks }
+            )
+        case .detail(let path):
+            WorkflowDetailScreen(
+                path: path,
+                palette: palette,
+                onBack: { route = .catalog },
+                onTasks: { route = .tasks }
+            )
+        case .tasks:
+            TasksScreen(palette: palette, onBack: { route = .catalog })
+        case .settings:
+            SettingsScreen(palette: palette, onBack: { route = settingsReturn })
         }
     }
 
@@ -88,6 +135,8 @@ extension View {
 
 struct ConnectScreen: View {
     let palette: SpectrumPalette
+    let onSettings: () -> Void
+    let onCatalog: () -> Void
     @EnvironmentObject private var store: SessionStore
 
     var body: some View {
@@ -123,7 +172,7 @@ struct ConnectScreen: View {
     private var topBar: some View {
         ZStack(alignment: .leading) {
             SpectrumTopBar(palette: palette, title: "") {
-                TopBarAction(text: "设置", palette: palette) {}
+                TopBarAction(text: "设置", palette: palette, action: onSettings)
                 TopBarAction(text: "诊断", palette: palette) {}
             }
             wordmark.padding(.leading, 12)
@@ -180,6 +229,7 @@ struct ConnectScreen: View {
                     Spacer().frame(height: 9)
                     GhostButton(title: "选择工作流", palette: palette) {
                         store.refreshWorkflows()
+                        onCatalog()
                     }
                 }
             }
@@ -271,13 +321,14 @@ struct ConnectScreen: View {
 
 struct TasksScreen: View {
     let palette: SpectrumPalette
+    let onBack: () -> Void
     @EnvironmentObject private var store: SessionStore
     @State private var viewing: TaskRow?
 
     var body: some View {
         ScreenScaffold(palette: palette) {
             VStack(spacing: 0) {
-                SpectrumTopBar(palette: palette, title: "任务") {
+                SpectrumTopBar(palette: palette, title: "任务", onBack: onBack) {
                     TopBarAction(text: "诊断", palette: palette) {}
                     TopBarAction(text: "断开", palette: palette) { store.disconnect() }
                 }
@@ -496,12 +547,13 @@ struct TaskCard: View {
 
 struct SettingsScreen: View {
     let palette: SpectrumPalette
+    let onBack: () -> Void
     @EnvironmentObject private var store: SessionStore
 
     var body: some View {
         ScreenScaffold(palette: palette) {
             VStack(spacing: 0) {
-                SpectrumTopBar(palette: palette, title: "设置")
+                SpectrumTopBar(palette: palette, title: "设置", onBack: onBack)
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {

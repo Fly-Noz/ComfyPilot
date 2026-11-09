@@ -14,8 +14,11 @@ enum LaunchOptions {
         args.contains(key)
     }
 
-    /// connect / tasks / settings
-    static var screen: String { value("-uiScreen") ?? "connect" }
+    /// connect / workflow / tasks / settings
+    static var screen: String { screenOverride ?? "connect" }
+
+    /// 用户是否显式指定了首屏。显式指定时不自动跳转，方便截图。
+    static var screenOverride: String? { value("-uiScreen") }
 
     static var baseUrl: String { value("-uiBaseUrl") ?? "http://127.0.0.1:8188" }
 

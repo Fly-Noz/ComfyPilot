@@ -223,6 +223,11 @@ class SessionHost(
                 true
             }
 
+            is HostMessage.Bypass -> {
+                runtime.setNodeBypass(message.nodeId, message.bypassed)
+                true
+            }
+
             is HostMessage.Submit -> {
                 runtime.submit(
                     workflowJson = message.workflowJson,

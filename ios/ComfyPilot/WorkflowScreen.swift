@@ -1,72 +1,47 @@
 import SwiftUI
 
-/// 工作流 tab。列表 → 详情，详情页的参数模型全部来自共享层的 `workflowView`，
-/// Swift 这边不做任何字段规则（哪些能改、哪些是连线提供、类型怎么转，都由 Kotlin 决定）。
-struct WorkflowTab: View {
-    let palette: SpectrumPalette
-
-    @State private var route: [String] = {
-        // CI 没法点屏幕：带 -uiOpenWorkflow 时直接把详情压进导航栈。
-        let initial: [String]
-        if let path = LaunchOptions.workflowPath, !path.isEmpty {
-            initial = [path]
-        } else {
-            initial = []
-        }
-        return initial
-    }()
-
-    var body: some View {
-        NavigationStack(path: $route) {
-            WorkflowListScreen(palette: palette)
-                .navigationDestination(for: String.self) { path in
-                    WorkflowDetailScreen(path: path, palette: palette)
-                }
-        }
-        .tint(palette.accent)
-    }
-}
-
+/// 工作流列表。导航由 RootView 的页面栈负责，这里只发事件——
+/// 和安卓的 WorkflowCatalogScreen 一样，顶栏是「返回 / 工作流 / 任务」。
 struct WorkflowListScreen: View {
     let palette: SpectrumPalette
+    let onBack: () -> Void
+    let onOpen: (String) -> Void
+    let onTasks: () -> Void
     @EnvironmentObject private var store: SessionStore
 
     var body: some View {
         ScreenScaffold(palette: palette) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("工作流")
-                            .font(.title2.weight(.semibold))
-                            .foregroundStyle(palette.text)
-                        Spacer()
-                        Button {
-                            store.refreshWorkflows()
-                        } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.footnote.weight(.medium))
-                                .foregroundStyle(palette.textMuted)
-                        }
-                    }
-                    .padding(.bottom, 4)
-
-                    if store.snapshot.catalog.isEmpty {
-                        emptyState
-                    } else {
-                        ForEach(store.snapshot.catalog) { entry in
-                            NavigationLink(value: entry.path) {
-                                row(entry)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
+            VStack(spacing: 0) {
+                SpectrumTopBar(palette: palette, title: "工作流", onBack: onBack) {
+                    TopBarAction(text: "任务", palette: palette, action: onTasks)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-                .padding(.bottom, 28)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 9) {
+                        Text("服务器上的工作流")
+                            .font(.system(size: 10.5, design: .monospaced))
+                            .foregroundStyle(palette.textDim)
+                            .padding(.bottom, 2)
+
+                        if store.snapshot.catalog.isEmpty {
+                            emptyState
+                        } else {
+                            ForEach(store.snapshot.catalog) { entry in
+                                Button {
+                                    onOpen(entry.path)
+                                } label: {
+                                    row(entry)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 8)
+                    .padding(.bottom, 24)
+                }
             }
         }
-        .toolbar(.hidden, for: .navigationBar)
     }
 
     private func row(_ entry: CatalogRow) -> some View {
@@ -111,40 +86,53 @@ struct WorkflowListScreen: View {
 struct WorkflowDetailScreen: View {
     let path: String
     let palette: SpectrumPalette
+    let onBack: () -> Void
+    let onTasks: () -> Void
     @EnvironmentObject private var store: SessionStore
+    @State private var nodesSheet = false
 
     var body: some View {
         ScreenScaffold(palette: palette) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    if let view = store.workflowView {
-                        summary(view)
-                        ForEach(view.visibleNodes) { node in
-                            nodeCard(node)
-                        }
-                    } else if !store.snapshot.workflowError.isEmpty {
-                        errorCard(store.snapshot.workflowError)
-                    } else {
-                        loadingCard
+            VStack(spacing: 0) {
+                SpectrumTopBar(
+                    palette: palette,
+                    title: store.workflowView?.name ?? "工作流",
+                    onBack: onBack
+                ) {
+                    TopBarAction(text: "刷新", palette: palette) {
+                        store.reloadWorkflow()
                     }
+                    TopBarAction(text: "任务", palette: palette, action: onTasks)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 120)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let view = store.workflowView {
+                            summary(view)
+                            ForEach(view.visibleNodes) { node in
+                                nodeCard(node)
+                            }
+                        } else if !store.snapshot.workflowError.isEmpty {
+                            errorCard(store.snapshot.workflowError)
+                        } else {
+                            loadingCard
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
+                }
             }
         }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
-        .toolbarBackground(.hidden, for: .navigationBar)
         .safeAreaInset(edge: .bottom) { submitBar }
+        .sheet(isPresented: $nodesSheet) {
+            NodeListSheet(palette: palette) { nodeId, bypassed in
+                store.setNodeBypassed(nodeId: nodeId, bypassed: bypassed)
+            }
+        }
         .onAppear { store.openWorkflow(path: path) }
     }
 
-    private var title: String {
-        let name = store.workflowView?.name ?? ""
-        return name.isEmpty ? "工作流" : name
-    }
 
     private func summary(_ view: WorkflowView) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -204,6 +192,14 @@ struct WorkflowDetailScreen: View {
                 Text("#\(node.id)")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(palette.textDim)
+                Button {
+                    store.setNodeBypassed(nodeId: node.id, bypassed: node.enabled)
+                } label: {
+                    Image(systemName: node.enabled ? "power.circle.fill" : "power.circle")
+                        .font(.system(size: 15))
+                        .foregroundStyle(node.enabled ? palette.ok : palette.textDim)
+                }
+                .buttonStyle(.plain)
             }
 
             ForEach(node.fields) { field in
@@ -262,7 +258,7 @@ struct WorkflowDetailScreen: View {
                 }
 
                 HStack(spacing: 10) {
-                    GhostButton(title: "全部节点", palette: palette) {}
+                    GhostButton(title: "全部节点", palette: palette) { nodesSheet = true }
 
                     Spacer(minLength: 0)
 
@@ -443,5 +439,69 @@ struct FieldRow: View {
         } else {
             onCommit(trimmed)
         }
+    }
+}
+
+/// 「全部节点」面板：列出工作流里的所有节点，逐个开关。
+/// 对应安卓 WorkflowDetailScreen 里 `全部节点` 打开的底部 sheet。
+struct NodeListSheet: View {
+    let palette: SpectrumPalette
+    let onToggle: (Int, Bool) -> Void
+
+    @EnvironmentObject private var store: SessionStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            SpectrumBackdrop(palette: palette)
+
+            VStack(spacing: 0) {
+                SpectrumTopBar(palette: palette, title: "全部节点", onBack: { dismiss() }) {
+                    TopBarAction(text: "关闭", palette: palette) { dismiss() }
+                }
+
+                ScrollView {
+                    VStack(spacing: 9) {
+                        ForEach(nodes) { node in
+                            row(node)
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 8)
+                    .padding(.bottom, 24)
+                }
+            }
+        }
+    }
+
+    private var nodes: [WorkflowNode] {
+        store.workflowView?.nodes ?? []
+    }
+
+    private func row(_ node: WorkflowNode) -> some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(node.title.isEmpty ? node.type : node.title)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(node.enabled ? palette.text : palette.textDim)
+                    .lineLimit(1)
+                Text("\(node.type) · \(node.fields.count) 个输入")
+                    .font(.system(size: 10))
+                    .foregroundStyle(palette.textDim)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 4)
+
+            Button {
+                onToggle(node.id, node.enabled)
+            } label: {
+                Image(systemName: node.enabled ? "power.circle.fill" : "power.circle")
+                    .font(.system(size: 17))
+                    .foregroundStyle(node.enabled ? palette.ok : palette.textDim)
+            }
+            .buttonStyle(.plain)
+        }
+        .glassCard(palette, padding: 12)
     }
 }
