@@ -40,6 +40,8 @@ struct SessionSnapshot {
     var workflowName: String = ""
     var workflowPath: String = ""
     var workflowError: String = ""
+    /// 已加载的节点定义数量。变了说明 /object_info 有新数据，视图要重算。
+    var nodeInfoCount: Int = 0
 
     var isConnected: Bool { phase == "Connected" }
     var isBusy: Bool { phase == "Connecting" || phase == "Reconnecting" || phase == "Recovering" }
@@ -61,6 +63,7 @@ final class SessionStore: ObservableObject {
     /// 详情页可能在会话还没建好时就点开，那条命令会被丢掉，要等连上后重发。
     private var openSentFor: String?
     private var loadedPath: String = ""
+    private var loadedNodeInfoCount: Int = -1
     private var catalogRequested = false
 
     private var bridge: BridgeHost?
@@ -149,6 +152,7 @@ final class SessionStore: ObservableObject {
             next.workflowName = (workflow["name"] as? String) ?? ""
             next.workflowPath = (workflow["path"] as? String) ?? ""
             next.workflowError = (workflow["error"] as? String) ?? ""
+            next.nodeInfoCount = int(workflow["nodeInfo"])
         }
         if let catalog = state["catalog"] as? [String: Any] {
             next.catalogState = (catalog["state"] as? String) ?? "idle"
@@ -197,6 +201,13 @@ final class SessionStore: ObservableObject {
         // 文档真正加载完成后再拉视图：早一步只会拿到「还没有打开工作流」。
         if !next.workflowPath.isEmpty, next.workflowPath != loadedPath {
             loadedPath = next.workflowPath
+            loadedNodeInfoCount = next.nodeInfoCount
+            reloadWorkflow()
+        } else if !next.workflowPath.isEmpty,
+                  openedPath != nil,
+                  next.nodeInfoCount != loadedNodeInfoCount {
+            // 字段是从 /object_info 抽的：定义晚到一步，第一次算出来的视图就是空的。
+            loadedNodeInfoCount = next.nodeInfoCount
             reloadWorkflow()
         }
     }
@@ -249,6 +260,7 @@ final class SessionStore: ObservableObject {
         openedPath = path
         openSentFor = nil
         loadedPath = ""
+        loadedNodeInfoCount = -1
         overrides = [:]
         workflowView = nil
         sendOpenIfReady()
