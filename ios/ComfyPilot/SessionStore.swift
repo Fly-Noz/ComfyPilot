@@ -11,7 +11,11 @@ struct TaskRow: Identifiable {
     let outputs: Int
     let error: String?
 
-    var isActive: Bool { state == "Running" || state == "Queued" || state == "Submitting" }
+    /// 只有真正在跑才画进度条：排队时条恒为 0，画出来像卡住了。
+    var showsProgress: Bool { state == "Running" }
+
+    /// 排队中也能取消（ComfyUI 的 /queue 支持删 pending）。
+    var canCancel: Bool { state == "Running" || state == "Queued" || state == "Submitting" }
 }
 
 struct CatalogRow: Identifiable {
@@ -24,6 +28,7 @@ struct CatalogRow: Identifiable {
 struct SessionSnapshot {
     var phase: String = "Idle"
     var label: String = ""
+    var baseUrl: String = ""
     var generation: Int = 0
     var queueRunning: Int = 0
     var queuePending: Int = 0
@@ -114,6 +119,7 @@ final class SessionStore: ObservableObject {
         var next = SessionSnapshot()
         next.phase = (state["phase"] as? String) ?? "Idle"
         next.label = (state["label"] as? String) ?? ""
+        next.baseUrl = (state["baseUrl"] as? String) ?? ""
         next.generation = int(state["generation"])
         next.queueRunning = int(state["queueRunning"])
         next.queuePending = int(state["queuePending"])
@@ -151,14 +157,40 @@ final class SessionStore: ObservableObject {
 
     private func appendNotice(_ payload: [String: Any]) {
         let kind = (payload["kind"] as? String) ?? "notice"
-        var text = kind
-        if let message = payload["message"] as? String { text += " · \(message)" }
-        if let reason = payload["reason"] as? String { text += " · \(reason)" }
-        if let promptId = payload["promptId"] as? String { text += " · \(promptId.prefix(8))" }
+        var text = noticeTitle(kind)
+        if let message = payload["message"] as? String, !message.isEmpty {
+            text += " · \(message)"
+        }
+        if let reason = payload["reason"] as? String, !reason.isEmpty {
+            text += " · \(reason)"
+        }
+        if let promptId = payload["promptId"] as? String, !promptId.isEmpty {
+            text += " · \(promptId.prefix(8))"
+        }
+        if let ids = payload["promptIds"] as? [String], !ids.isEmpty {
+            text += " · \(ids.count) 个任务"
+        }
         pushNotice(text)
     }
 
+    /// 共享层给的是协议里的英文 kind，界面上不该露出来。
+    private func noticeTitle(_ kind: String) -> String {
+        switch kind {
+        case "connected": return "已连接"
+        case "disconnected": return "连接断开"
+        case "task_failed": return "任务失败"
+        case "task_lost": return "任务状态未知"
+        case "progress_timeout": return "长时间无进度"
+        case "reconcile_gave_up": return "对账失败"
+        case "submit_rejected": return "提交被拒绝"
+        case "submit_accepted": return "已提交"
+        default: return kind
+        }
+    }
+
     private func pushNotice(_ text: String) {
+        // 同一件事连续来两次（比如握手后紧接着对账再报一次 Connected）只留一条。
+        if notices.first == text { return }
         notices.insert(text, at: 0)
         if notices.count > 40 { notices.removeLast(notices.count - 40) }
     }
@@ -204,7 +236,8 @@ enum Fixtures {
     static let snapshot: SessionSnapshot = {
         var snapshot = SessionSnapshot()
         snapshot.phase = "Connected"
-        snapshot.label = "已连接 · 192.168.1.42:8188"
+        snapshot.label = "已连接"
+        snapshot.baseUrl = "http://192.168.1.42:8188"
         snapshot.generation = 3
         snapshot.queueRunning = 1
         snapshot.queuePending = 1

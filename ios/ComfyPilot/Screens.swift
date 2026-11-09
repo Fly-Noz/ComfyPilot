@@ -19,7 +19,7 @@ struct RootView: View {
         let palette = Spectrum.palette(for: scheme)
         TabView(selection: $screen) {
             ConnectScreen(palette: palette)
-                .tabItem { Label("连接", systemImage: "bolt.horizontal.circle") }
+                .tabItem { Label("连接", systemImage: "antenna.radiowaves.left.and.right") }
                 .tag(Screen.connect)
             TasksScreen(palette: palette)
                 .tabItem { Label("任务", systemImage: "square.stack.3d.up") }
@@ -109,10 +109,11 @@ struct ConnectScreen: View {
                 Text(phaseTitle)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(palette.text)
-                Text(store.snapshot.label.isEmpty ? "等待连接" : store.snapshot.label)
+                Text(statusSubtitle)
                     .font(.caption)
                     .foregroundStyle(palette.textMuted)
                     .lineLimit(1)
+                    .truncationMode(.middle)
             }
             Spacer()
             Text("gen \(store.snapshot.generation)")
@@ -225,6 +226,12 @@ struct ConnectScreen: View {
         .spectrumCard(palette)
     }
 
+    /// 连上之后副标题显示实际地址：写「已连接」当副标题只是重复，写地址才有信息量。
+    private var statusSubtitle: String {
+        if !store.snapshot.baseUrl.isEmpty { return store.snapshot.baseUrl }
+        return store.snapshot.label.isEmpty ? "等待连接" : store.snapshot.label
+    }
+
     private var phaseTitle: String {
         switch store.snapshot.phase {
         case "Connected": return "已连接"
@@ -324,7 +331,7 @@ struct TaskCard: View {
                     .foregroundStyle(stateColor)
             }
 
-            if task.isActive {
+            if task.showsProgress {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule().fill(palette.border)
@@ -347,7 +354,7 @@ struct TaskCard: View {
                     .font(.caption2.monospaced())
                     .foregroundStyle(palette.textDim)
                 Spacer()
-                if task.isActive {
+                if task.showsProgress {
                     Text("\(Int(progress * 100))%")
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(palette.textMuted)
@@ -363,10 +370,20 @@ struct TaskCard: View {
                         .foregroundStyle(palette.err)
                         .lineLimit(1)
                 }
-                if task.isActive {
-                    Button("取消") { onCancel() }
-                        .font(.caption2)
-                        .foregroundStyle(palette.err)
+                if task.canCancel {
+                    Button {
+                        onCancel()
+                    } label: {
+                        Text("取消")
+                            .font(.caption2.weight(.medium))
+                            .padding(.horizontal, 9)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule().stroke(palette.err.opacity(0.45), lineWidth: 1)
+                            )
+                            .foregroundStyle(palette.err)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
