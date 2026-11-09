@@ -400,8 +400,9 @@ struct TaskCard: View {
 
                 if task.showsProgress {
                     HStack(spacing: 8) {
-                        SpectrumProgress(fraction: task.percent, palette: palette, height: 5)
-                        Text("\(Int(task.percent * 100))%")
+                        // 共享层的 percent 是 0–100，不是 0–1（TaskList.kt 里也是 /100f）。
+                        SpectrumProgress(fraction: task.percent / 100, palette: palette, height: 5)
+                        Text("\(Int(task.percent))%")
                             .font(.system(size: 9.5, design: .monospaced))
                             .foregroundStyle(palette.textDim)
                     }
