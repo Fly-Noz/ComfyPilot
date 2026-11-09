@@ -38,6 +38,108 @@ struct WorkflowGraphChip: Identifiable {
     let enabled: Bool
 }
 
+/// 画布上的一个节点：坐标来自工作流文件，可能是任意尺度（ComfyUI 前端按 1x 存）。
+struct GraphNode: Identifiable {
+    let id: Int
+    let type: String
+    let title: String
+    let mode: Int
+    let x: Double
+    let y: Double
+    let width: Double
+    let height: Double
+    let inputs: [GraphSlot]
+    let outputs: [GraphSlot]
+
+    var label: String { title.isEmpty ? type : title }
+}
+
+struct GraphSlot: Identifiable {
+    var id: String { "\(name)-\(index)" }
+    let index: Int
+    let name: String
+    let type: String
+    let linkId: Int
+}
+
+/// 一条连线：从 origin 节点的第 originSlot 个输出，到 target 节点的第 targetSlot 个输入。
+struct GraphLink: Identifiable {
+    let id: Int
+    let originId: Int
+    let originSlot: Int
+    let targetId: Int
+    let targetSlot: Int
+    let type: String
+}
+
+/// 只读节点图。共享层已经算好每个节点的实际模式（含本次会话的开关），这里不重算规则。
+struct WorkflowGraph {
+    var nodes: [GraphNode] = []
+    var links: [GraphLink] = []
+
+    static func parse(_ object: [String: Any]) -> WorkflowGraph? {
+        guard object["nodes"] is [[String: Any]] else { return nil }
+        var graph = WorkflowGraph()
+        graph.nodes = (object["nodes"] as? [[String: Any]] ?? []).map { raw in
+            GraphNode(
+                id: Int(int64(raw["id"])),
+                type: string(raw["type"]),
+                title: string(raw["title"]),
+                mode: Int(int64(raw["mode"])),
+                x: double(raw["x"]),
+                y: double(raw["y"]),
+                width: max(double(raw["w"]), 80),
+                height: max(double(raw["h"]), 40),
+                inputs: (raw["inputs"] as? [[String: Any]] ?? []).enumerated().map { index, slot in
+                    GraphSlot(
+                        index: index,
+                        name: string(slot["name"]),
+                        type: string(slot["type"]),
+                        linkId: Int(int64(slot["linkId"]))
+                    )
+                },
+                outputs: (raw["outputs"] as? [[String: Any]] ?? []).enumerated().map { index, slot in
+                    GraphSlot(
+                        index: index,
+                        name: string(slot["name"]),
+                        type: string(slot["type"]),
+                        linkId: 0
+                    )
+                }
+            )
+        }
+        graph.links = (object["links"] as? [[String: Any]] ?? []).map { raw in
+            GraphLink(
+                id: Int(int64(raw["id"])),
+                originId: Int(int64(raw["originId"])),
+                originSlot: Int(int64(raw["originSlot"])),
+                targetId: Int(int64(raw["targetId"])),
+                targetSlot: Int(int64(raw["targetSlot"])),
+                type: string(raw["type"])
+            )
+        }
+        return graph
+    }
+
+    private static func double(_ value: Any?) -> Double {
+        if let number = value as? NSNumber { return number.doubleValue }
+        if let text = value as? String { return Double(text) ?? 0 }
+        return 0
+    }
+
+    private static func int64(_ value: Any?) -> Int64 {
+        if let number = value as? NSNumber { return number.int64Value }
+        if let text = value as? String { return Int64(text) ?? 0 }
+        return 0
+    }
+
+    private static func string(_ value: Any?) -> String {
+        if let text = value as? String { return text }
+        if let number = value as? NSNumber { return number.stringValue }
+        return ""
+    }
+}
+
 /// `{"op":"view"}` 的响应。
 struct WorkflowView {
     var ok = false
@@ -52,6 +154,8 @@ struct WorkflowView {
     var graphs: [WorkflowGraphChip] = []
     var nodes: [WorkflowNode] = []
     var commonFields: [WorkflowField] = []
+    /// 只读节点图（坐标 + 连线）。共享层没给就为空。
+    var graph: WorkflowGraph?
 
     var visibleNodes: [WorkflowNode] { nodes.filter { !$0.fields.isEmpty } }
 
@@ -93,6 +197,9 @@ struct WorkflowView {
             )
         }
         view.commonFields = (object["commonFields"] as? [[String: Any]] ?? []).map { field($0) }
+        if let raw = object["graph"] as? [String: Any] {
+            view.graph = WorkflowGraph.parse(raw)
+        }
         return view
     }
 

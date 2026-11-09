@@ -89,7 +89,20 @@ struct WorkflowDetailScreen: View {
     let onBack: () -> Void
     let onTasks: () -> Void
     @EnvironmentObject private var store: SessionStore
-    @State private var nodesSheet = false
+    /// 同一层视图只挂一个 sheet：SwiftUI 叠两个 .sheet 只有最后一个稳定生效。
+    @State private var sheet: DetailSheet?
+
+    enum DetailSheet: Identifiable {
+        case nodes
+        case graph(Int)
+
+        var id: String {
+            switch self {
+            case .nodes: return "nodes"
+            case .graph(let nodeId): return "graph-\(nodeId)"
+            }
+        }
+    }
     /// 0 = 输入，1 = 预览。照 WorkflowDetailScreen.kt 的 SpectrumTabs。
     @State private var tab = LaunchOptions.detailTab
     /// 置顶的节点。和安卓一样只在本次打开期间有效（不写回工作流文件）。
@@ -143,12 +156,26 @@ struct WorkflowDetailScreen: View {
             }
         }
         .safeAreaInset(edge: .bottom) { submitBar }
-        .sheet(isPresented: $nodesSheet) {
-            NodeListSheet(palette: palette) { nodeId, bypassed in
-                store.setNodeBypassed(nodeId: nodeId, bypassed: bypassed)
+        .sheet(item: $sheet) { item in
+            switch item {
+            case .nodes:
+                NodeListSheet(palette: palette) { nodeId, bypassed in
+                    store.setNodeBypassed(nodeId: nodeId, bypassed: bypassed)
+                }
+            case .graph(let nodeId):
+                NodeGraphSheet(
+                    palette: palette,
+                    graph: store.workflowView?.graph ?? WorkflowGraph(),
+                    focusNodeId: nodeId
+                )
             }
         }
         .onAppear { store.openWorkflow(path: path) }
+        .onChange(of: store.workflowView?.graph?.nodes.count ?? 0) { _, count in
+            // CI 点不了「连线」图标：带 -uiGraph 时等图数据到了自动弹出来。
+            guard LaunchOptions.showGraph, count > 0, sheet == nil else { return }
+            sheet = .graph(store.workflowView?.nodes.first?.id ?? 0)
+        }
     }
 
 
@@ -184,7 +211,9 @@ struct WorkflowDetailScreen: View {
                                 text: graph.title,
                                 selected: graph.enabled,
                                 palette: palette
-                            ) {}
+                            ) {
+                                store.toggleGraph(graph.id)
+                            }
                         }
                     }
                 }
@@ -221,6 +250,14 @@ struct WorkflowDetailScreen: View {
                 Text("#\(node.id)")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(palette.textDim)
+                Button {
+                    sheet = .graph(node.id)
+                } label: {
+                    Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
+                        .font(.system(size: 12))
+                        .foregroundStyle(palette.textDim)
+                }
+                .buttonStyle(.plain)
                 Button {
                     if pinned.contains(node.id) {
                         pinned.remove(node.id)
@@ -299,7 +336,7 @@ struct WorkflowDetailScreen: View {
                 }
 
                 HStack(spacing: 10) {
-                    GhostButton(title: "全部节点", palette: palette) { nodesSheet = true }
+                    GhostButton(title: "全部节点", palette: palette) { sheet = .nodes }
 
                     Spacer(minLength: 0)
 

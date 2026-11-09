@@ -73,6 +73,8 @@ git show origin/ci-artifacts:tasks.png > .scratch/tasks.png
 | `-uiOpenWorkflow demo_ui.json` | 连上后自动打开这个工作流 |
 | `-uiTab preview` | 详情页停在「预览」分段 |
 | `-uiAutoSubmit` | 参数页就绪后自动提交一次（验证提交链路用） |
+| `-uiDiagnostics` | 启动即弹出诊断页 |
+| `-uiGraph` | 工作流加载完自动弹出节点图 |
 | `-uiBaseUrl http://127.0.0.1:8188` | 服务端地址 |
 | `-uiTheme dark\|light` | 强制配色，不传跟随系统 |
 | `-uiFixture` | 用内置样例数据渲染，不连服务端，**只用于调排版** |
@@ -97,11 +99,11 @@ xcrun simctl io booted screenshot .scratch/tasks.png
 - [x] 桥协议宿主（HTTP / WS / 网络变化）
 - [x] 连接页、任务页、设置页骨架
 - [x] 工作流列表与参数表单（字段、连线只读、图分组）
-- [x] 节点开关（单个 + 全部节点面板）、节点置顶
+- [x] 节点开关（单个 + 全部节点面板）、节点置顶、图分组切换
 - [x] 采样预览（`ws.binary` → `IosHost.preview()` → UIImage）
-- [x] 产物预览与保存到相册
-- [x] 主机状态条（Crystools 采样）
-- [ ] 节点图浮层（「连线」按钮；共享层暂未暴露结构，缺数据）
+- [x] 产物预览（图片 + 视频播放）与保存到相册
+- [x] 主机状态条（Crystools 采样 + `/system_stats` 轮询）
+- [x] 节点图浮层（只读，坐标与连线来自共享层 `graph`）
 - [ ] VHS 多帧动画预览
 - [ ] 图片字段上传
 - [ ] AI 助手

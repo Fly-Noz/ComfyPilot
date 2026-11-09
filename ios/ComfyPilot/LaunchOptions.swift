@@ -42,4 +42,7 @@ enum LaunchOptions {
 
     /// 启动就弹出诊断页，CI 截图用（模拟器点不了顶栏按钮）。
     static var showDiagnostics: Bool { flag("-uiDiagnostics") }
+
+    /// 工作流加载完成后自动弹出节点图，CI 截图用。
+    static var showGraph: Bool { flag("-uiGraph") }
 }

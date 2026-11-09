@@ -118,6 +118,8 @@ final class SessionStore: ObservableObject {
     private var didAutoSubmit = false
 
     private var overrides: [String: [String: Any]] = [:]
+    /// 当前启用的图分组；nil 表示还没动过，用工作流文件里的默认选择。
+    private var enabledGraphIds: Set<String>?
     private var openedPath: String?
     /// 已经发过 workflow.open 的路径。必须记录：SwiftUI 的子视图 onAppear 早于父视图，
     /// 详情页可能在会话还没建好时就点开，那条命令会被丢掉，要等连上后重发。
@@ -391,6 +393,7 @@ final class SessionStore: ObservableObject {
         loadedPath = ""
         loadedNodeInfoCount = -1
         overrides = [:]
+        enabledGraphIds = nil
         workflowView = nil
         sendOpenIfReady()
     }
@@ -412,6 +415,20 @@ final class SessionStore: ObservableObject {
         if let view = WorkflowView.parse(raw) {
             workflowView = view
         }
+    }
+
+    /// 切换一个图分组。以界面当前显示的选择为基准算，不另外维护一份状态，
+    /// 避免和工作流文件里的默认选择打架。
+    func toggleGraph(_ id: String) {
+        guard let view = workflowView else { return }
+        var next = Set(view.graphs.filter { $0.enabled }.map { $0.id })
+        if next.contains(id) {
+            next.remove(id)
+        } else {
+            next.insert(id)
+        }
+        enabledGraphIds = next
+        reloadWorkflow()
     }
 
     func setOverride(_ field: WorkflowField, value: Any) {
@@ -447,6 +464,7 @@ final class SessionStore: ObservableObject {
     private func requestJson(op: String, runToken: String? = nil) -> String {
         var payload: [String: Any] = ["op": op]
         if !overrides.isEmpty { payload["overrides"] = overrides }
+        if let enabledGraphIds { payload["graphs"] = enabledGraphIds.sorted() }
         if let runToken { payload["run"] = runToken }
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let text = String(data: data, encoding: .utf8) else {
