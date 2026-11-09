@@ -39,4 +39,7 @@ enum LaunchOptions {
 
     /// 详情页打开后停在哪个分段：input（默认）/ preview。
     static var detailTab: Int { value("-uiTab") == "preview" ? 1 : 0 }
+
+    /// 启动就弹出诊断页，CI 截图用（模拟器点不了顶栏按钮）。
+    static var showDiagnostics: Bool { flag("-uiDiagnostics") }
 }

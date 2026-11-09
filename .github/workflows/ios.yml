@@ -181,6 +181,9 @@ jobs:
           shoot workflow-preview 22 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_ui.json -uiAutoSubmit -uiTab preview
           curl -sf -X POST http://127.0.0.1:8188/mock/scenario -H 'Content-Type: application/json' -d '{"scenario":"normal"}' > /dev/null
 
+          # 诊断页：把阶段/帧数/预览字节摊开，CI 点不了顶栏按钮，用启动参数直接弹
+          shoot diagnostics 10 -uiScreen connect -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiDiagnostics
+
           # 浅色回归：只留一张，确认浅色主题没有崩
           shoot connect-light 8 -uiScreen connect -uiBaseUrl http://127.0.0.1:8188 -uiTheme light
 

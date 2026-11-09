@@ -138,7 +138,7 @@ struct ConnectScreen: View {
     let onSettings: () -> Void
     let onCatalog: () -> Void
     @EnvironmentObject private var store: SessionStore
-    @State private var diagnostics = false
+    @State private var diagnostics = LaunchOptions.showDiagnostics
 
     var body: some View {
         ScreenScaffold(palette: palette) {
