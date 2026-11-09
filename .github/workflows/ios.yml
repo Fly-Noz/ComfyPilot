@@ -165,6 +165,17 @@ jobs:
 
           ls -lh shots
 
+      - name: 检查 App 有没有崩
+        run: |
+          # 模拟器的崩溃报告落在宿主机的 DiagnosticReports 里。
+          # 没有这一步，App 一启动就崩也只会得到几张桌面截图。
+          if ls ~/Library/Logs/DiagnosticReports/ComfyPilot* > /dev/null 2>&1; then
+            echo "::error::ComfyPilot 崩溃了"
+            head -120 ~/Library/Logs/DiagnosticReports/ComfyPilot* || true
+            exit 1
+          fi
+          echo "无崩溃报告"
+
       - name: 上传截图
         if: always()
         uses: actions/upload-artifact@v4
