@@ -121,13 +121,18 @@ struct NodeGraphSheet: View {
                 )
 
                 // 节点太小时只画块，不画字——画了也是糊的。
-                guard rect.width > 46, rect.height > 16 else { continue }
-                let text = Text(node.label)
-                    .font(.system(size: max(6, min(9, CGFloat(node.width) * scale / 12)), weight: focused ? .semibold : .regular))
+                guard rect.width > 40, rect.height > 14 else { continue }
+                // 字号跟着显示宽度走，再按估算字宽截断：Canvas 里没有自动省略，
+                // 不截就会溢到方框外面（第一版截图就是这样）。
+                let fontSize = max(6, min(9, rect.width / 13))
+                let maxChars = max(3, Int((rect.width - 8) / (fontSize * 0.62)))
+                let label = String(node.label.prefix(maxChars))
+                let text = Text(label)
+                    .font(.system(size: fontSize, weight: focused ? .semibold : .regular))
                     .foregroundColor(focused ? palette.accent : palette.textMuted)
                 context.draw(
                     text,
-                    at: CGPoint(x: rect.minX + 5, y: rect.minY + 4),
+                    at: CGPoint(x: rect.minX + 4, y: rect.minY + 3),
                     anchor: .topLeading
                 )
             }
@@ -165,6 +170,17 @@ struct NodeGraphSheet: View {
         return CGRect(x: minX, y: minY, width: max(maxX - minX, 1), height: max(maxY - minY, 1))
     }
 
+    /// 节点内第 slot 个槽位的纵向偏移（图坐标，未乘缩放）。
+    /// 顶部留 16% 当标题栏，剩下的均分给所有槽位。
+    private func slotY(node: GraphNode, slot: Int, total: Int) -> CGFloat {
+        let height = CGFloat(node.height)
+        let header = max(height * 0.16, 6)
+        let body = max(height - header - 3, 6)
+        let count = max(total, 1)
+        let clamped = min(max(slot, 0), count - 1)
+        return header + body * (CGFloat(clamped) + 0.5) / CGFloat(count)
+    }
+
     /// 连线端点按槽位估算：输入槽的 y 从节点顶部标题栏下开始均分，
     /// 输出槽同理从右侧出去。共享层只给了 input 的 linkId，没有每槽精确坐标，
     /// 作为只读概览这已经够看结构了。
@@ -179,17 +195,18 @@ struct NodeGraphSheet: View {
             let target = graph.nodes.first(where: { $0.id == link.targetId })
         else { return nil }
 
-        let header: CGFloat = 22
-        let originYLocal = header + CGFloat(link.originSlot) * 16 + 8
-        let targetYLocal = header + CGFloat(link.targetSlot) * 16 + 8
+        // 槽位位置按节点自身高度均分，而不是写死 22/16：不同节点高度差很大，
+        // 写死常量会让连线扎到方框外面（第一版截图里那些歪线就是这么来的）。
+        let originYLocal = slotY(node: origin, slot: link.originSlot, total: origin.outputs.count)
+        let targetYLocal = slotY(node: target, slot: link.targetSlot, total: target.inputs.count)
 
         let start = CGPoint(
             x: originX + (CGFloat(origin.x) + CGFloat(origin.width)) * scale,
-            y: originY + (CGFloat(origin.y) + min(originYLocal, CGFloat(origin.height) - 4)) * scale
+            y: originY + (CGFloat(origin.y) + originYLocal) * scale
         )
         let end = CGPoint(
             x: originX + CGFloat(target.x) * scale,
-            y: originY + (CGFloat(target.y) + min(targetYLocal, CGFloat(target.height) - 4)) * scale
+            y: originY + (CGFloat(target.y) + targetYLocal) * scale
         )
 
         var path = Path()
