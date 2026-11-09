@@ -1,8 +1,11 @@
+import AVKit
 import SwiftUI
 import UIKit
 
-/// 产物查看器。图片走 AsyncImage 直接取 `/view`，视频先只给占位——
-/// AVPlayer 那条路等真机验证过再加，别把没验证的东西摆上去。
+/// 产物查看器。图片走 AsyncImage 取 `/view`，视频用 AVPlayer 直接播。
+///
+/// 视频和图片同源：都是 `/view?filename=...`，ComfyUI 返回的 Content-Type
+/// 决定播放器能不能解。VHS 的 mp4/webm 一般没问题，gif 会走图片分支。
 struct ArtifactViewer: View {
     let task: TaskRow
     let baseUrl: String
@@ -83,11 +86,17 @@ struct ArtifactViewer: View {
                         .fill(palette.cardStrong)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            } else if artifact.isVideo, let url = url(for: artifact) {
+                VideoPlayer(player: AVPlayer(url: url))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 260)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(palette.cardStrong)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             } else {
-                placeholder(
-                    artifact.isVideo ? "视频：暂不支持播放" : artifact.displayName,
-                    icon: artifact.isVideo ? "video" : "doc"
-                )
+                placeholder(artifact.displayName, icon: "doc")
             }
 
             HStack(spacing: 8) {

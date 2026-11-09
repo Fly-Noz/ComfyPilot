@@ -25,10 +25,13 @@ const HOST = process.env.HOST || '0.0.0.0'
 
 const WORKFLOW_DIR = nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), 'workflows')
 
-/** 1x1 红色 PNG：既给 /view，也给采样预览帧用。 */
-const PREVIEW_PNG = Buffer.from(
-  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
-  'base64',
+/**
+ * 采样预览夹具图：一张 192×192 的紫粉渐变（同心圆纹路），体积接近真实 latents。
+ * 用真实图片而不是 1×1 纯色：截图能看出「预览真的显示出来了」，
+ * 也顺带压一压 base64 往返的量级。`/view` 返回的产物图也是它。
+ */
+const PREVIEW_PNG = readFileSync(
+  nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), 'preview.png'),
 )
 
 /** 与真实服务端 `/object_info` 同构的最小节点定义。 */
