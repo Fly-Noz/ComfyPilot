@@ -1,0 +1,214 @@
+name: iOS
+
+# 没有 Mac 时的开发回路：push 触发，macOS runner 编 framework + App，
+# 在模拟器里跑起来截图，最后把截图推到 ci-artifacts 分支。
+# 本机 GitHub API 不通，所以刻意不用 gh / artifact API 取结果——
+# 全部走 git（SSH 443 是通的）。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'shared/**'
+      - 'tools/mock-comfyui/**'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # macos-15 是 Apple Silicon；Kotlin/Native 的 iosSimulatorArm64 只在 arm64 上能链接。
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检查 runner 架构
+        run: |
+          arch=$(uname -m)
+          echo "runner arch: $arch"
+          if [ "$arch" != "arm64" ]; then
+            echo "::error::需要 Apple Silicon runner，当前是 $arch"
+            exit 1
+          fi
+
+      - name: 安装 JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: 让 Gradle 找到 Android SDK
+        run: |
+          if [ -n "${ANDROID_HOME:-}" ]; then
+            echo "sdk.dir=$ANDROID_HOME" > local.properties
+          elif [ -n "${ANDROID_SDK_ROOT:-}" ]; then
+            echo "sdk.dir=$ANDROID_SDK_ROOT" > local.properties
+          fi
+          cat local.properties 2>/dev/null || echo "no local.properties"
+
+      - name: 缓存 Gradle 与 Kotlin/Native 工具链
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            ~/.konan
+          key: ${{ runner.os }}-gradle-${{ hashFiles('gradle/libs.versions.toml', '**/*.gradle.kts', 'gradle.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: 编译共享层 framework
+        run: |
+          chmod +x gradlew
+          ./gradlew :shared:linkDebugFrameworkIosSimulatorArm64 --no-daemon --stacktrace
+
+      - name: 生成 Xcode 工程
+        run: |
+          brew install xcodegen
+          cd ios
+          xcodegen generate
+          ls -d ComfyPilot.xcodeproj
+
+      - name: 选一台模拟器
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available | grep -E "^[[:space:]]+iPhone" | head -1 | sed -E 's/.*\(([0-9A-Fa-f-]{36})\).*/\1/')
+          if [ -z "$UDID" ]; then
+            echo "::error::找不到可用的 iPhone 模拟器"
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "模拟器：$UDID"
+
+      - name: 编译 App
+        working-directory: ios
+        run: |
+          xcodebuild \
+            -project ComfyPilot.xcodeproj \
+            -scheme ComfyPilot \
+            -configuration Debug \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: 启动模拟器
+        run: |
+          UDID="${{ steps.sim.outputs.udid }}"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override \
+            --time "9:41" --batteryState charged --batteryLevel 100 \
+            --wifiBars 3 --cellularBars 4 || true
+
+      - name: 安装 App
+        run: |
+          UDID="${{ steps.sim.outputs.udid }}"
+          APP=$(find ios/build/Build/Products -maxdepth 3 -name "ComfyPilot.app" | head -1)
+          if [ -z "$APP" ]; then
+            echo "::error::没找到 ComfyPilot.app"
+            find ios/build/Build/Products -maxdepth 3 -name "*.app"
+            exit 1
+          fi
+          echo "app: $APP"
+          xcrun simctl install "$UDID" "$APP"
+
+      - name: 起 mock ComfyUI
+        run: |
+          cd tools/mock-comfyui
+          npm install --no-audit --no-fund
+          nohup node server.mjs > "$RUNNER_TEMP/mock.log" 2>&1 &
+          for _ in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8188/system_stats > /dev/null; then
+              echo "mock 已就绪"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::mock 服务端没起来"
+          cat "$RUNNER_TEMP/mock.log"
+          exit 1
+
+      - name: 截图
+        run: |
+          UDID="${{ steps.sim.outputs.udid }}"
+          mkdir -p shots
+
+          shoot() {
+            name="$1"; shift
+            xcrun simctl terminate "$UDID" com.fly.comfypilot > /dev/null 2>&1 || true
+            sleep 1
+            xcrun simctl launch "$UDID" com.fly.comfypilot "$@" > /dev/null
+            sleep 8
+            xcrun simctl io "$UDID" screenshot "shots/$name.png" > /dev/null 2>&1
+            echo "已截图：$name"
+          }
+
+          # 真实链路：连 mock 服务端，走完握手与工作流拉取
+          shoot connect  -uiScreen connect  -uiBaseUrl http://127.0.0.1:8188
+          shoot tasks    -uiScreen tasks    -uiBaseUrl http://127.0.0.1:8188
+          shoot settings -uiScreen settings -uiBaseUrl http://127.0.0.1:8188
+
+          # 样例数据：给还没有真实数据的页面调排版用
+          shoot connect-fixture -uiScreen connect -uiFixture
+          shoot tasks-fixture   -uiScreen tasks   -uiFixture
+
+          ls -lh shots
+
+      - name: 上传截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-screenshots
+          path: shots
+          if-no-files-found: warn
+
+      - name: 把截图推到 ci-artifacts 分支
+        if: always()
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -d shots ] || [ -z "$(ls -A shots)" ]; then
+            echo "没有截图，跳过"
+            exit 0
+          fi
+          cd "$RUNNER_TEMP"
+          rm -rf art && mkdir art && cd art
+          git init -q
+          git checkout -q -b ci-artifacts
+          cp "$GITHUB_WORKSPACE"/shots/*.png .
+          {
+            echo "# iOS 模拟器截图"
+            echo
+            echo "- 运行：#${{ github.run_number }}"
+            echo "- 提交：\`${{ github.sha }}\`"
+            echo "- 分支：\`${{ github.ref_name }}\`"
+            echo "- 时间：$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            echo "本机取图：\`git fetch origin ci-artifacts && git checkout origin/ci-artifacts -- .\`"
+          } > README.md
+          git add -A
+          git -c user.email="ci@comfypilot.local" -c user.name="ComfyPilot CI" \
+            commit -qm "ci: iOS 截图 #${{ github.run_number }}"
+          git push -q -f "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-artifacts
+          echo "已推送 ci-artifacts"
+
+      - name: 失败时导出模拟器日志
+        if: failure()
+        run: |
+          UDID="${{ steps.sim.outputs.udid }}"
+          echo "--- Build Products ---"
+          find ios/build/Build/Products -maxdepth 3 -name "*.app" 2>/dev/null || true
+          echo "--- Simulator log ---"
+          xcrun simctl spawn "$UDID" log show --last 10m \
+            --predicate 'process == "ComfyPilot"' --style compact 2>/dev/null | tail -200 || true

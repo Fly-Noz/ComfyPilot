@@ -19,6 +19,16 @@ kotlin {
         minSdk = 26
     }
 
+    // iOS：只产出静态 framework 给 Swift 宿主。和鸿蒙一样的分工——
+    // 网络、文件、通知由宿主动手，Kotlin 只跑状态机（见 ios/README.md）。
+    // 不建 iosX64：CI 与开发机都是 Apple Silicon。
+    listOf(iosArm64(), iosSimulatorArm64()).forEach { target ->
+        target.binaries.framework {
+            baseName = "ComfyCore"
+            isStatic = true
+        }
+    }
+
     sourceSets {
         commonMain.dependencies {
             implementation(libs.kotlinx.coroutines.core)

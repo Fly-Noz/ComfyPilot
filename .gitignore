@@ -67,6 +67,7 @@ agconnect-services.json
 
 # 本机会话产物（AI 助手的记忆目录，不进版本库）
 .agent-memory/
+.workbuddy/
 .scratch/*.mjs
 
 # 备案材料已外迁至 E:\ComfyPilot-备案\，不再放仓库内

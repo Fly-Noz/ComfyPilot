@@ -1,0 +1,8 @@
+# XcodeGen 生成物，不入库
+ComfyPilot.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+
+# 构建产物
+build/
+DerivedData/
