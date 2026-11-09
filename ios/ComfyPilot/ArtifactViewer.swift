@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 产物查看器。图片走 AsyncImage 直接取 `/view`，视频先只给占位——
 /// AVPlayer 那条路等真机验证过再加，别把没验证的东西摆上去。
@@ -8,6 +9,9 @@ struct ArtifactViewer: View {
     let palette: SpectrumPalette
 
     @Environment(\.dismiss) private var dismiss
+    /// 正在下载/保存的产物 id，以及每个产物旁边的结果提示。
+    @State private var saving: String?
+    @State private var saveNotes: [String: String] = [:]
 
     var body: some View {
         ZStack {
@@ -86,12 +90,59 @@ struct ArtifactViewer: View {
                 )
             }
 
-            Text(artifact.filename)
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(palette.textDim)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            HStack(spacing: 8) {
+                Text(artifact.filename)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(palette.textDim)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Spacer(minLength: 0)
+
+                if artifact.isImage {
+                    if let note = saveNotes[artifact.id] {
+                        Text(note)
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(note.hasPrefix("已") ? palette.ok : palette.err)
+                            .lineLimit(1)
+                    }
+                    GhostButton(
+                        title: saving == artifact.id ? "保存中…" : "保存到相册",
+                        palette: palette,
+                        height: 30
+                    ) {
+                        save(artifact)
+                    }
+                    .disabled(saving != nil)
+                }
+            }
         }
+    }
+
+    /// 直接重新下一遍原图再存：AsyncImage 只给了 SwiftUI 的 Image，
+    /// 拿不到原始字节；产物通常几百 KB，多下一次比缓存一层更简单。
+    private func save(_ artifact: ArtifactRef) {
+        guard let url = url(for: artifact) else {
+            saveNotes[artifact.id] = "地址无效"
+            return
+        }
+        saving = artifact.id
+        saveNotes[artifact.id] = nil
+        URLSession.shared.dataTask(with: url) { data, _, error in
+            guard let data, let image = UIImage(data: data) else {
+                DispatchQueue.main.async {
+                    saving = nil
+                    saveNotes[artifact.id] = error == nil ? "图片解码失败" : "下载失败"
+                }
+                return
+            }
+            PhotoSaver.save(image) { note in
+                DispatchQueue.main.async {
+                    saving = nil
+                    saveNotes[artifact.id] = note
+                }
+            }
+        }.resume()
     }
 
     private func placeholder(_ text: String, icon: String) -> some View {

@@ -33,4 +33,7 @@ enum LaunchOptions {
 
     /// 参数页就绪后自动提交一次，然后跳到任务页。用来验证提交链路，CI 点不了屏幕。
     static var autoSubmit: Bool { flag("-uiAutoSubmit") }
+
+    /// 详情页打开后停在哪个分段：input（默认）/ preview。
+    static var detailTab: Int { value("-uiTab") == "preview" ? 1 : 0 }
 }

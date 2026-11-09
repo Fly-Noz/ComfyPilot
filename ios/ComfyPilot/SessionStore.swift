@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// 一个产物引用。`path` 是共享层给好的相对地址（/view?...），
 /// 宿主拼上 baseUrl 就能取，不用自己拼查询参数。
@@ -76,6 +77,22 @@ struct SessionSnapshot {
     /// 已加载的节点定义数量。变了说明 /object_info 有新数据，视图要重算。
     var nodeInfoCount: Int = 0
 
+    /// 采样预览的元数据。图片字节单独按需取，原因见 SessionStore.previewImage。
+    var previewPromptId: String = ""
+    var previewNodeId: String = ""
+    var previewReceivedAtMs: Int64 = 0
+    var previewBytes: Int = 0
+    var animationRate: Int = 0
+    var animationCount: Int = 0
+
+    /// Crystools 监控采样（经 WebSocket 推来）；服务器没装扩展时全为 nil。
+    var cpuPercent: Double?
+    var ramPercent: Double?
+    var gpuPercent: Double?
+    var vramPercent: Double?
+    var temperature: Double?
+    var gpuName: String = ""
+
     var isConnected: Bool { phase == "Connected" }
     var isBusy: Bool { phase == "Connecting" || phase == "Reconnecting" || phase == "Recovering" }
 }
@@ -92,6 +109,10 @@ final class SessionStore: ObservableObject {
     /// 需要在界面上切换到的 tab（目前只有自动提交后会用）。
     @Published private(set) var pendingScreen: String?
 
+    /// 最新一帧采样预览。状态帧只带元数据，图片走 IosHost.preview() 按需取，
+    /// 只在 receivedAtMs 变化时拉一次——不然每 250ms 一帧会白白编码几十 KB。
+    @Published private(set) var previewImage: UIImage?
+
     private var didAutoSubmit = false
 
     private var overrides: [String: [String: Any]] = [:]
@@ -105,6 +126,7 @@ final class SessionStore: ObservableObject {
 
     private var bridge: BridgeHost?
     private var booted = false
+    private var lastPreviewAtMs: Int64 = 0
 
     func boot() {
         guard !booted else { return }
@@ -216,6 +238,26 @@ final class SessionStore: ObservableObject {
                 }
             }
         }
+        if let preview = state["preview"] as? [String: Any] {
+            next.previewPromptId = (preview["promptId"] as? String) ?? ""
+            next.previewNodeId = (preview["nodeId"] as? String) ?? ""
+            next.previewReceivedAtMs = int64(preview["receivedAtMs"])
+            next.previewBytes = int(preview["bytes"])
+            next.animationRate = int(preview["animationRate"])
+            next.animationCount = int(preview["animationCount"])
+        } else {
+            // 没有预览帧时把旧画面清掉，别让上一轮结束的画面留在界面上。
+            if previewImage != nil { previewImage = nil }
+            lastPreviewAtMs = 0
+        }
+        if let monitor = state["monitor"] as? [String: Any] {
+            next.cpuPercent = optionalDouble(monitor["cpu"])
+            next.ramPercent = optionalDouble(monitor["ram"])
+            next.gpuPercent = optionalDouble(monitor["gpu"])
+            next.vramPercent = optionalDouble(monitor["vram"])
+            next.temperature = optionalDouble(monitor["temperature"])
+            next.gpuName = (monitor["gpuName"] as? String) ?? ""
+        }
         if let tasks = state["tasks"] as? [[String: Any]] {
             next.tasks = tasks.map { task in
                 TaskRow(
@@ -245,6 +287,7 @@ final class SessionStore: ObservableObject {
             }
         }
         snapshot = next
+        refreshPreviewIfNeeded(next)
 
         if next.phase == "Connected" {
             // 工作流列表只拉一次；断线重连后重新拉。
@@ -285,7 +328,10 @@ final class SessionStore: ObservableObject {
            view.canSubmit {
             didAutoSubmit = true
             submitWorkflow()
-            pendingScreen = "tasks"
+            // 传了 -uiTab preview 就留在详情页看采样预览，不切到任务页。
+            if LaunchOptions.detailTab == 0 {
+                pendingScreen = "tasks"
+            }
         }
     }
 
@@ -436,6 +482,29 @@ final class SessionStore: ObservableObject {
         if let number = value as? NSNumber { return number.intValue }
         if let text = value as? String { return Int(text) ?? 0 }
         return 0
+    }
+
+    /// 预览帧变了才取图；同一帧重复取只会浪费 base64 编码。
+    private func refreshPreviewIfNeeded(_ next: SessionSnapshot) {
+        guard let bridge, next.previewReceivedAtMs > 0 else { return }
+        guard next.previewReceivedAtMs != lastPreviewAtMs else { return }
+        lastPreviewAtMs = next.previewReceivedAtMs
+        let raw = bridge.preview()
+        guard
+            let data = raw.data(using: .utf8),
+            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            (obj["ok"] as? Bool) == true,
+            let base64 = obj["image"] as? String,
+            let bytes = Data(base64Encoded: base64),
+            let image = UIImage(data: bytes)
+        else { return }
+        previewImage = image
+    }
+
+    private func optionalDouble(_ value: Any?) -> Double? {
+        if let number = value as? NSNumber { return number.doubleValue }
+        if let text = value as? String { return Double(text) }
+        return nil
     }
 
     private func int64(_ value: Any?) -> Int64 {

@@ -90,6 +90,10 @@ struct WorkflowDetailScreen: View {
     let onTasks: () -> Void
     @EnvironmentObject private var store: SessionStore
     @State private var nodesSheet = false
+    /// 0 = 输入，1 = 预览。照 WorkflowDetailScreen.kt 的 SpectrumTabs。
+    @State private var tab = LaunchOptions.detailTab
+    /// 置顶的节点。和安卓一样只在本次打开期间有效（不写回工作流文件）。
+    @State private var pinned: Set<Int> = []
 
     var body: some View {
         ScreenScaffold(palette: palette) {
@@ -109,8 +113,22 @@ struct WorkflowDetailScreen: View {
                     VStack(alignment: .leading, spacing: 12) {
                         if let view = store.workflowView {
                             summary(view)
-                            ForEach(view.visibleNodes) { node in
-                                nodeCard(node)
+                            // 主机状态跟着工作流走：安卓只在这一页放它。
+                            ServerStatsStrip(palette: palette, snapshot: store.snapshot)
+
+                            SpectrumTabs(
+                                labels: ["输入 \(fieldCount(view))", "预览"],
+                                selected: tab,
+                                palette: palette
+                            ) { tab = $0 }
+                            .padding(.vertical, 2)
+
+                            if tab == 0 {
+                                ForEach(orderedNodes(view)) { node in
+                                    nodeCard(node)
+                                }
+                            } else {
+                                PreviewPane(palette: palette, workflowPath: path)
                             }
                         } else if !store.snapshot.workflowError.isEmpty {
                             errorCard(store.snapshot.workflowError)
@@ -133,6 +151,17 @@ struct WorkflowDetailScreen: View {
         .onAppear { store.openWorkflow(path: path) }
     }
 
+
+    /// 置顶的排在最前，其余保持共享层给的顺序。
+    private func orderedNodes(_ view: WorkflowView) -> [WorkflowNode] {
+        let nodes = view.visibleNodes
+        guard !pinned.isEmpty else { return nodes }
+        return nodes.filter { pinned.contains($0.id) } + nodes.filter { !pinned.contains($0.id) }
+    }
+
+    private func fieldCount(_ view: WorkflowView) -> Int {
+        view.nodes.reduce(0) { $0 + $1.fields.count }
+    }
 
     private func summary(_ view: WorkflowView) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -192,6 +221,18 @@ struct WorkflowDetailScreen: View {
                 Text("#\(node.id)")
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(palette.textDim)
+                Button {
+                    if pinned.contains(node.id) {
+                        pinned.remove(node.id)
+                    } else {
+                        pinned.insert(node.id)
+                    }
+                } label: {
+                    Image(systemName: pinned.contains(node.id) ? "pin.fill" : "pin")
+                        .font(.system(size: 13))
+                        .foregroundStyle(pinned.contains(node.id) ? palette.accent : palette.textDim)
+                }
+                .buttonStyle(.plain)
                 Button {
                     store.setNodeBypassed(nodeId: node.id, bypassed: node.enabled)
                 } label: {

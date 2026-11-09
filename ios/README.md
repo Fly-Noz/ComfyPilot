@@ -19,7 +19,11 @@ Kotlin 不碰网络、不碰文件、不碰 UI。所有平台差异都压在 `Br
 | `ComfyPilot/App.swift` | 入口 |
 | `ComfyPilot/BridgeHost.swift` | 桥协议的宿主机实现：HTTP、WebSocket、网络变化 |
 | `ComfyPilot/SessionStore.swift` | 状态帧解析 + 对外动作 |
-| `ComfyPilot/Screens.swift` | 连接 / 任务 / 设置三页 |
+| `ComfyPilot/Screens.swift` | 页面栈（连接 / 工作流 / 任务 / 设置）+ 任务卡 |
+| `ComfyPilot/WorkflowScreen.swift` | 工作流列表、参数表单、全部节点面板 |
+| `ComfyPilot/PreviewPane.swift` | 预览页：实时采样帧 / 最近产物 |
+| `ComfyPilot/ServerStatsStrip.swift` | 主机状态条（内存、显存、CPU、温度） |
+| `ComfyPilot/ArtifactViewer.swift` | 产物查看与保存到相册 |
 | `ComfyPilot/Theme.swift` | 光谱设计语言的 iOS token，与 Android 取值一致 |
 
 ## 有 Mac 时
@@ -65,7 +69,10 @@ git show origin/ci-artifacts:tasks.png > .scratch/tasks.png
 
 | 参数 | 说明 |
 |---|---|
-| `-uiScreen connect\|tasks\|settings` | 首屏 |
+| `-uiScreen connect\|workflow\|tasks\|settings` | 首屏 |
+| `-uiOpenWorkflow demo_ui.json` | 连上后自动打开这个工作流 |
+| `-uiTab preview` | 详情页停在「预览」分段 |
+| `-uiAutoSubmit` | 参数页就绪后自动提交一次（验证提交链路用） |
 | `-uiBaseUrl http://127.0.0.1:8188` | 服务端地址 |
 | `-uiTheme dark\|light` | 强制配色，不传跟随系统 |
 | `-uiFixture` | 用内置样例数据渲染，不连服务端，**只用于调排版** |
@@ -89,9 +96,14 @@ xcrun simctl io booted screenshot .scratch/tasks.png
 - [x] 共享层 iOS target + framework
 - [x] 桥协议宿主（HTTP / WS / 网络变化）
 - [x] 连接页、任务页、设置页骨架
-- [ ] 工作流详情（参数、开关、节点图）
-- [ ] 采样预览（二进制帧已经能收，还没解码显示）
-- [ ] 产物预览与保存到相册
+- [x] 工作流列表与参数表单（字段、连线只读、图分组）
+- [x] 节点开关（单个 + 全部节点面板）、节点置顶
+- [x] 采样预览（`ws.binary` → `IosHost.preview()` → UIImage）
+- [x] 产物预览与保存到相册
+- [x] 主机状态条（Crystools 采样）
+- [ ] 节点图浮层（「连线」按钮；共享层暂未暴露结构，缺数据）
+- [ ] VHS 多帧动画预览
+- [ ] 图片字段上传
 - [ ] AI 助手
-- [ ] 弱网模式、诊断日志
+- [ ] 弱网模式、诊断日志页
 - [ ] 未签名 IPA 打包脚本

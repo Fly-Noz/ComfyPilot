@@ -175,6 +175,12 @@ jobs:
           # 同时看产物行的排版（已完成的任务带 1 个产物）
           shoot tasks-after-submit 20 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_ui.json -uiAutoSubmit
 
+          # 采样预览：先把 mock 切成 slow（每 10s 才推一次进度），
+          # 这样自动提交后任务会一直停在执行中，够时间截到 ws.binary 解出来的画面。
+          curl -sf -X POST http://127.0.0.1:8188/mock/scenario -H 'Content-Type: application/json' -d '{"scenario":"slow"}' > /dev/null
+          shoot workflow-preview 22 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_ui.json -uiAutoSubmit -uiTab preview
+          curl -sf -X POST http://127.0.0.1:8188/mock/scenario -H 'Content-Type: application/json' -d '{"scenario":"normal"}' > /dev/null
+
           # 浅色回归：只留一张，确认浅色主题没有崩
           shoot connect-light 8 -uiScreen connect -uiBaseUrl http://127.0.0.1:8188 -uiTheme light
 

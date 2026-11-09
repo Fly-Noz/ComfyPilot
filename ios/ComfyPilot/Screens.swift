@@ -138,6 +138,7 @@ struct ConnectScreen: View {
     let onSettings: () -> Void
     let onCatalog: () -> Void
     @EnvironmentObject private var store: SessionStore
+    @State private var diagnostics = false
 
     var body: some View {
         ScreenScaffold(palette: palette) {
@@ -167,13 +168,16 @@ struct ConnectScreen: View {
                 }
             }
         }
+        .sheet(isPresented: $diagnostics) {
+            DiagnosticsSheet(palette: palette)
+        }
     }
 
     private var topBar: some View {
         ZStack(alignment: .leading) {
             SpectrumTopBar(palette: palette, title: "") {
                 TopBarAction(text: "设置", palette: palette, action: onSettings)
-                TopBarAction(text: "诊断", palette: palette) {}
+                TopBarAction(text: "诊断", palette: palette) { diagnostics = true }
             }
             wordmark.padding(.leading, 12)
         }
@@ -323,13 +327,26 @@ struct TasksScreen: View {
     let palette: SpectrumPalette
     let onBack: () -> Void
     @EnvironmentObject private var store: SessionStore
-    @State private var viewing: TaskRow?
+    /// 一个 sheet 两个用途：SwiftUI 在同一条视图上叠两个 .sheet 只有最后一个稳定生效。
+    @State private var sheet: TaskSheet?
+
+    enum TaskSheet: Identifiable {
+        case artifacts(TaskRow)
+        case diagnostics
+
+        var id: String {
+            switch self {
+            case .artifacts(let task): return "artifacts-\(task.id)"
+            case .diagnostics: return "diagnostics"
+            }
+        }
+    }
 
     var body: some View {
         ScreenScaffold(palette: palette) {
             VStack(spacing: 0) {
                 SpectrumTopBar(palette: palette, title: "任务", onBack: onBack) {
-                    TopBarAction(text: "诊断", palette: palette) {}
+                    TopBarAction(text: "诊断", palette: palette) { sheet = .diagnostics }
                     TopBarAction(text: "断开", palette: palette) { store.disconnect() }
                 }
 
@@ -371,7 +388,7 @@ struct TasksScreen: View {
                                 TaskCard(
                                     task: task,
                                     palette: palette,
-                                    onView: task.artifacts.isEmpty ? nil : { viewing = task },
+                                    onView: task.artifacts.isEmpty ? nil : { sheet = .artifacts(task) },
                                     onCancel: { store.cancel(task) }
                                 )
                             }
@@ -382,8 +399,13 @@ struct TasksScreen: View {
                 }
             }
         }
-        .sheet(item: $viewing) { task in
-            ArtifactViewer(task: task, baseUrl: store.snapshot.baseUrl, palette: palette)
+        .sheet(item: $sheet) { item in
+            switch item {
+            case .artifacts(let task):
+                ArtifactViewer(task: task, baseUrl: store.snapshot.baseUrl, palette: palette)
+            case .diagnostics:
+                DiagnosticsSheet(palette: palette)
+            }
         }
     }
 
