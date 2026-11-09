@@ -107,5 +107,5 @@ xcrun simctl io booted screenshot .scratch/tasks.png
 - [ ] VHS 多帧动画预览
 - [ ] 图片字段上传
 - [ ] AI 助手
-- [ ] 弱网模式、诊断日志页
+- [x] 弱网模式（少抢带宽）、诊断日志页、忽略本地校验强制提交
 - [ ] 未签名 IPA 打包脚本

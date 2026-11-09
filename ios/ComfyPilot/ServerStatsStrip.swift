@@ -173,7 +173,9 @@ struct ServerStatsStrip: View {
         guard !base.isEmpty, let url = URL(string: base + "/system_stats") else { return }
         while !Task.isCancelled {
             await load(url)
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            // 弱网下不抢带宽：15 秒一刷就够看趋势了。
+            let interval: UInt64 = Prefs.weakNetwork ? 15_000_000_000 : 3_000_000_000
+            try? await Task.sleep(nanoseconds: interval)
         }
     }
 

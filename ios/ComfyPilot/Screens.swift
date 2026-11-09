@@ -260,7 +260,7 @@ struct ConnectScreen: View {
                 Spacer().frame(height: 10)
 
                 monoRow("网络", networkText)
-                monoRow("地址", store.snapshot.baseUrl.isEmpty ? "—" : store.snapshot.baseUrl)
+                monoRow("clientId", store.snapshot.clientId.isEmpty ? "—" : String(store.snapshot.clientId.prefix(8)))
                 monoRow("队列", "运行 \(store.snapshot.queueRunning) / 等待 \(store.snapshot.queuePending)")
             }
         }
@@ -383,6 +383,8 @@ struct TasksScreen: View {
                     Spacer()
                 } else {
                     ScrollView {
+                        // 下拉对账：不重连，只让共享层重查 /history 与 /queue。
+                        // 安卓是自动对账，这里补一个 iOS 用户习惯的手势，多一个出口不冲突。
                         LazyVStack(spacing: 9) {
                             ForEach(store.snapshot.tasks) { task in
                                 TaskCard(
@@ -396,6 +398,7 @@ struct TasksScreen: View {
                         .padding(.horizontal, 18)
                         .padding(.bottom, 24)
                     }
+                    .refreshable { store.reconcile() }
                 }
             }
         }
@@ -572,6 +575,11 @@ struct SettingsScreen: View {
     let onBack: () -> Void
     @EnvironmentObject private var store: SessionStore
 
+    /// 和安卓一样落在 SharedPreferences 对位的地方：UserDefaults。
+    @AppStorage("forceSubmit") private var forceSubmit = false
+    @AppStorage("weakNetwork") private var weakNetwork = false
+    @State private var diagnostics = false
+
     var body: some View {
         ScreenScaffold(palette: palette) {
             VStack(spacing: 0) {
@@ -579,6 +587,7 @@ struct SettingsScreen: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
+                        section("连接")
                         GlassCard(palette: palette) {
                             VStack(spacing: 0) {
                                 row("工作流", store.snapshot.workflowName.isEmpty ? "未加载" : store.snapshot.workflowName)
@@ -587,22 +596,58 @@ struct SettingsScreen: View {
                             }
                         }
 
-                        GlassCard(palette: palette) {
-                            VStack(spacing: 0) {
-                                row("主题", themeName)
-                                row("弱网模式", "关闭")
-                                row("后台保活", "不支持（iOS 限制）")
-                            }
+                        section("提交")
+                        GlassCard(palette: palette, padding: 12) {
+                            toggle(
+                                title: "忽略本地校验，强制提交",
+                                detail: "本地有报错也照样把任务发给服务器，由 ComfyUI 判定",
+                                isOn: $forceSubmit
+                            )
                         }
 
+                        section("网络")
+                        GlassCard(palette: palette, padding: 12) {
+                            toggle(
+                                title: "弱网模式",
+                                detail: "少抢带宽：主机状态 15 秒一刷，采样预览最多 2 秒一张",
+                                isOn: $weakNetwork
+                            )
+                        }
+
+                        section("诊断")
+                        GlassCard(palette: palette, padding: 12) {
+                            Button {
+                                diagnostics = true
+                            } label: {
+                                HStack(spacing: 8) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("诊断日志")
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(palette.text)
+                                        Text("连接、任务与错误事件")
+                                            .font(.system(size: 10.5))
+                                            .foregroundStyle(palette.textDim)
+                                    }
+                                    Spacer(minLength: 0)
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(palette.textDim)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        section("关于")
                         GlassCard(palette: palette) {
                             VStack(spacing: 0) {
                                 row("版本", bundleVersion)
                                 row("共享核心", "Kotlin/Native · ComfyCore")
+                                row("主题", themeName)
+                                row("后台保活", "不支持（iOS 限制）")
                             }
                         }
 
-                        Text("iOS 端仍在施工：连接、工作流参数、提交、产物查看已通；采样预览、节点开关、AI 助手还没搬过来。")
+                        Text("后台会被系统挂起，回到前台自动对账；这是 iOS 的限制，不是省掉了功能。")
                             .font(.system(size: 11))
                             .lineSpacing(4)
                             .foregroundStyle(palette.textDim)
@@ -612,6 +657,36 @@ struct SettingsScreen: View {
                     .padding(.bottom, 24)
                 }
             }
+        }
+        .sheet(isPresented: $diagnostics) {
+            DiagnosticsSheet(palette: palette)
+        }
+    }
+
+    private func section(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 9.5, design: .monospaced))
+            .tracking(1.1)
+            .foregroundStyle(palette.textDim)
+            .padding(.top, 2)
+    }
+
+    private func toggle(title: String, detail: String, isOn: Binding<Bool>) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13))
+                    .foregroundStyle(palette.text)
+                Text(detail)
+                    .font(.system(size: 10.5))
+                    .lineSpacing(4)
+                    .foregroundStyle(palette.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+            Toggle("", isOn: isOn)
+                .labelsHidden()
+                .tint(palette.accent)
         }
     }
 

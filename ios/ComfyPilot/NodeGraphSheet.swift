@@ -102,11 +102,12 @@ struct NodeGraphSheet: View {
             }
 
             for node in graph.nodes {
+                // graph 里的坐标是 Double（来自 JSON），画布用 CGFloat，这里统一转一次。
                 let rect = CGRect(
-                    x: originX + node.x * scale,
-                    y: originY + node.y * scale,
-                    width: node.width * scale,
-                    height: node.height * scale
+                    x: originX + CGFloat(node.x) * scale,
+                    y: originY + CGFloat(node.y) * scale,
+                    width: CGFloat(node.width) * scale,
+                    height: CGFloat(node.height) * scale
                 )
                 let focused = node.id == focusNodeId
                 let muted = node.mode == 2 || node.mode == 4
@@ -122,7 +123,7 @@ struct NodeGraphSheet: View {
                 // 节点太小时只画块，不画字——画了也是糊的。
                 guard rect.width > 46, rect.height > 16 else { continue }
                 let text = Text(node.label)
-                    .font(.system(size: max(6, min(9, node.width * scale / 12)), weight: focused ? .semibold : .regular))
+                    .font(.system(size: max(6, min(9, CGFloat(node.width) * scale / 12)), weight: focused ? .semibold : .regular))
                     .foregroundColor(focused ? palette.accent : palette.textMuted)
                 context.draw(
                     text,
@@ -178,17 +179,17 @@ struct NodeGraphSheet: View {
             let target = graph.nodes.first(where: { $0.id == link.targetId })
         else { return nil }
 
-        let header = 22.0
-        let originYLocal = header + Double(link.originSlot) * 16 + 8
-        let targetYLocal = header + Double(link.targetSlot) * 16 + 8
+        let header: CGFloat = 22
+        let originYLocal = header + CGFloat(link.originSlot) * 16 + 8
+        let targetYLocal = header + CGFloat(link.targetSlot) * 16 + 8
 
         let start = CGPoint(
-            x: originX + (origin.x + origin.width) * scale,
-            y: originY + (origin.y + min(originYLocal, origin.height - 4)) * scale
+            x: originX + (CGFloat(origin.x) + CGFloat(origin.width)) * scale,
+            y: originY + (CGFloat(origin.y) + min(originYLocal, CGFloat(origin.height) - 4)) * scale
         )
         let end = CGPoint(
-            x: originX + target.x * scale,
-            y: originY + (target.y + min(targetYLocal, target.height - 4)) * scale
+            x: originX + CGFloat(target.x) * scale,
+            y: originY + (CGFloat(target.y) + min(targetYLocal, CGFloat(target.height) - 4)) * scale
         )
 
         var path = Path()

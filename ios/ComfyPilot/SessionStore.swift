@@ -61,6 +61,7 @@ struct SessionSnapshot {
     var phase: String = "Idle"
     var label: String = ""
     var baseUrl: String = ""
+    var clientId: String = ""
     var generation: Int = 0
     var queueRunning: Int = 0
     var queuePending: Int = 0
@@ -222,6 +223,7 @@ final class SessionStore: ObservableObject {
         next.phase = (state["phase"] as? String) ?? "Idle"
         next.label = (state["label"] as? String) ?? ""
         next.baseUrl = (state["baseUrl"] as? String) ?? ""
+        next.clientId = (state["clientId"] as? String) ?? ""
         next.generation = int(state["generation"])
         next.queueRunning = int(state["queueRunning"])
         next.queuePending = int(state["queuePending"])
@@ -465,6 +467,8 @@ final class SessionStore: ObservableObject {
         var payload: [String: Any] = ["op": op]
         if !overrides.isEmpty { payload["overrides"] = overrides }
         if let enabledGraphIds { payload["graphs"] = enabledGraphIds.sorted() }
+        // 和安卓一样：开关打开时，本地问题只告警，prompt 照样构建。
+        if Prefs.forceSubmit { payload["forceSubmit"] = true }
         if let runToken { payload["run"] = runToken }
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let text = String(data: data, encoding: .utf8) else {
@@ -515,6 +519,10 @@ final class SessionStore: ObservableObject {
     private func refreshPreviewIfNeeded(_ next: SessionSnapshot) {
         guard let bridge, next.previewReceivedAtMs > 0 else { return }
         guard next.previewReceivedAtMs != lastPreviewAtMs else { return }
+        // 弱网下不追每一帧：既省带宽也少一次 base64 编码。
+        if Prefs.weakNetwork, next.previewReceivedAtMs - lastPreviewAtMs < 2_000 {
+            return
+        }
         lastPreviewAtMs = next.previewReceivedAtMs
         let raw = bridge.previewBase64()
         guard !raw.isEmpty else {

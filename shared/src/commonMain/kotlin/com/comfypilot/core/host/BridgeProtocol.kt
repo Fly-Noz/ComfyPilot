@@ -55,6 +55,9 @@ fun SessionState.toBridgeJson(): JsonObject = buildJsonObject {
     put("network", network.transport.name)
     put("validated", network.validated)
     put("baseUrl", lease?.baseUrl ?: "")
+    // 服务器用 sid（= clientId）区分连接；同地址开两个客户端时，事件只推给其中一个。
+    // 界面上显示它能一眼看出「我这条连接服务端认的是哪个会话」。
+    put("clientId", lease?.clientId ?: "")
     put("queueRunning", queue?.running?.size ?: 0)
     put("queuePending", queue?.pending?.size ?: 0)
     putJsonArray("tasks") {
