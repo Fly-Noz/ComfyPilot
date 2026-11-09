@@ -122,8 +122,8 @@ struct WorkflowDetailScreen: View {
                         ForEach(view.visibleNodes) { node in
                             nodeCard(node)
                         }
-                    } else if store.snapshot.isConnected {
-                        loadingCard
+                    } else if !store.snapshot.workflowError.isEmpty {
+                        errorCard(store.snapshot.workflowError)
                     } else {
                         loadingCard
                     }
@@ -213,8 +213,25 @@ struct WorkflowDetailScreen: View {
         .spectrumCard(palette)
     }
 
-    private var loadingCard: some View {
+    private func errorCard(_ message: String) -> some View {
         VStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 24, weight: .light))
+                .foregroundStyle(palette.err)
+            Text("打不开这个工作流")
+                .font(.subheadline)
+                .foregroundStyle(palette.text)
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(palette.textMuted)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 32)
+        .spectrumCard(palette)
+    }
+
+    private var loadingCard: some View {        VStack(spacing: 8) {
             ProgressView()
                 .tint(palette.accent)
             Text(store.snapshot.isConnected ? "正在读取工作流" : "未连接")

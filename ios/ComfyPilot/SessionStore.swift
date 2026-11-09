@@ -39,6 +39,7 @@ struct SessionSnapshot {
     var catalogState: String = "idle"
     var workflowName: String = ""
     var workflowPath: String = ""
+    var workflowError: String = ""
 
     var isConnected: Bool { phase == "Connected" }
     var isBusy: Bool { phase == "Connecting" || phase == "Reconnecting" || phase == "Recovering" }
@@ -56,6 +57,9 @@ final class SessionStore: ObservableObject {
 
     private var overrides: [String: [String: Any]] = [:]
     private var openedPath: String?
+    /// 已经发过 workflow.open 的路径。必须记录：SwiftUI 的子视图 onAppear 早于父视图，
+    /// 详情页可能在会话还没建好时就点开，那条命令会被丢掉，要等连上后重发。
+    private var openSentFor: String?
     private var loadedPath: String = ""
     private var catalogRequested = false
 
@@ -101,6 +105,7 @@ final class SessionStore: ObservableObject {
         bridge = nil
         running = false
         openedPath = nil
+        openSentFor = nil
         loadedPath = ""
         overrides = [:]
         workflowView = nil
@@ -143,6 +148,7 @@ final class SessionStore: ObservableObject {
         if let workflow = state["workflow"] as? [String: Any] {
             next.workflowName = (workflow["name"] as? String) ?? ""
             next.workflowPath = (workflow["path"] as? String) ?? ""
+            next.workflowError = (workflow["error"] as? String) ?? ""
         }
         if let catalog = state["catalog"] as? [String: Any] {
             next.catalogState = (catalog["state"] as? String) ?? "idle"
@@ -182,6 +188,8 @@ final class SessionStore: ObservableObject {
                next.catalog.contains(where: { $0.path == target }) {
                 openWorkflow(path: target)
             }
+            // 详情页可能在连接建立前就打开了，这里补发。
+            sendOpenIfReady()
         } else {
             catalogRequested = false
         }
@@ -239,10 +247,21 @@ final class SessionStore: ObservableObject {
         // 切回 tab 会重新触发 onAppear；已经打开过就别把用户的改动清掉。
         if openedPath == path, workflowView != nil { return }
         openedPath = path
+        openSentFor = nil
         loadedPath = ""
         overrides = [:]
         workflowView = nil
-        bridge?.send(["t": "workflow.open", "path": path])
+        sendOpenIfReady()
+    }
+
+    /// 只在已连接时发：未连接时发出去的请求会被状态机丢掉，而且不会重试。
+    private func sendOpenIfReady() {
+        guard snapshot.phase == "Connected",
+              let bridge,
+              let path = openedPath,
+              openSentFor != path else { return }
+        bridge.send(["t": "workflow.open", "path": path])
+        openSentFor = path
     }
 
     /// 重新向共享层要一份视图。改过参数后调用，让它按字段类型重算并回报问题。
