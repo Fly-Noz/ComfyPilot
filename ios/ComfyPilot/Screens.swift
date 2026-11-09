@@ -346,8 +346,9 @@ struct TasksScreen: View {
         case "wifi": return "WIFI"
         case "cellular": return "蜂窝"
         case "ethernet": return "以太网"
+        case "other": return "其他"
         case "none": return "无网络"
-        default: return "未知"
+        default: return "其他"
         }
     }
 

@@ -28,8 +28,9 @@ struct TaskRow: Identifiable {
     let artifacts: [ArtifactRef]
     let error: String?
 
-    /// 只有真正在跑才画进度条：排队时条恒为 0，画出来像卡住了。
-    var showsProgress: Bool { state == "Running" }
+    /// 跑着和刚跑完都画进度条（安卓那张任务页上，完成的任务也是满格）；
+    /// 排队/提交中不画——那时条恒为 0，画出来像卡住了。
+    var showsProgress: Bool { state == "Running" || state == "Completed" }
 
     /// 排队中也能取消（ComfyUI 的 /queue 支持删 pending）。
     var canCancel: Bool { state == "Running" || state == "Queued" || state == "Submitting" }

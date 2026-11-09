@@ -249,27 +249,50 @@ struct WorkflowDetailScreen: View {
         .spectrumCard(palette)
     }
 
+    /// 对齐两端的悬浮提交栏：左边说明会提交多少个节点，右边是渐变胶囊按钮。
     private var submitBar: some View {
-        VStack(spacing: 0) {
-            Divider().overlay(palette.border)
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("全部节点")
+                    .font(.system(size: 10))
+                    .foregroundStyle(palette.textDim)
+                Text(submitHint)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(canSubmit ? palette.textMuted : palette.warn)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
             Button {
                 store.submitWorkflow()
             } label: {
                 Text(submitTitle)
-                    .font(.subheadline.weight(.semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 13)
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 12)
                     .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(canSubmit ? palette.accent : palette.cardStrong)
+                        Capsule().fill(
+                            LinearGradient(
+                                colors: palette.gradient,
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
                     )
-                    .foregroundStyle(canSubmit ? palette.accentInk : palette.textDim)
+                    .foregroundStyle(Color(hex: 0x0B0614))
             }
+            .buttonStyle(.plain)
             .disabled(!canSubmit)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
+            .opacity(canSubmit ? 1 : 0.4)
         }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
         .background(.ultraThinMaterial)
+    }
+
+    private var submitNodeCount: Int {
+        store.workflowView?.nodes.filter { $0.enabled }.count ?? 0
     }
 
     private var canSubmit: Bool {
@@ -277,10 +300,15 @@ struct WorkflowDetailScreen: View {
     }
 
     private var submitTitle: String {
-        if let reason = store.workflowView?.blockReason, !reason.isEmpty, !canSubmit {
+        canSubmit ? "提交" : "不可提交"
+    }
+
+    /// 不可提交时把原因放在左边，别塞进按钮——原因可能是一整句话。
+    private var submitHint: String {
+        if !canSubmit, let reason = store.workflowView?.blockReason, !reason.isEmpty {
             return reason
         }
-        return canSubmit ? "提交" : "不可提交"
+        return "\(submitNodeCount) 个会提交"
     }
 }
 
