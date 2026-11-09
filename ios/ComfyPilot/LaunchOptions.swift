@@ -20,7 +20,10 @@ enum LaunchOptions {
     /// 用户是否显式指定了首屏。显式指定时不自动跳转，方便截图。
     static var screenOverride: String? { value("-uiScreen") }
 
-    static var baseUrl: String { value("-uiBaseUrl") ?? "http://127.0.0.1:8188" }
+    /// 命令行指定的地址；没有就返回 nil，让 SessionStore 去读上次保存的值。
+    static var baseUrlFromArgs: String? { value("-uiBaseUrl") }
+
+    static let defaultBaseUrl = "http://127.0.0.1:8188"
 
     /// dark / light；不传则跟随系统。
     static var theme: String? { value("-uiTheme") }

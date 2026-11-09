@@ -102,7 +102,7 @@ final class SessionStore: ObservableObject {
     @Published private(set) var snapshot = SessionSnapshot()
     @Published private(set) var notices: [String] = []
     @Published private(set) var running = false
-    @Published var address: String = LaunchOptions.baseUrl
+    @Published var address: String = SavedAddress.initial
 
     /// 工作流视图：参数模型、节点、问题清单。状态帧只有元数据，这份是按需拉的。
     @Published private(set) var workflowView: WorkflowView?
@@ -141,6 +141,9 @@ final class SessionStore: ObservableObject {
 
     func start() {
         guard !running else { return }
+        // 地址是用户手打的，常见问题是漏协议、带尾斜杠、带空格。
+        address = SavedAddress.normalize(address)
+        SavedAddress.save(address)
         let bridge = BridgeHost(configJson: makeConfigJson(), tasksJson: "{}")
         bridge.onEvent = { [weak self] event in
             // BridgeHost 保证回调都在主线程；这里断言一下，别把假设藏起来。
@@ -583,4 +586,31 @@ enum Fixtures {
         ]
         return snapshot
     }()
+}
+
+/// 连接地址的持久化与规范化。
+///
+/// 每次连成功就把地址存下来，下次启动直接带出来——iOS 上没有「最近连接」列表，
+/// 让用户每次重敲一遍 IP 是很差的体验（安卓那边是存在设置里的）。
+enum SavedAddress {
+    private static let key = "lastBaseUrl"
+
+    static var initial: String {
+        if let raw = LaunchOptions.baseUrlFromArgs { return raw }
+        if let saved = UserDefaults.standard.string(forKey: key), !saved.isEmpty { return saved }
+        return LaunchOptions.defaultBaseUrl
+    }
+
+    /// 去空格、补协议、去尾斜杠；保留路径（ComfyUI 可能挂在反代子路径下）。
+    static func normalize(_ raw: String) -> String {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return LaunchOptions.defaultBaseUrl }
+        if !text.contains("://") { text = "http://" + text }
+        while text.hasSuffix("/") { text.removeLast() }
+        return text
+    }
+
+    static func save(_ value: String) {
+        UserDefaults.standard.set(value, forKey: key)
+    }
 }
