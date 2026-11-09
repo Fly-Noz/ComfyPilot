@@ -291,17 +291,14 @@ final class NetworkMonitor {
             let transport: String
             if path.status != .satisfied {
                 transport = "none"
+            } else if path.usesInterfaceType(.wifi) {
+                transport = "wifi"
+            } else if path.usesInterfaceType(.cellular) {
+                transport = "cellular"
+            } else if path.usesInterfaceType(.wiredEthernet) {
+                transport = "ethernet"
             } else {
-                switch path.interfaceType {
-                case .wifi:
-                    transport = "wifi"
-                case .cellular:
-                    transport = "cellular"
-                case .wiredEthernet:
-                    transport = "ethernet"
-                default:
-                    transport = "other"
-                }
+                transport = "other"
             }
             onChange(transport, path.status == .satisfied)
         }
