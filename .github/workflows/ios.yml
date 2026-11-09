@@ -1,9 +1,9 @@
 name: iOS
 
 # 没有 Mac 时的开发回路：push 触发，macOS runner 编 framework + App，
-# 在模拟器里跑起来截图，最后把截图推到 ci-artifacts 分支。
-# 本机 GitHub API 不通，所以刻意不用 gh / artifact API 取结果——
-# 全部走 git（SSH 443 是通的）。
+# 在模拟器里跑起来截图，最后把截图和构建日志推到 ci-artifacts 分支。
+# 本机 GitHub API / 网页都不通，所以刻意不用 gh 和 artifact API——
+# 结果全部走 git（SSH 443 是通的），失败时也能从分支里读到日志。
 
 on:
   push:
@@ -33,12 +33,14 @@ jobs:
 
       - name: 检查 runner 架构
         run: |
+          mkdir -p "$RUNNER_TEMP/logs"
           arch=$(uname -m)
           echo "runner arch: $arch"
           if [ "$arch" != "arm64" ]; then
             echo "::error::需要 Apple Silicon runner，当前是 $arch"
             exit 1
           fi
+          xcodebuild -version | tee "$RUNNER_TEMP/logs/00-env.log"
 
       - name: 安装 JDK 21
         uses: actions/setup-java@v4
@@ -68,14 +70,17 @@ jobs:
 
       - name: 编译共享层 framework
         run: |
+          set -o pipefail
           chmod +x gradlew
-          ./gradlew :shared:linkDebugFrameworkIosSimulatorArm64 --no-daemon --stacktrace
+          ./gradlew :shared:linkDebugFrameworkIosSimulatorArm64 --no-daemon --stacktrace 2>&1 \
+            | tee "$RUNNER_TEMP/logs/01-gradle.log"
 
       - name: 生成 Xcode 工程
         run: |
-          brew install xcodegen
+          set -o pipefail
+          brew install xcodegen 2>&1 | tee "$RUNNER_TEMP/logs/02-xcodegen-install.log"
           cd ios
-          xcodegen generate
+          xcodegen generate 2>&1 | tee "$RUNNER_TEMP/logs/03-xcodegen.log"
           ls -d ComfyPilot.xcodeproj
 
       - name: 选一台模拟器
@@ -93,6 +98,7 @@ jobs:
       - name: 编译 App
         working-directory: ios
         run: |
+          set -o pipefail
           xcodebuild \
             -project ComfyPilot.xcodeproj \
             -scheme ComfyPilot \
@@ -100,7 +106,7 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
-            build
+            build 2>&1 | tee "$RUNNER_TEMP/logs/04-xcodebuild.log"
 
       - name: 启动模拟器
         run: |
@@ -127,7 +133,7 @@ jobs:
         run: |
           cd tools/mock-comfyui
           npm install --no-audit --no-fund
-          nohup node server.mjs > "$RUNNER_TEMP/mock.log" 2>&1 &
+          nohup node server.mjs > "$RUNNER_TEMP/logs/05-mock.log" 2>&1 &
           for _ in $(seq 1 30); do
             if curl -sf http://127.0.0.1:8188/system_stats > /dev/null; then
               echo "mock 已就绪"
@@ -136,7 +142,7 @@ jobs:
             sleep 1
           done
           echo "::error::mock 服务端没起来"
-          cat "$RUNNER_TEMP/mock.log"
+          cat "$RUNNER_TEMP/logs/05-mock.log"
           exit 1
 
       - name: 截图
@@ -171,7 +177,8 @@ jobs:
           # 没有这一步，App 一启动就崩也只会得到几张桌面截图。
           if ls ~/Library/Logs/DiagnosticReports/ComfyPilot* > /dev/null 2>&1; then
             echo "::error::ComfyPilot 崩溃了"
-            head -120 ~/Library/Logs/DiagnosticReports/ComfyPilot* || true
+            head -120 ~/Library/Logs/DiagnosticReports/ComfyPilot* \
+              | tee "$RUNNER_TEMP/logs/06-crash.log" || true
             exit 1
           fi
           echo "无崩溃报告"
@@ -184,33 +191,52 @@ jobs:
           path: shots
           if-no-files-found: warn
 
-      - name: 把截图推到 ci-artifacts 分支
+      - name: 发布截图与日志到 ci-artifacts 分支
         if: always()
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ ! -d shots ] || [ -z "$(ls -A shots)" ]; then
-            echo "没有截图，跳过"
-            exit 0
-          fi
           cd "$RUNNER_TEMP"
           rm -rf art && mkdir art && cd art
           git init -q
           git checkout -q -b ci-artifacts
-          cp "$GITHUB_WORKSPACE"/shots/*.png .
+
+          if [ -d "$GITHUB_WORKSPACE/shots" ]; then
+            cp "$GITHUB_WORKSPACE"/shots/*.png . 2>/dev/null || true
+          fi
+
+          # 日志截断到末尾 2000 行，失败的真正原因通常在尾巴上。
+          if [ -d "$RUNNER_TEMP/logs" ]; then
+            for f in "$RUNNER_TEMP"/logs/*.log; do
+              [ -e "$f" ] || continue
+              tail -n 2000 "$f" > "$(basename "$f")"
+            done
+          fi
+
           {
-            echo "# iOS 模拟器截图"
+            echo "# iOS 构建结果"
             echo
+            echo "- 状态：**${{ job.status }}**"
             echo "- 运行：#${{ github.run_number }}"
             echo "- 提交：\`${{ github.sha }}\`"
-            echo "- 分支：\`${{ github.ref_name }}\`"
             echo "- 时间：$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo
-            echo "本机取图：\`git fetch origin ci-artifacts && git checkout origin/ci-artifacts -- .\`"
+            echo "取图或看日志："
+            echo
+            echo '```'
+            echo "git fetch origin ci-artifacts"
+            echo "git show origin/ci-artifacts:tasks.png > tasks.png"
+            echo "git show origin/ci-artifacts:04-xcodebuild.log | tail -80"
+            echo '```'
           } > README.md
+
           git add -A
+          if git diff --cached --quiet; then
+            echo "没有内容，跳过"
+            exit 0
+          fi
           git -c user.email="ci@comfypilot.local" -c user.name="ComfyPilot CI" \
-            commit -qm "ci: iOS 截图 #${{ github.run_number }}"
+            commit -qm "ci: iOS #${{ github.run_number }} (${{ job.status }})"
           git push -q -f "https://x-access-token:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-artifacts
           echo "已推送 ci-artifacts"
 
