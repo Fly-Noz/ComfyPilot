@@ -86,9 +86,9 @@ final class BridgeHost {
         host.workflowView(requestJson: requestJson)
     }
 
-    /// 同步取最新一帧采样预览（base64）。状态帧只给元数据，字节走这条。
-    func preview() -> String {
-        host.preview()
+    /// 同步取最新一帧采样预览（base64，没有帧时为空串）。状态帧只给元数据。
+    func previewBase64() -> String {
+        host.previewBase64()
     }
 
     // MARK: - 节拍

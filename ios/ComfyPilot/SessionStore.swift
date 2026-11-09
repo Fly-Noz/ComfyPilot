@@ -112,6 +112,8 @@ final class SessionStore: ObservableObject {
     /// 最新一帧采样预览。状态帧只带元数据，图片走 IosHost.preview() 按需取，
     /// 只在 receivedAtMs 变化时拉一次——不然每 250ms 一帧会白白编码几十 KB。
     @Published private(set) var previewImage: UIImage?
+    /// 取预览失败时的原因。界面直接显示它，省得为了「为什么没有画面」再跑一轮 CI。
+    @Published private(set) var previewError: String = ""
 
     private var didAutoSubmit = false
 
@@ -251,6 +253,7 @@ final class SessionStore: ObservableObject {
         } else {
             // 没有预览帧时把旧画面清掉，别让上一轮结束的画面留在界面上。
             if previewImage != nil { previewImage = nil }
+            previewError = ""
             lastPreviewAtMs = 0
         }
         if let monitor = state["monitor"] as? [String: Any] {
@@ -488,19 +491,27 @@ final class SessionStore: ObservableObject {
     }
 
     /// 预览帧变了才取图；同一帧重复取只会浪费 base64 编码。
+    ///
+    /// 失败原因写进 `previewError` 而不是只打日志：模拟器截不出控制台，
+    /// 界面上一行字是唯一能带回 CI 的证据。
     private func refreshPreviewIfNeeded(_ next: SessionSnapshot) {
         guard let bridge, next.previewReceivedAtMs > 0 else { return }
         guard next.previewReceivedAtMs != lastPreviewAtMs else { return }
         lastPreviewAtMs = next.previewReceivedAtMs
-        let raw = bridge.preview()
-        guard
-            let data = raw.data(using: .utf8),
-            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            (obj["ok"] as? Bool) == true,
-            let base64 = obj["image"] as? String,
-            let bytes = Data(base64Encoded: base64),
-            let image = UIImage(data: bytes)
-        else { return }
+        let raw = bridge.previewBase64()
+        guard !raw.isEmpty else {
+            previewError = "共享层没有帧"
+            return
+        }
+        guard let bytes = Data(base64Encoded: raw) else {
+            previewError = "base64 解码失败（\(raw.count) 字符）"
+            return
+        }
+        guard let image = UIImage(data: bytes) else {
+            previewError = "图片解码失败（\(bytes.count) 字节）"
+            return
+        }
+        previewError = ""
         previewImage = image
     }
 

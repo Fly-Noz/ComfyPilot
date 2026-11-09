@@ -56,6 +56,18 @@ struct PreviewPane: View {
                         Text("等待第一帧")
                             .font(.system(size: 11.5))
                             .foregroundStyle(palette.textDim)
+                        if !store.previewError.isEmpty {
+                            // 把失败原因摊在界面上：模拟器截不出控制台，这是唯一的证据通道。
+                            Text(store.previewError)
+                                .font(.system(size: 9.5, design: .monospaced))
+                                .foregroundStyle(palette.err)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 16)
+                        } else if store.snapshot.previewBytes > 0 {
+                            Text("已收到 \(store.snapshot.previewBytes) 字节")
+                                .font(.system(size: 9.5, design: .monospaced))
+                                .foregroundStyle(palette.textDim)
+                        }
                     }
                 }
             }

@@ -54,56 +54,15 @@ class IosHost(configJson: String, tasksJson: String) {
     fun workflowView(requestJson: String): String = sessionWorkflowJson(host.state, requestJson)
 
     /**
-     * 按需取最新一帧采样预览，图片字节以 base64 放在返回的 JSON 里。
+     * 按需取最新一帧采样预览，直接返回 base64（没有帧时返回空串）。
      *
-     * 状态帧只带元数据（promptId / nodeId / receivedAtMs / bytes / animation*），
-     * 图片本身走这条同步调用——和鸿蒙的 `cp_session_preview` 是同一份数据，
-     * 免得每 250ms 的帧都被几十 KB 的 base64 拖慢。
-     *
-     * 返回 `{"ok":true,"image":"...","promptId":...}` 或 `{"ok":false,"message":"..."}`。
+     * 不再套一层 JSON：Swift 侧少一次解析，失败点也就只剩 base64 解码和图片解码两处。
+     * 和鸿蒙的 `cp_session_preview` 是同一份数据，只是那边包在 JSON 里方便 C ABI。
      */
     @OptIn(ExperimentalEncodingApi::class)
-    fun preview(): String {
-        val frame = host.state.preview
-        if (frame == null || frame.image.isEmpty()) {
-            return """{"ok":false,"message":"没有预览帧"}"""
-        }
-        return buildString {
-            append("""{"ok":true,"promptId":""")
-            append(jsonString(frame.promptId ?: ""))
-            append(""","nodeId":""")
-            append(jsonString(frame.nodeId ?: ""))
-            append(""","receivedAtMs":""")
-            append(frame.receivedAtMs)
-            append(""","bytes":""")
-            append(frame.image.size)
-            append(""","image":""")
-            append(jsonString(Base64.encode(frame.image)))
-            append("\"}")
-        }
-    }
-
-    /** 极简 JSON 字符串转义：预览元数据只有 id 与 base64，够用。 */
-    private fun jsonString(value: String): String = buildString {
-        append('"')
-        for (ch in value) {
-            when {
-                ch == '\\' -> append("\\\\")
-                ch == '"' -> append("\\\"")
-                ch == '\n' -> append("\\n")
-                ch == '\r' -> append("\\r")
-                ch == '\t' -> append("\\t")
-                ch < ' ' -> {
-                    // Kotlin/Native 没有 String.format，手写四位十六进制。
-                    val code = ch.code
-                    append("\\u")
-                    for (shift in intArrayOf(12, 8, 4, 0)) {
-                        append("0123456789abcdef"[(code shr shift) and 0xF])
-                    }
-                }
-                else -> append(ch)
-            }
-        }
-        append('"')
+    fun previewBase64(): String {
+        val frame = host.state.preview ?: return ""
+        if (frame.image.isEmpty()) return ""
+        return Base64.encode(frame.image)
     }
 }
