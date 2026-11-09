@@ -86,7 +86,7 @@ struct WorkflowListScreen: View {
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(palette.textDim)
         }
-        .spectrumCard(palette)
+        .glassCard(palette)
     }
 
     private var emptyState: some View {
@@ -104,7 +104,7 @@ struct WorkflowListScreen: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
-        .spectrumCard(palette)
+        .glassCard(palette)
     }
 }
 
@@ -163,15 +163,11 @@ struct WorkflowDetailScreen: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(view.graphs) { graph in
-                            Text(graph.title)
-                                .font(.caption2)
-                                .padding(.horizontal, 9)
-                                .padding(.vertical, 4)
-                                .background(
-                                    Capsule().fill(graph.enabled ? palette.accentSoft : palette.cardStrong)
-                                )
-                                .foregroundStyle(graph.enabled ? palette.accent : palette.textDim)
-                                .lineLimit(1)
+                            SpectrumChip(
+                                text: graph.title,
+                                selected: graph.enabled,
+                                palette: palette
+                            ) {}
                         }
                     }
                 }
@@ -188,7 +184,7 @@ struct WorkflowDetailScreen: View {
                     .foregroundStyle(palette.warn)
             }
         }
-        .spectrumCard(palette)
+        .glassCard(palette)
     }
 
     private func nodeCard(_ node: WorkflowNode) -> some View {
@@ -216,7 +212,7 @@ struct WorkflowDetailScreen: View {
                 }
             }
         }
-        .spectrumCard(palette)
+        .glassCard(palette)
     }
 
     private func errorCard(_ message: String) -> some View {
@@ -234,7 +230,7 @@ struct WorkflowDetailScreen: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)
-        .spectrumCard(palette)
+        .glassCard(palette)
     }
 
     private var loadingCard: some View {        VStack(spacing: 8) {
@@ -246,49 +242,49 @@ struct WorkflowDetailScreen: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 40)
-        .spectrumCard(palette)
+        .glassCard(palette)
     }
 
-    /// 对齐两端的悬浮提交栏：左边说明会提交多少个节点，右边是渐变胶囊按钮。
+    /// 照抄 WorkflowDetailScreen.kt 的底栏：顶部 1pt 分隔线 + 半透明底色，
+    /// 一行 [全部节点] … 「N 个会提交」[提交任务]。
     private var submitBar: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("全部节点")
-                    .font(.system(size: 10))
-                    .foregroundStyle(palette.textDim)
-                Text(submitHint)
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(canSubmit ? palette.textMuted : palette.warn)
-                    .lineLimit(1)
-            }
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(palette.border)
+                .frame(height: 1)
 
-            Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 8) {
+                if !canSubmit, let reason = store.workflowView?.blockReason, !reason.isEmpty {
+                    Text(reason)
+                        .font(.system(size: 10.5))
+                        .lineSpacing(4)
+                        .foregroundStyle(palette.err)
+                }
 
-            Button {
-                store.submitWorkflow()
-            } label: {
-                Text(submitTitle)
-                    .font(.system(size: 13.5, weight: .semibold))
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 12)
-                    .background(
-                        Capsule().fill(
-                            LinearGradient(
-                                colors: palette.gradient,
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                    )
-                    .foregroundStyle(Color(hex: 0x0B0614))
+                HStack(spacing: 10) {
+                    GhostButton(title: "全部节点", palette: palette) {}
+
+                    Spacer(minLength: 0)
+
+                    Text("\(submitNodeCount) 个会提交")
+                        .font(.system(size: 9.5, design: .monospaced))
+                        .foregroundStyle(palette.textDim)
+
+                    GradientButton(
+                        title: "提交任务",
+                        palette: palette,
+                        height: 44,
+                        enabled: canSubmit,
+                        expand: false
+                    ) {
+                        store.submitWorkflow()
+                    }
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(!canSubmit)
-            .opacity(canSubmit ? 1 : 0.4)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial)
+        .background(palette.background.opacity(0.86))
     }
 
     private var submitNodeCount: Int {
@@ -299,17 +295,6 @@ struct WorkflowDetailScreen: View {
         (store.workflowView?.canSubmit ?? false) && store.snapshot.isConnected
     }
 
-    private var submitTitle: String {
-        canSubmit ? "提交" : "不可提交"
-    }
-
-    /// 不可提交时把原因放在左边，别塞进按钮——原因可能是一整句话。
-    private var submitHint: String {
-        if !canSubmit, let reason = store.workflowView?.blockReason, !reason.isEmpty {
-            return reason
-        }
-        return "\(submitNodeCount) 个会提交"
-    }
 }
 
 /// 单个可编辑输入项。控件类型只看字段自己的 type / options / valueKind。
@@ -391,10 +376,15 @@ struct FieldRow: View {
                         .font(.caption2)
                         .foregroundStyle(palette.textDim)
                 }
-                .padding(10)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
                 .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(palette.cardStrong)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(palette.card)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(palette.border, lineWidth: 1)
                 )
             }
         } else if field.isBool {
@@ -430,10 +420,15 @@ struct FieldRow: View {
                 .onChange(of: focused) { _, active in
                     if !active { commit() }
                 }
-                .padding(10)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
                 .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(palette.cardStrong)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(palette.card)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(palette.border, lineWidth: 1)
                 )
         }
     }

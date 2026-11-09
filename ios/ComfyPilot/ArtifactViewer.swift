@@ -11,7 +11,7 @@ struct ArtifactViewer: View {
 
     var body: some View {
         ZStack {
-            SpectrumBackground(palette: palette)
+            SpectrumBackdrop(palette: palette)
 
             VStack(spacing: 10) {
                 header
