@@ -2,6 +2,7 @@ import SwiftUI
 
 enum Screen: String {
     case connect
+    case workflow
     case tasks
     case settings
 
@@ -21,6 +22,9 @@ struct RootView: View {
             ConnectScreen(palette: palette)
                 .tabItem { Label("连接", systemImage: "antenna.radiowaves.left.and.right") }
                 .tag(Screen.connect)
+            WorkflowTab(palette: palette)
+                .tabItem { Label("工作流", systemImage: "square.on.square") }
+                .tag(Screen.workflow)
             TasksScreen(palette: palette)
                 .tabItem { Label("任务", systemImage: "square.stack.3d.up") }
                 .tag(Screen.tasks)

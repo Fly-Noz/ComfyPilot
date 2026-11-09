@@ -150,24 +150,30 @@ jobs:
           UDID="${{ steps.sim.outputs.udid }}"
           mkdir -p shots
 
+          # shoot <名字> <等待秒数> <启动参数...>
           shoot() {
             name="$1"; shift
+            wait="$1"; shift
             xcrun simctl terminate "$UDID" com.fly.comfypilot > /dev/null 2>&1 || true
             sleep 1
             xcrun simctl launch "$UDID" com.fly.comfypilot "$@" > /dev/null
-            sleep 8
+            sleep "$wait"
             xcrun simctl io "$UDID" screenshot "shots/$name.png" > /dev/null 2>&1
             echo "已截图：$name"
           }
 
-          # 真实链路：连 mock 服务端，走完握手与工作流拉取
-          shoot connect  -uiScreen connect  -uiBaseUrl http://127.0.0.1:8188
-          shoot tasks    -uiScreen tasks    -uiBaseUrl http://127.0.0.1:8188
-          shoot settings -uiScreen settings -uiBaseUrl http://127.0.0.1:8188
+          # 真实链路：连 mock 服务端，走完握手与工作流列表
+          shoot connect  8 -uiScreen connect  -uiBaseUrl http://127.0.0.1:8188
+          shoot workflow 8 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188
+          shoot tasks    8 -uiScreen tasks    -uiBaseUrl http://127.0.0.1:8188
+          shoot settings 8 -uiScreen settings -uiBaseUrl http://127.0.0.1:8188
+
+          # 打开真实工作流：要等目录、文档、节点定义依次就绪，给的时间长一点
+          shoot workflow-detail 16 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiOpenWorkflow demo_ui.json
 
           # 样例数据：给还没有真实数据的页面调排版用
-          shoot connect-fixture -uiScreen connect -uiFixture
-          shoot tasks-fixture   -uiScreen tasks   -uiFixture
+          shoot connect-fixture 8 -uiScreen connect -uiFixture
+          shoot tasks-fixture   8 -uiScreen tasks   -uiFixture
 
           ls -lh shots
 

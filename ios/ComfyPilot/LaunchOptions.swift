@@ -24,4 +24,7 @@ enum LaunchOptions {
 
     /// 用内置样例数据渲染，不连服务端。只用于调布局，不代表真实状态。
     static var fixture: Bool { flag("-uiFixture") }
+
+    /// 连上后自动打开这个工作流（相对 workflows/ 的路径），CI 截图用。
+    static var workflowPath: String? { value("-uiOpenWorkflow") }
 }

@@ -80,6 +80,12 @@ final class BridgeHost {
         deliver(message)
     }
 
+    /// 同步取工作流视图。共享层只是把内存里的模型序列化，不涉及 IO。
+    /// 和其他调用一样，必须在主线程。
+    func workflowView(requestJson: String) -> String {
+        host.workflowView(requestJson: requestJson)
+    }
+
     // MARK: - 节拍
 
     private func tick() {

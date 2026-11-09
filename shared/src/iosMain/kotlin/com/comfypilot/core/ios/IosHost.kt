@@ -3,6 +3,7 @@ package com.comfypilot.core.ios
 import com.comfypilot.core.host.SessionHost
 import com.comfypilot.core.host.restoredTasksFromJson
 import com.comfypilot.core.host.sessionConfigFromJson
+import com.comfypilot.core.host.sessionWorkflowJson
 
 /**
  * iOS 侧的唯一入口。
@@ -37,4 +38,16 @@ class IosHost(configJson: String, tasksJson: String) {
 
     /** 宿主执行完 IO 后把结果送回来；返回 false 表示这条消息无法识别。 */
     fun deliver(raw: String): Boolean = host.deliver(raw)
+
+    /**
+     * 按需拉取工作流视图：参数模型、节点开关、图分组、问题清单。
+     *
+     * 状态帧里只有轻量元数据，几百 KB 的工作流原文和字段模型走这条同步调用，
+     * 免得每 250ms 的帧都被一份大工作流拖慢。请求形如：
+     * `{"op":"view","overrides":{"3":{"seed":42}}}`，
+     * 或 `{"op":"prompt","overrides":{...}}` 拿可提交的 prompt 图。
+     *
+     * 和鸿蒙的 `cp_session_workflow` 是同一个实现，只是换了调用方式。
+     */
+    fun workflowView(requestJson: String): String = sessionWorkflowJson(host.state, requestJson)
 }

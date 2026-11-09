@@ -38,6 +38,7 @@ struct SessionSnapshot {
     var catalog: [CatalogRow] = []
     var catalogState: String = "idle"
     var workflowName: String = ""
+    var workflowPath: String = ""
 
     var isConnected: Bool { phase == "Connected" }
     var isBusy: Bool { phase == "Connecting" || phase == "Reconnecting" || phase == "Recovering" }
@@ -49,6 +50,14 @@ final class SessionStore: ObservableObject {
     @Published private(set) var notices: [String] = []
     @Published private(set) var running = false
     @Published var address: String = LaunchOptions.baseUrl
+
+    /// 工作流视图：参数模型、节点、问题清单。状态帧只有元数据，这份是按需拉的。
+    @Published private(set) var workflowView: WorkflowView?
+
+    private var overrides: [String: [String: Any]] = [:]
+    private var openedPath: String?
+    private var loadedPath: String = ""
+    private var catalogRequested = false
 
     private var bridge: BridgeHost?
     private var booted = false
@@ -91,6 +100,11 @@ final class SessionStore: ObservableObject {
         bridge?.stop()
         bridge = nil
         running = false
+        openedPath = nil
+        loadedPath = ""
+        overrides = [:]
+        workflowView = nil
+        catalogRequested = false
         snapshot.phase = "Idle"
         snapshot.label = "已断开"
         pushNotice("已断开")
@@ -128,6 +142,7 @@ final class SessionStore: ObservableObject {
 
         if let workflow = state["workflow"] as? [String: Any] {
             next.workflowName = (workflow["name"] as? String) ?? ""
+            next.workflowPath = (workflow["path"] as? String) ?? ""
         }
         if let catalog = state["catalog"] as? [String: Any] {
             next.catalogState = (catalog["state"] as? String) ?? "idle"
@@ -153,6 +168,29 @@ final class SessionStore: ObservableObject {
             }
         }
         snapshot = next
+
+        if next.phase == "Connected" {
+            // 工作流列表只拉一次；断线重连后重新拉。
+            if !catalogRequested {
+                catalogRequested = true
+                bridge?.send(["t": "workflows"])
+            }
+            // CI 没法点屏幕，用启动参数把指定工作流顶到最前面。
+            if openedPath == nil,
+               let target = LaunchOptions.workflowPath,
+               !target.isEmpty,
+               next.catalog.contains(where: { $0.path == target }) {
+                openWorkflow(path: target)
+            }
+        } else {
+            catalogRequested = false
+        }
+
+        // 文档真正加载完成后再拉视图：早一步只会拿到「还没有打开工作流」。
+        if !next.workflowPath.isEmpty, next.workflowPath != loadedPath {
+            loadedPath = next.workflowPath
+            reloadWorkflow()
+        }
     }
 
     private func appendNotice(_ payload: [String: Any]) {
@@ -193,6 +231,74 @@ final class SessionStore: ObservableObject {
         if notices.first == text { return }
         notices.insert(text, at: 0)
         if notices.count > 40 { notices.removeLast(notices.count - 40) }
+    }
+
+    // MARK: - 工作流
+
+    func openWorkflow(path: String) {
+        // 切回 tab 会重新触发 onAppear；已经打开过就别把用户的改动清掉。
+        if openedPath == path, workflowView != nil { return }
+        openedPath = path
+        loadedPath = ""
+        overrides = [:]
+        workflowView = nil
+        bridge?.send(["t": "workflow.open", "path": path])
+    }
+
+    /// 重新向共享层要一份视图。改过参数后调用，让它按字段类型重算并回报问题。
+    func reloadWorkflow() {
+        guard let bridge, let path = openedPath, !path.isEmpty else { return }
+        let raw = bridge.workflowView(requestJson: requestJson(op: "view"))
+        if let view = WorkflowView.parse(raw) {
+            workflowView = view
+        }
+    }
+
+    func setOverride(_ field: WorkflowField, value: Any) {
+        var node = overrides[String(field.nodeId)] ?? [:]
+        node[field.inputName] = value
+        overrides[String(field.nodeId)] = node
+        reloadWorkflow()
+    }
+
+    func submitWorkflow() {
+        guard let bridge, let view = workflowView, view.canSubmit else { return }
+        let raw = bridge.workflowView(
+            requestJson: requestJson(op: "prompt", runToken: Self.runToken())
+        )
+        guard let data = raw.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              (object["ok"] as? Bool) == true,
+              let prompt = object["prompt"],
+              let promptData = try? JSONSerialization.data(withJSONObject: prompt),
+              let promptText = String(data: promptData, encoding: .utf8) else {
+            pushNotice("提交被拒绝：prompt 没通过本地校验")
+            return
+        }
+        bridge.send([
+            "t": "submit",
+            "workflow": promptText,
+            "workflowName": view.name,
+            "workflowPath": view.path,
+        ])
+        pushNotice("已提交 \(view.name)")
+    }
+
+    private func requestJson(op: String, runToken: String? = nil) -> String {
+        var payload: [String: Any] = ["op": op]
+        if !overrides.isEmpty { payload["overrides"] = overrides }
+        if let runToken { payload["run"] = runToken }
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let text = String(data: data, encoding: .utf8) else {
+            return "{\"op\":\"view\"}"
+        }
+        return text
+    }
+
+    /// 保存类节点按这个后缀命名产物，避免同一工作流多次提交互相覆盖。
+    private static func runToken() -> String {
+        let raw = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        return String(raw.prefix(6))
     }
 
     // MARK: - 工具
