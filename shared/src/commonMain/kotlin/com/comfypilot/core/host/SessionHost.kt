@@ -218,6 +218,11 @@ class SessionHost(
                 true
             }
 
+            HostMessage.Reconcile -> {
+                runtime.reconcile()
+                true
+            }
+
             is HostMessage.Submit -> {
                 runtime.submit(
                     workflowJson = message.workflowJson,

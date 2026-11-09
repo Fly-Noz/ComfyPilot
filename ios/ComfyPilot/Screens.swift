@@ -266,36 +266,88 @@ struct ConnectScreen: View {
 struct TasksScreen: View {
     let palette: SpectrumPalette
     @EnvironmentObject private var store: SessionStore
+    @State private var viewing: TaskRow?
 
     var body: some View {
         ScreenScaffold(palette: palette) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("任务")
-                            .font(.title2.weight(.semibold))
-                            .foregroundStyle(palette.text)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("任务")
+                                .font(.system(size: 22, weight: .semibold))
+                                .foregroundStyle(palette.text)
+                            Text("队列：运行 \(store.snapshot.queueRunning)  /  等待 \(store.snapshot.queuePending)")
+                                .font(.system(size: 10.5))
+                                .foregroundStyle(palette.textDim)
+                        }
                         Spacer()
-                        Text("\(store.snapshot.tasks.count)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(palette.textDim)
+                        Button {
+                            store.reconcile()
+                        } label: {
+                            Text("刷新")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(palette.textMuted)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .padding(.bottom, 4)
+
+                    statusLine
 
                     if store.snapshot.tasks.isEmpty {
                         emptyState
                     } else {
                         ForEach(store.snapshot.tasks) { task in
-                            TaskCard(task: task, palette: palette) {
-                                store.cancel(task)
-                            }
+                            TaskCard(
+                                task: task,
+                                palette: palette,
+                                onView: task.artifacts.isEmpty ? nil : { viewing = task },
+                                onCancel: { store.cancel(task) }
+                            )
                         }
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
+                .padding(.horizontal, 18)
+                .padding(.top, 14)
                 .padding(.bottom, 28)
             }
+        }
+        .sheet(item: $viewing) { task in
+            ArtifactViewer(
+                task: task,
+                baseUrl: store.snapshot.baseUrl,
+                palette: palette
+            )
+        }
+    }
+
+    private var statusLine: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(store.snapshot.isConnected ? palette.ok : palette.textDim)
+                .frame(width: 6, height: 6)
+            Text(statusText)
+                .font(.system(size: 10.5))
+                .foregroundStyle(palette.textMuted)
+            Spacer()
+        }
+        .padding(.bottom, 2)
+    }
+
+    private var statusText: String {
+        let phase = store.snapshot.isConnected ? "已连接" : "未连接"
+        let transport = transportName(store.snapshot.network)
+        let validated = store.snapshot.validated ? "（已验证）" : ""
+        return "\(phase) · \(transport)\(validated) · 第 \(store.snapshot.generation) 代"
+    }
+
+    private func transportName(_ raw: String) -> String {
+        switch raw {
+        case "wifi": return "WIFI"
+        case "cellular": return "蜂窝"
+        case "ethernet": return "以太网"
+        case "none": return "无网络"
+        default: return "未知"
         }
     }
 
@@ -307,7 +359,7 @@ struct TasksScreen: View {
             Text("还没有任务")
                 .font(.subheadline)
                 .foregroundStyle(palette.textMuted)
-            Text("连接后在网页端提交，或等 AI 助手接手")
+            Text("连接后在网页端提交，或在工作流页直接提交")
                 .font(.caption)
                 .foregroundStyle(palette.textDim)
         }
@@ -317,93 +369,135 @@ struct TasksScreen: View {
     }
 }
 
+/// 对齐安卓/鸿蒙的任务卡：左侧状态色条 + 名称/耗时/徽章 + 进度条 + 输出行 + 幽灵按钮。
 struct TaskCard: View {
     let task: TaskRow
     let palette: SpectrumPalette
+    let onView: (() -> Void)?
     let onCancel: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Text(task.name.isEmpty ? task.promptId : task.name)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(palette.text)
-                    .lineLimit(1)
-                Spacer()
-                Text(stateTitle)
-                    .font(.caption2.weight(.medium))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(
-                        Capsule().fill(stateColor.opacity(0.16))
-                    )
-                    .foregroundStyle(stateColor)
-            }
+        HStack(spacing: 0) {
+            Rectangle()
+                .fill(tone)
+                .frame(width: 3)
 
-            if task.showsProgress {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(palette.border)
-                        Capsule()
-                            .fill(
-                                LinearGradient(
-                                    colors: palette.gradient,
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                            .frame(width: geo.size.width * progress)
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 11.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(palette.text)
+                        .lineLimit(1)
+                    Spacer(minLength: 4)
+                    Text(task.elapsedText(nowMs: nowMillis))
+                        .font(.system(size: 9.5, design: .monospaced))
+                        .foregroundStyle(palette.textDim)
+                    statePill
+                }
+
+                if task.showsProgress {
+                    HStack(spacing: 8) {
+                        progressBar
+                        Text("\(Int(task.percent * 100))%")
+                            .font(.system(size: 9.5, design: .monospaced))
+                            .foregroundStyle(palette.textDim)
                     }
                 }
-                .frame(height: 5)
-            }
 
-            HStack(spacing: 8) {
-                Text(task.node.isEmpty ? String(task.promptId.prefix(8)) : task.node)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(palette.textDim)
-                Spacer()
-                if task.showsProgress {
-                    Text("\(Int(progress * 100))%")
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(palette.textMuted)
-                }
-                if task.outputs > 0 {
-                    Text("\(task.outputs) 个产物")
-                        .font(.caption2)
-                        .foregroundStyle(palette.textMuted)
-                }
-                if let error = task.error, !error.isEmpty {
-                    Text(error)
-                        .font(.caption2)
-                        .foregroundStyle(palette.err)
+                if !task.artifacts.isEmpty {
+                    Text("输出：\(task.artifacts.map { $0.filename }.joined(separator: "、"))")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(palette.textDim)
                         .lineLimit(1)
                 }
-                if task.canCancel {
-                    Button {
-                        onCancel()
-                    } label: {
-                        Text("取消")
-                            .font(.caption2.weight(.medium))
-                            .padding(.horizontal, 9)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule().stroke(palette.err.opacity(0.45), lineWidth: 1)
-                            )
-                            .foregroundStyle(palette.err)
+
+                if let error = task.error, !error.isEmpty {
+                    Text(error)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(palette.err)
+                        .lineLimit(3)
+                }
+
+                if onView != nil || task.canCancel {
+                    HStack(spacing: 8) {
+                        if let onView {
+                            ghostButton("查看产物", action: onView)
+                        }
+                        Spacer(minLength: 0)
+                        if task.canCancel {
+                            ghostButton("取消", action: onCancel)
+                        }
                     }
-                    .buttonStyle(.plain)
+                    .padding(.top, 1)
                 }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
         }
-        .spectrumCard(palette)
+        .background(palette.card)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(palette.border, lineWidth: 1)
+        )
     }
 
-    private var progress: CGFloat {
-        CGFloat(min(max(task.percent, 0), 1))
+    private var nowMillis: Int64 {
+        Int64(Date().timeIntervalSince1970 * 1000)
     }
 
-    private var stateTitle: String {
+    private var title: String {
+        if !task.name.isEmpty { return task.name }
+        if !task.promptId.isEmpty { return task.promptId }
+        return task.id
+    }
+
+    private var progressBar: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(palette.border)
+                Capsule()
+                    .fill(
+                        LinearGradient(
+                            colors: palette.gradient,
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: geo.size.width * CGFloat(min(max(task.percent, 0), 1)))
+            }
+        }
+        .frame(height: 5)
+    }
+
+    private var statePill: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(tone)
+                .frame(width: 5, height: 5)
+            Text(stateLabel)
+                .font(.system(size: 10, weight: .medium))
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Capsule().fill(tone.opacity(0.14)))
+        .foregroundStyle(tone)
+    }
+
+    private func ghostButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(Capsule().fill(palette.cardStrong))
+                .overlay(Capsule().stroke(palette.border, lineWidth: 1))
+                .foregroundStyle(palette.text)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var stateLabel: String {
         switch task.state {
         case "Running": return "生成中"
         case "Queued": return "排队中"
@@ -415,7 +509,7 @@ struct TaskCard: View {
         }
     }
 
-    private var stateColor: Color {
+    private var tone: Color {
         switch task.state {
         case "Running": return palette.accent
         case "Completed": return palette.ok

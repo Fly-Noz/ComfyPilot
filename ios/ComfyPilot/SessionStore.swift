@@ -1,14 +1,31 @@
 import Foundation
 import SwiftUI
 
+/// 一个产物引用。`path` 是共享层给好的相对地址（/view?...），
+/// 宿主拼上 baseUrl 就能取，不用自己拼查询参数。
+struct ArtifactRef: Identifiable {
+    var id: String { "\(type)/\(subfolder)/\(filename)" }
+    let filename: String
+    let displayName: String
+    let subfolder: String
+    let type: String
+    let mime: String
+    let isImage: Bool
+    let isVideo: Bool
+    let path: String
+}
+
 struct TaskRow: Identifiable {
     let id: String
     let promptId: String
     let name: String
+    let workflowPath: String
     let state: String
     let percent: Double
     let node: String
-    let outputs: Int
+    let createdAtMs: Int64
+    let updatedAtMs: Int64
+    let artifacts: [ArtifactRef]
     let error: String?
 
     /// 只有真正在跑才画进度条：排队时条恒为 0，画出来像卡住了。
@@ -16,6 +33,19 @@ struct TaskRow: Identifiable {
 
     /// 排队中也能取消（ComfyUI 的 /queue 支持删 pending）。
     var canCancel: Bool { state == "Running" || state == "Queued" || state == "Submitting" }
+
+    var isActive: Bool { state == "Running" || state == "Queued" || state == "Submitting" }
+
+    /// 安卓那边是「已用 0:51」/「耗时 0:51」，这里保持一致。
+    func elapsedText(nowMs: Int64) -> String {
+        let end = isActive ? nowMs : updatedAtMs
+        let seconds = max(0, (end - createdAtMs) / 1000)
+        let prefix = isActive ? "已用 " : "耗时 "
+        if seconds >= 3600 {
+            return String(format: "%@%d:%02d:%02d", prefix, seconds / 3600, (seconds % 3600) / 60, seconds % 60)
+        }
+        return String(format: "%@%d:%02d", prefix, seconds / 60, seconds % 60)
+    }
 }
 
 struct CatalogRow: Identifiable {
@@ -34,6 +64,8 @@ struct SessionSnapshot {
     var queuePending: Int = 0
     var wsTextFrames: Int = 0
     var wsBinaryFrames: Int = 0
+    var network: String = ""
+    var validated: Bool = false
     var tasks: [TaskRow] = []
     var catalog: [CatalogRow] = []
     var catalogState: String = "idle"
@@ -130,6 +162,11 @@ final class SessionStore: ObservableObject {
         bridge?.send(["t": "reconnect"])
     }
 
+    /// 手动刷新：让共享层查一遍 /history 与 /queue，不重连。
+    func reconcile() {
+        bridge?.send(["t": "reconcile"])
+    }
+
     func cancel(_ task: TaskRow) {
         guard !task.promptId.isEmpty else { return }
         bridge?.send(["t": "cancel", "promptId": task.promptId])
@@ -151,6 +188,8 @@ final class SessionStore: ObservableObject {
         next.queuePending = int(state["queuePending"])
         next.wsTextFrames = int(state["wsTextFrames"])
         next.wsBinaryFrames = int(state["wsBinaryFrames"])
+        next.network = (state["network"] as? String) ?? ""
+        next.validated = (state["validated"] as? Bool) ?? false
 
         if let workflow = state["workflow"] as? [String: Any] {
             next.workflowName = (workflow["name"] as? String) ?? ""
@@ -173,10 +212,24 @@ final class SessionStore: ObservableObject {
                     id: (task["id"] as? String) ?? UUID().uuidString,
                     promptId: (task["promptId"] as? String) ?? "",
                     name: (task["name"] as? String) ?? "",
+                    workflowPath: (task["workflowPath"] as? String) ?? "",
                     state: (task["state"] as? String) ?? "Unknown",
                     percent: double(task["percent"]),
                     node: (task["progressNode"] as? String) ?? "",
-                    outputs: int(task["outputs"]),
+                    createdAtMs: int64(task["createdAtMs"]),
+                    updatedAtMs: int64(task["updatedAtMs"]),
+                    artifacts: (task["outputRefs"] as? [[String: Any]] ?? []).map { raw in
+                        ArtifactRef(
+                            filename: (raw["filename"] as? String) ?? "",
+                            displayName: (raw["displayName"] as? String) ?? "",
+                            subfolder: (raw["subfolder"] as? String) ?? "",
+                            type: (raw["type"] as? String) ?? "",
+                            mime: (raw["mime"] as? String) ?? "",
+                            isImage: (raw["image"] as? Bool) ?? false,
+                            isVideo: (raw["video"] as? Bool) ?? false,
+                            path: (raw["path"] as? String) ?? ""
+                        )
+                    },
                     error: task["error"] as? String
                 )
             }
@@ -375,6 +428,12 @@ final class SessionStore: ObservableObject {
         return 0
     }
 
+    private func int64(_ value: Any?) -> Int64 {
+        if let number = value as? NSNumber { return number.int64Value }
+        if let text = value as? String { return Int64(text) ?? 0 }
+        return 0
+    }
+
     private func double(_ value: Any?) -> Double {
         if let number = value as? NSNumber { return number.doubleValue }
         if let text = value as? String { return Double(text) ?? 0 }
@@ -385,6 +444,7 @@ final class SessionStore: ObservableObject {
 /// 只用来看排版，不参与任何逻辑。真正的数据永远来自共享层。
 enum Fixtures {
     static let snapshot: SessionSnapshot = {
+        let now = Int64(Date().timeIntervalSince1970 * 1000)
         var snapshot = SessionSnapshot()
         snapshot.phase = "Connected"
         snapshot.label = "已连接"
@@ -406,30 +466,39 @@ enum Fixtures {
                 id: "t1",
                 promptId: "8f3c1d2a",
                 name: "SDXL 基础 · 文生图",
+                workflowPath: "sdxl_base.json",
                 state: "Running",
                 percent: 0.62,
                 node: "KSampler",
-                outputs: 0,
+                createdAtMs: now - 51_000,
+                updatedAtMs: now - 400,
+                artifacts: [],
                 error: nil
             ),
             TaskRow(
                 id: "t2",
                 promptId: "2b7e9f01",
                 name: "Flux 人像",
+                workflowPath: "flux_portrait.json",
                 state: "Queued",
                 percent: 0,
                 node: "",
-                outputs: 0,
+                createdAtMs: now - 8_000,
+                updatedAtMs: now - 8_000,
+                artifacts: [],
                 error: nil
             ),
             TaskRow(
                 id: "t3",
                 promptId: "5c1a8b44",
                 name: "Wan 视频",
+                workflowPath: "wan_video.json",
                 state: "Completed",
                 percent: 1,
                 node: "",
-                outputs: 4,
+                createdAtMs: now - 620_000,
+                updatedAtMs: now - 540_000,
+                artifacts: [],
                 error: nil
             ),
         ]

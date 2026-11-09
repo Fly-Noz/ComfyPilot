@@ -273,6 +273,9 @@ sealed interface HostMessage {
 
     data object Reconnect : HostMessage
 
+    /** 回到前台/手动刷新时的对账：查 /history 与 /queue，不重连。 */
+    data object Reconcile : HostMessage
+
     /** 提交工作流；`name/path` 可选，旧宿主不传时任务只显示 promptId。 */
     data class Submit(
         val workflowJson: String,
@@ -335,6 +338,7 @@ sealed interface HostMessage {
                 "start" -> Start
                 "stop" -> Stop
                 "reconnect" -> Reconnect
+                "reconcile" -> Reconcile
                 "submit" -> Submit(
                     workflowJson = obj.stringOrNull("workflow") ?: return null,
                     workflowName = obj.stringOrNull("workflowName"),

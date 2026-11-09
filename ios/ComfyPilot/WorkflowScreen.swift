@@ -193,14 +193,20 @@ struct WorkflowDetailScreen: View {
 
     private func nodeCard(_ node: WorkflowNode) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Text(node.title.isEmpty ? node.type : node.title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(node.missing ? palette.err : palette.text)
-                    .lineLimit(1)
-                Spacer()
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(node.title.isEmpty ? node.type : node.title)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(node.missing ? palette.err : palette.text)
+                        .lineLimit(1)
+                    Text("\(node.type) · \(node.fields.count) 个输入")
+                        .font(.system(size: 10))
+                        .foregroundStyle(palette.textDim)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
                 Text("#\(node.id)")
-                    .font(.caption2.monospaced())
+                    .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(palette.textDim)
             }
 
@@ -313,6 +319,11 @@ struct FieldRow: View {
                 if field.linked {
                     Text(field.sourceLabel.isEmpty ? "由连线提供" : "由 \(field.sourceLabel) 提供")
                         .font(.system(size: 10))
+                        .foregroundStyle(palette.textDim)
+                        .lineLimit(1)
+                } else {
+                    Text(field.type)
+                        .font(.system(size: 9.5, design: .monospaced))
                         .foregroundStyle(palette.textDim)
                         .lineLimit(1)
                 }

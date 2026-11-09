@@ -162,21 +162,21 @@ jobs:
             echo "已截图：$name"
           }
 
-          # 真实链路：连 mock 服务端，走完握手与工作流列表
-          shoot connect  8 -uiScreen connect  -uiBaseUrl http://127.0.0.1:8188
-          shoot workflow 8 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188
-          shoot tasks    8 -uiScreen tasks    -uiBaseUrl http://127.0.0.1:8188
-          shoot settings 8 -uiScreen settings -uiBaseUrl http://127.0.0.1:8188
+          # 统一用深色出图：两端都是以深色为基准设计的，浅色只是可选主题
+          shoot connect  8 -uiScreen connect  -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark
+          shoot workflow 8 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark
+          shoot tasks    8 -uiScreen tasks    -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark
+          shoot settings 8 -uiScreen settings -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark
 
           # 打开真实工作流：要等目录、文档、节点定义依次就绪，给的时间长一点
-          shoot workflow-detail 16 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiOpenWorkflow demo_ui.json
+          shoot workflow-detail 16 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_ui.json
 
-          # 自动提交一次后自动跳到任务页：验证 prompt 能被服务端接受、任务真的入列
-          shoot tasks-after-submit 20 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiOpenWorkflow demo_ui.json -uiAutoSubmit
+          # 自动提交一次后自动跳到任务页：验证 prompt 能被服务端接受、任务真的入列，
+          # 同时看产物行的排版（已完成的任务带 1 个产物）
+          shoot tasks-after-submit 20 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_ui.json -uiAutoSubmit
 
-          # 样例数据：给还没有真实数据的页面调排版用
-          shoot connect-fixture 8 -uiScreen connect -uiFixture
-          shoot tasks-fixture   8 -uiScreen tasks   -uiFixture
+          # 浅色回归：只留一张，确认浅色主题没有崩
+          shoot connect-light 8 -uiScreen connect -uiBaseUrl http://127.0.0.1:8188 -uiTheme light
 
           ls -lh shots
 
