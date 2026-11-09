@@ -363,6 +363,11 @@ struct TaskCard: View {
                         .foregroundStyle(palette.err)
                         .lineLimit(1)
                 }
+                if task.isActive {
+                    Button("取消") { onCancel() }
+                        .font(.caption2)
+                        .foregroundStyle(palette.err)
+                }
             }
         }
         .spectrumCard(palette)
