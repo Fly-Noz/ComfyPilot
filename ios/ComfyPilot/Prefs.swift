@@ -14,4 +14,10 @@ enum Prefs {
         get { UserDefaults.standard.bool(forKey: "weakNetwork") }
         set { UserDefaults.standard.set(newValue, forKey: "weakNetwork") }
     }
+
+    /// 外观：system / dark / light。命令行 `-uiTheme` 优先级更高（CI 用）。
+    static var themeMode: String {
+        get { UserDefaults.standard.string(forKey: "themeMode") ?? "system" }
+        set { UserDefaults.standard.set(newValue, forKey: "themeMode") }
+    }
 }

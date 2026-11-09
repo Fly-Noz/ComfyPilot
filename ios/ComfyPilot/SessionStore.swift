@@ -433,6 +433,19 @@ final class SessionStore: ObservableObject {
         reloadWorkflow()
     }
 
+    /// 当前工作流改过多少个参数。设置页用它决定「重置」是否可点。
+    var overrideCount: Int {
+        overrides.values.reduce(0) { $0 + $1.count }
+    }
+
+    /// 清掉本次打开后的所有参数修改（不写回服务器上的工作流文件）。
+    func resetOverrides() {
+        guard !overrides.isEmpty else { return }
+        overrides = [:]
+        reloadWorkflow()
+        pushNotice("已恢复默认参数")
+    }
+
     func setOverride(_ field: WorkflowField, value: Any) {
         var node = overrides[String(field.nodeId)] ?? [:]
         node[field.inputName] = value
@@ -631,6 +644,9 @@ enum Fixtures {
 /// 让用户每次重敲一遍 IP 是很差的体验（安卓那边是存在设置里的）。
 enum SavedAddress {
     private static let key = "lastBaseUrl"
+    private static let historyKey = "baseUrlHistory"
+    /// 历史只留最近几条：太多会把连接页撑长，实际来回用的就那两三台机器。
+    private static let historyLimit = 6
 
     static var initial: String {
         if let raw = LaunchOptions.baseUrlFromArgs { return raw }
@@ -647,7 +663,17 @@ enum SavedAddress {
         return text
     }
 
+    static var history: [String] {
+        UserDefaults.standard.stringArray(forKey: historyKey) ?? []
+    }
+
+    /// 连接时记一条：当前地址提到最前，重复地址不重复存。
     static func save(_ value: String) {
+        guard !value.isEmpty else { return }
         UserDefaults.standard.set(value, forKey: key)
+        var items = history.filter { $0 != value }
+        items.insert(value, at: 0)
+        if items.count > historyLimit { items.removeLast(items.count - historyLimit) }
+        UserDefaults.standard.set(items, forKey: historyKey)
     }
 }

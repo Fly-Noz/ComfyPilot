@@ -35,11 +35,13 @@ struct RootView: View {
     @Environment(\.colorScheme) private var scheme
     @State private var route: AppRoute = AppRoute.initial()
     @State private var settingsReturn: AppRoute = .connect
+    /// 设置里改外观后要立刻整体换色，所以主题读在这里而不是每个页面各读一份。
+    @AppStorage("themeMode") private var themeMode = "system"
 
     var body: some View {
-        let palette = Spectrum.palette(for: scheme)
+        let palette = Spectrum.palette(for: forcedScheme ?? scheme)
         content(palette)
-            .preferredColorScheme(preferredScheme)
+            .preferredColorScheme(forcedScheme)
             .onAppear { store.boot() }
             .onChange(of: store.pendingScreen) { _, target in
                 if target == "tasks" { route = .tasks }
@@ -89,10 +91,15 @@ struct RootView: View {
         }
     }
 
-    private var preferredScheme: ColorScheme? {
+    /// 命令行 `-uiTheme` 只用于 CI 截图；平时跟随设置里的外观。
+    private var forcedScheme: ColorScheme? {
         if LaunchOptions.theme == "dark" { return .dark }
         if LaunchOptions.theme == "light" { return .light }
-        return nil
+        switch themeMode {
+        case "dark": return .dark
+        case "light": return .light
+        default: return nil
+        }
     }
 }
 
@@ -213,6 +220,8 @@ struct ConnectScreen: View {
                     keyboard: .URL
                 )
 
+                addressHistory
+
                 Spacer().frame(height: 12)
 
                 HStack(spacing: 9) {
@@ -236,6 +245,35 @@ struct ConnectScreen: View {
                         onCatalog()
                     }
                 }
+            }
+        }
+    }
+
+    /// 地址历史：只在本机保存，点一下换过去。
+    @ViewBuilder
+    private var addressHistory: some View {
+        let items = SavedAddress.history.filter { $0 != store.address }
+        if !items.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(items, id: \.self) { item in
+                        Button {
+                            store.address = item
+                        } label: {
+                            Text(item.replacingOccurrences(of: "http://", with: "")
+                                .replacingOccurrences(of: "https://", with: ""))
+                                .font(.system(size: 10, design: .monospaced))
+                                .lineLimit(1)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 5)
+                                .background(Capsule().fill(palette.cardStrong))
+                                .overlay(Capsule().stroke(palette.border, lineWidth: 1))
+                                .foregroundStyle(palette.textMuted)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.top, 8)
             }
         }
     }
@@ -578,6 +616,7 @@ struct SettingsScreen: View {
     /// 和安卓一样落在 SharedPreferences 对位的地方：UserDefaults。
     @AppStorage("forceSubmit") private var forceSubmit = false
     @AppStorage("weakNetwork") private var weakNetwork = false
+    @AppStorage("themeMode") private var themeMode = "system"
     @State private var diagnostics = false
 
     var body: some View {
@@ -596,13 +635,64 @@ struct SettingsScreen: View {
                             }
                         }
 
+                        section("外观")
+                        GlassCard(palette: palette, padding: 10) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                SpectrumTabs(
+                                    labels: ["跟随系统", "深色", "浅色"],
+                                    selected: themeIndex,
+                                    palette: palette
+                                ) { index in
+                                    themeMode = ["system", "dark", "light"][index]
+                                }
+                                if LaunchOptions.theme != nil {
+                                    Text("本次启动由命令行指定了外观；上面的选择下次启动生效。")
+                                        .font(.system(size: 10))
+                                        .lineSpacing(3)
+                                        .foregroundStyle(palette.textDim)
+                                }
+                            }
+                        }
+
                         section("提交")
                         GlassCard(palette: palette, padding: 12) {
-                            toggle(
-                                title: "忽略本地校验，强制提交",
-                                detail: "本地有报错也照样把任务发给服务器，由 ComfyUI 判定",
-                                isOn: $forceSubmit
-                            )
+                            VStack(spacing: 10) {
+                                toggle(
+                                    title: "忽略本地校验，强制提交",
+                                    detail: "本地有报错也照样把任务发给服务器，由 ComfyUI 判定",
+                                    isOn: $forceSubmit
+                                )
+
+                                Divider().overlay(palette.border)
+
+                                Button {
+                                    store.resetOverrides()
+                                } label: {
+                                    HStack(spacing: 8) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("恢复当前工作流的默认参数")
+                                                .font(.system(size: 13))
+                                                .foregroundStyle(store.overrideCount > 0 ? palette.text : palette.textDim)
+                                            Text(store.overrideCount > 0 ? "已改 \(store.overrideCount) 处，点一下清掉" : "当前没有改动")
+                                                .font(.system(size: 10.5))
+                                                .foregroundStyle(palette.textDim)
+                                        }
+                                        Spacer(minLength: 0)
+                                        GhostButton(
+                                            title: "恢复",
+                                            palette: palette,
+                                            height: 30,
+                                            selected: false,
+                                            enabled: store.overrideCount > 0
+                                        ) {
+                                            store.resetOverrides()
+                                        }
+                                        .disabled(store.overrideCount == 0)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(store.overrideCount == 0)
+                            }
                         }
 
                         section("网络")
@@ -612,6 +702,27 @@ struct SettingsScreen: View {
                                 detail: "少抢带宽：主机状态 15 秒一刷，采样预览最多 2 秒一张",
                                 isOn: $weakNetwork
                             )
+                        }
+
+                        section("功能")
+                        GlassCard(palette: palette, padding: 12) {
+                            HStack(spacing: 10) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("AI 助手")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(palette.textDim)
+                                    Text("用对话改参数、解释报错；还在开发中")
+                                        .font(.system(size: 10.5))
+                                        .foregroundStyle(palette.textDim)
+                                }
+                                Spacer(minLength: 0)
+                                Text("暂未开放")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(palette.textDim)
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 4)
+                                    .background(Capsule().fill(palette.cardStrong))
+                            }
                         }
 
                         section("诊断")
@@ -663,6 +774,14 @@ struct SettingsScreen: View {
         }
     }
 
+    private var themeIndex: Int {
+        switch themeMode {
+        case "dark": return 1
+        case "light": return 2
+        default: return 0
+        }
+    }
+
     private func section(_ title: String) -> some View {
         Text(title)
             .font(.system(size: 9.5, design: .monospaced))
@@ -691,7 +810,10 @@ struct SettingsScreen: View {
     }
 
     private var themeName: String {
-        switch LaunchOptions.theme {
+        if let forced = LaunchOptions.theme {
+            return forced == "dark" ? "深色（命令行）" : "浅色（命令行）"
+        }
+        switch themeMode {
         case "dark": return "深色"
         case "light": return "浅色"
         default: return "跟随系统"
