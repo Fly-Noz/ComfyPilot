@@ -343,7 +343,7 @@ struct TaskCard: View {
             }
 
             HStack(spacing: 8) {
-                Text(task.node.isEmpty ? task.promptId.prefix(8).description : task.node)
+                Text(task.node.isEmpty ? String(task.promptId.prefix(8)) : task.node)
                     .font(.caption2.monospaced())
                     .foregroundStyle(palette.textDim)
                 Spacer()
