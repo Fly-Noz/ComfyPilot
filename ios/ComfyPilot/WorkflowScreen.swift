@@ -7,8 +7,13 @@ struct WorkflowTab: View {
 
     @State private var route: [String] = {
         // CI 没法点屏幕：带 -uiOpenWorkflow 时直接把详情压进导航栈。
-        if let path = LaunchOptions.workflowPath, !path.isEmpty { return [path] }
-        return []
+        let initial: [String]
+        if let path = LaunchOptions.workflowPath, !path.isEmpty {
+            initial = [path]
+        } else {
+            initial = []
+        }
+        return initial
     }()
 
     var body: some View {
