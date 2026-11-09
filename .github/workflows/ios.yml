@@ -171,6 +171,9 @@ jobs:
           # 打开真实工作流：要等目录、文档、节点定义依次就绪，给的时间长一点
           shoot workflow-detail 16 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiOpenWorkflow demo_ui.json
 
+          # 自动提交一次后自动跳到任务页：验证 prompt 能被服务端接受、任务真的入列
+          shoot tasks-after-submit 20 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiOpenWorkflow demo_ui.json -uiAutoSubmit
+
           # 样例数据：给还没有真实数据的页面调排版用
           shoot connect-fixture 8 -uiScreen connect -uiFixture
           shoot tasks-fixture   8 -uiScreen tasks   -uiFixture

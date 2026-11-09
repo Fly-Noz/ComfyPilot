@@ -35,6 +35,11 @@ struct RootView: View {
         .tint(palette.accent)
         .preferredColorScheme(preferredScheme)
         .onAppear { store.boot() }
+        .onChange(of: store.pendingScreen) { _, target in
+            if let raw = target, let next = Screen(rawValue: raw) {
+                screen = next
+            }
+        }
     }
 
     private var preferredScheme: ColorScheme? {

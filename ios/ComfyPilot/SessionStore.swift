@@ -56,6 +56,10 @@ final class SessionStore: ObservableObject {
 
     /// 工作流视图：参数模型、节点、问题清单。状态帧只有元数据，这份是按需拉的。
     @Published private(set) var workflowView: WorkflowView?
+    /// 需要在界面上切换到的 tab（目前只有自动提交后会用）。
+    @Published private(set) var pendingScreen: String?
+
+    private var didAutoSubmit = false
 
     private var overrides: [String: [String: Any]] = [:]
     private var openedPath: String?
@@ -209,6 +213,16 @@ final class SessionStore: ObservableObject {
             // 字段是从 /object_info 抽的：定义晚到一步，第一次算出来的视图就是空的。
             loadedNodeInfoCount = next.nodeInfoCount
             reloadWorkflow()
+        }
+
+        // CI 验证用：参数页一就绪就提交一次，然后跳到任务页看结果。
+        if LaunchOptions.autoSubmit,
+           !didAutoSubmit,
+           let view = workflowView,
+           view.canSubmit {
+            didAutoSubmit = true
+            submitWorkflow()
+            pendingScreen = "tasks"
         }
     }
 

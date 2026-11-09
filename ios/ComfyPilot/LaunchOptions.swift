@@ -27,4 +27,7 @@ enum LaunchOptions {
 
     /// 连上后自动打开这个工作流（相对 workflows/ 的路径），CI 截图用。
     static var workflowPath: String? { value("-uiOpenWorkflow") }
+
+    /// 参数页就绪后自动提交一次，然后跳到任务页。用来验证提交链路，CI 点不了屏幕。
+    static var autoSubmit: Bool { flag("-uiAutoSubmit") }
 }
