@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 预览页：语义照 `PreviewPane`（WorkflowDetailScreen.kt）。
 ///
