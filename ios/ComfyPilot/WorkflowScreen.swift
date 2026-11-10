@@ -178,9 +178,13 @@ struct WorkflowDetailScreen: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 12) {
                             if let view = store.workflowView {
-                                summary(view)
-                                // 主机状态跟着工作流走：安卓只在这一页放它。
+                                // 安卓这一页没有「名称 + N 个可调节点」的摘要卡：
+                                // 名字在顶栏，「多少个能调」由各分区头分别给出。
+                                // 主机状态跟着工作流走。
                                 ServerStatsStrip(palette: palette, snapshot: store.snapshot)
+
+                                graphPicker(view)
+                                problemsCard(view)
 
                                 SpectrumTabs(
                                     labels: ["输入 \(fieldCount(view))", "预览"],
@@ -525,47 +529,51 @@ struct WorkflowDetailScreen: View {
         view.nodes.reduce(0) { $0 + $1.fields.count }
     }
 
-    private func summary(_ view: WorkflowView) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                Text(view.name.isEmpty ? path : view.name)
-                    .font(.headline)
-                    .foregroundStyle(palette.text)
-                    .lineLimit(1)
-                Spacer()
-                Text("\(view.visibleNodes.count) 个可调节点")
-                    .font(.caption2)
-                    .foregroundStyle(palette.textDim)
-            }
-
-            if !view.graphs.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(view.graphs) { graph in
-                            SpectrumChip(
-                                text: graph.title,
-                                selected: graph.enabled,
-                                palette: palette
-                            ) {
-                                store.toggleGraph(graph.id)
-                            }
+    /// 图分组切换：照安卓的 showGraphPicker —— 多个图、或唯一那个被关掉时才出现。
+    /// 只占一行 chip，不套卡片；子图的启停在各分区的子图行上。
+    @ViewBuilder
+    private func graphPicker(_ view: WorkflowView) -> some View {
+        let parents = view.graphs.filter { !$0.outputNodeIds.isEmpty }
+        let show = view.graphs.count > 1 || (view.graphs.count == 1 && view.graphs[0].enabled == false)
+        if show, !parents.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 7) {
+                    ForEach(parents) { graph in
+                        SpectrumChip(
+                            text: graph.title,
+                            selected: graph.enabled,
+                            palette: palette
+                        ) {
+                            store.toggleGraph(graph.id)
                         }
                     }
                 }
-            }
-
-            ForEach(Array(view.problems.enumerated()), id: \.offset) { _, problem in
-                Text(problem)
-                    .font(.caption2)
-                    .foregroundStyle(palette.err)
-            }
-            ForEach(Array(view.warnings.prefix(3).enumerated()), id: \.offset) { _, warning in
-                Text(warning)
-                    .font(.caption2)
-                    .foregroundStyle(palette.warn)
+                .padding(.vertical, 1)
             }
         }
-        .glassCard(palette)
+    }
+
+    /// 本地校验的问题与告警。安卓也是单独一张卡，不混进任何摘要里。
+    @ViewBuilder
+    private func problemsCard(_ view: WorkflowView) -> some View {
+        if !view.problems.isEmpty || !view.warnings.isEmpty {
+            GlassCard(palette: palette, padding: 11) {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(Array(view.problems.enumerated()), id: \.offset) { _, problem in
+                        Text(problem)
+                            .font(.system(size: 11))
+                            .lineSpacing(3)
+                            .foregroundStyle(palette.err)
+                    }
+                    ForEach(Array(view.warnings.prefix(3).enumerated()), id: \.offset) { _, warning in
+                        Text(warning)
+                            .font(.system(size: 11))
+                            .lineSpacing(3)
+                            .foregroundStyle(palette.warn)
+                    }
+                }
+            }
+        }
     }
 
     /// 节点卡：标题行 + 状态说明 + 可折叠的字段区。

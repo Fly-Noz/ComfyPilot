@@ -59,6 +59,8 @@ struct WorkflowGraphChip: Identifiable {
     /// 子图才有父 id；顶层图是空串。
     let parentId: String
     let nodeIds: [Int]
+    /// 有输出节点的才是「可独立启停的图」；辅助图组没有输出。
+    let outputNodeIds: [Int]
 }
 
 /// 画布上的一个节点：坐标来自工作流文件，可能是任意尺度（ComfyUI 前端按 1x 存）。
@@ -208,7 +210,8 @@ struct WorkflowView {
                 title: string(graph["title"]),
                 enabled: bool(graph["enabled"]),
                 parentId: string(graph["parentId"]),
-                nodeIds: (graph["nodeIds"] as? [Any] ?? []).map { Int(int64($0)) }
+                nodeIds: (graph["nodeIds"] as? [Any] ?? []).map { Int(int64($0)) },
+                outputNodeIds: (graph["outputNodeIds"] as? [Any] ?? []).map { Int(int64($0)) }
             )
         }
         view.nodes = (object["nodes"] as? [[String: Any]] ?? []).map { node in

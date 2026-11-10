@@ -713,11 +713,34 @@ struct SettingsScreen: View {
 
                         section("网络")
                         GlassCard(palette: palette, padding: 12) {
-                            toggle(
-                                title: "弱网模式",
-                                detail: "少抢带宽：主机状态 15 秒一刷，采样预览最多 2 秒一张",
-                                isOn: $weakNetwork
-                            )
+                            VStack(spacing: 10) {
+                                toggle(
+                                    title: "弱网模式",
+                                    detail: "少抢带宽：主机状态 15 秒一刷，采样预览最多 2 秒一张",
+                                    isOn: $weakNetwork
+                                )
+
+                                Divider().overlay(palette.border)
+
+                                // 入口先摆出来，功能后补：安卓那边是独立页面（延迟/带宽 + 建议）。
+                                HStack(spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("网络测速")
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(palette.textDim)
+                                        Text("测到主机的延迟与带宽；还在开发中")
+                                            .font(.system(size: 10.5))
+                                            .foregroundStyle(palette.textDim)
+                                    }
+                                    Spacer(minLength: 0)
+                                    Text("暂未开放")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(palette.textDim)
+                                        .padding(.horizontal, 9)
+                                        .padding(.vertical, 4)
+                                        .background(Capsule().fill(palette.cardStrong))
+                                }
+                            }
                         }
 
                         section("功能")
