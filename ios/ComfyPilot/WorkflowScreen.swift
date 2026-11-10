@@ -839,6 +839,11 @@ struct FieldRow: View {
                     .lineLimit(2)
             }
         }
+        // 外部改动（上传回填、恢复默认参数）要回灌到输入框：
+        // FieldRow 的 @State text 只在初始化时取一次值，不接这一下会一直显示旧文本。
+        .onChange(of: field.valueText) { _, newValue in
+            if !focused { text = newValue }
+        }
         .photosPicker(isPresented: $showPicker, selection: $pickedItem, matching: .images)
         .onChange(of: pickedItem) { _, item in
             guard let item else { return }

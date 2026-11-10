@@ -384,11 +384,19 @@ final class SessionStore: ObservableObject {
         // CI 验证用：工作流一就绪就把内置夹具图传到第一个 LoadImage 字段。
         if LaunchOptions.autoUpload,
            !didAutoUpload,
-           let field = workflowView?.nodes.flatMap({ $0.fields }).first(where: { $0.isImageUpload }),
-           let url = Bundle.main.url(forResource: "preview", withExtension: "png"),
-           let data = try? Data(contentsOf: url) {
+           let field = workflowView?.nodes.flatMap({ $0.fields }).first(where: { $0.isImageUpload }) {
             didAutoUpload = true
-            uploadImage(data: data, filename: "preview.png", field: field)
+            // 夹具可能被打平到 bundle 根，也可能保留 Fixtures 子目录——两种都试。
+            let url = Bundle.main.url(forResource: "preview", withExtension: "png")
+                ?? Bundle.main.url(forResource: "preview", withExtension: "png", subdirectory: "Fixtures")
+            if let url, let data = try? Data(contentsOf: url) {
+                uploadImage(data: data, filename: "preview.png", field: field)
+            } else {
+                // 找不到就明说：CI 截图里能直接看到，不用猜为什么没上传。
+                uploadError = "内置夹具图没打进包里"
+                uploadErrorFieldId = field.id
+                showToast("夹具图缺失")
+            }
         }
 
         // CI 验证用：参数页一就绪就提交一次，然后跳到任务页看结果。
