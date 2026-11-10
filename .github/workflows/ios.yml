@@ -106,7 +106,10 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
+            ENABLE_DEBUG_DYLIB=NO \
             build 2>&1 | tee "$RUNNER_TEMP/logs/04-xcodebuild.log"
+          # ENABLE_DEBUG_DYLIB=NO：Xcode 16 默认把 Debug 产物拆成「瘦壳 + ComfyPilot.debug.dylib」，
+          # 第三方模拟器平台（Appetize 等）对这种结构支持不稳，打成单二进制最省事。
 
       - name: 打包模拟器 App（Appetize 上传用）
         run: |
