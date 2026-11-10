@@ -178,11 +178,18 @@ final class SessionStore: ObservableObject {
             notices = ["样例数据 · 未连接任何服务端"]
             return
         }
-        start()
+        // 只有「之前连过」或「命令行指定了地址」才自动连；首装就停在连接页。
+        if SavedAddress.hasSaved || LaunchOptions.baseUrlFromArgs != nil {
+            start()
+        }
     }
 
     func start() {
         guard !running else { return }
+        if address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            pushNotice("先填 ComfyUI 地址，例如 192.168.1.20:8188")
+            return
+        }
         // 地址是用户手打的，常见问题是漏协议、带尾斜杠、带空格。
         address = SavedAddress.normalize(address)
         SavedAddress.save(address)
@@ -899,10 +906,14 @@ enum SavedAddress {
     /// 历史只留最近几条：太多会把连接页撑长，实际来回用的就那两三台机器。
     private static let historyLimit = 6
 
+    /// 没存过就返回空串：首屏应该让用户自己填，而不是替他连 127.0.0.1。
     static var initial: String {
         if let raw = LaunchOptions.baseUrlFromArgs { return raw }
-        if let saved = UserDefaults.standard.string(forKey: key), !saved.isEmpty { return saved }
-        return LaunchOptions.defaultBaseUrl
+        return UserDefaults.standard.string(forKey: key) ?? ""
+    }
+
+    static var hasSaved: Bool {
+        (UserDefaults.standard.string(forKey: key)?.isEmpty == false)
     }
 
     /// 去空格、补协议、去尾斜杠；保留路径（ComfyUI 可能挂在反代子路径下）。

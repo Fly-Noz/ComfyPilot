@@ -62,13 +62,8 @@ struct RootView: View {
             .onChange(of: store.pendingScreen) { _, target in
                 if target == "tasks" { route = .tasks }
             }
-            .onChange(of: store.snapshot.isConnected) { _, connected in
-                // 连上后自动进工作流列表。显式指定首屏时不抢方向盘（截图用）。
-                if connected, route == .connect, LaunchOptions.screenOverride == nil {
-                    store.refreshWorkflows()
-                    route = .catalog
-                }
-            }
+            // 连上后不再自动跳工作流列表：以前这样做，用户想改地址时会一直被拽走。
+            // 连接成功后连接页本来就是「已连接 + 选择工作流」，点一下进去即可。
     }
 
     @ViewBuilder

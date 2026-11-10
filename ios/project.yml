@@ -42,6 +42,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.fly.comfypilot
         PRODUCT_NAME: ComfyPilot
         INFOPLIST_FILE: ComfyPilot/Info.plist
+        # 图标走资源目录：Assets.xcassets 里的 AppIcon（单尺寸 1024）
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "1"
         SWIFT_EMIT_LOC_STRINGS: NO
