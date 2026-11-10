@@ -27,7 +27,8 @@ done
 
 echo "==> 编译共享层 iosArm64 release framework"
 cd "$ROOT"
-./gradlew :shared:linkReleaseFrameworkIosArm64 --no-daemon
+# checkout 出来的 gradlew 可能没有执行位；直接交给 bash，避免 Permission denied。
+bash "$ROOT/gradlew" :shared:linkReleaseFrameworkIosArm64 --no-daemon
 
 if [[ ! -d "$FRAMEWORK/ComfyCore.framework" ]]; then
   echo "错误：没有找到 $FRAMEWORK/ComfyCore.framework" >&2
