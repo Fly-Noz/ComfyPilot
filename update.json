@@ -10,5 +10,9 @@
   "harmony": {
     "github": "https://github.com/Fly-Noz/ComfyPilot/releases",
     "gitee": "https://gitee.com/Fly-Noz/ComfyPilot/releases"
+  },
+  "ios": {
+    "github": "https://github.com/Fly-Noz/ComfyPilot/releases/latest",
+    "gitee": "https://gitee.com/Fly-Noz/ComfyPilot/releases"
   }
 }

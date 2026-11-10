@@ -92,7 +92,7 @@ xcrun simctl io booted screenshot .scratch/tasks.png
 - ATS 开了 `NSAllowsArbitraryLoads`（ComfyUI 默认明文 HTTP，且地址由用户自填）；上架会被问，
   自签名分发不受影响。
 - 首次连局域网 IP 会弹「本地网络」权限，用户拒绝后连接直接失败，需要引导去设置里开。
-- 分发自签名 IPA，没有自更新；`update.json` 那套在 iOS 上不用。
+- 分发自签名 IPA，有更新检查与提醒，但只能跳下载页，不能自动安装。
 
 ## 进度
 
@@ -117,6 +117,7 @@ xcrun simctl io booted screenshot .scratch/tasks.png
 - [x] 工作流列表：刷新、读取失败重试、条目数与文件大小
 - [x] 弱网模式（少抢带宽）、诊断页、忽略本地校验强制提交
 - [x] 外观切换（跟随系统 / 深 / 浅，持久化）、地址历史、参数一键恢复
+- [x] 更新检查与提醒（每次启动 / 每个版本只提示一次）
 - [ ] AI 助手：设置里已留禁用入口，功能未开发
 - [ ] 网络测速：设置里已留禁用入口，功能未开发
 - [ ] 未签名 IPA 打包脚本

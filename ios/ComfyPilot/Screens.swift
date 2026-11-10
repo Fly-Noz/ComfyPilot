@@ -32,6 +32,7 @@ enum AppRoute: Equatable {
 
 struct RootView: View {
     @EnvironmentObject private var store: SessionStore
+    @EnvironmentObject private var updates: UpdateStore
     @Environment(\.colorScheme) private var scheme
     @State private var route: AppRoute = AppRoute.initial()
     @State private var settingsReturn: AppRoute = .connect
@@ -59,6 +60,15 @@ struct RootView: View {
             }
             .animation(.easeOut(duration: 0.18), value: store.toast)
             .onAppear { store.boot() }
+            .task { await updates.checkSilently() }
+            .sheet(item: updateSheetBinding) { info in
+                UpdateSheet(
+                    info: info,
+                    palette: palette,
+                    onLater: { updates.dismiss() },
+                    onOpen: { url in updates.open(url) }
+                )
+            }
             .onChange(of: store.pendingScreen) { _, target in
                 if target == "tasks" { route = .tasks }
             }
@@ -111,6 +121,16 @@ struct RootView: View {
         case "light": return .light
         default: return nil
         }
+    }
+
+    /// 用 item 形式展示更新页；关闭时让 store 记录“稍后”的版本。
+    private var updateSheetBinding: Binding<UpdateInfo?> {
+        Binding(
+            get: { updates.pending },
+            set: { info in
+                if info == nil { updates.dismiss() }
+            }
+        )
     }
 }
 
@@ -623,12 +643,15 @@ struct SettingsScreen: View {
     let palette: SpectrumPalette
     let onBack: () -> Void
     @EnvironmentObject private var store: SessionStore
+    @EnvironmentObject private var updates: UpdateStore
 
     /// 和安卓一样落在 SharedPreferences 对位的地方：UserDefaults。
     @AppStorage("forceSubmit") private var forceSubmit = false
     @AppStorage("weakNetwork") private var weakNetwork = false
     @AppStorage("themeMode") private var themeMode = "system"
+    @AppStorage("updatePromptMode") private var updatePromptMode = "always"
     @State private var diagnostics = false
+    @State private var updateModeChooser = false
 
     var body: some View {
         ScreenScaffold(palette: palette) {
@@ -757,6 +780,59 @@ struct SettingsScreen: View {
                                     .padding(.vertical, 4)
                                     .background(Capsule().fill(palette.cardStrong))
                             }
+
+                            Divider().overlay(palette.border)
+
+                            Button {
+                                Task { await updates.check(manual: true) }
+                            } label: {
+                                HStack(spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("检查更新")
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(palette.text)
+                                        Text(updates.manualNote.isEmpty ? "手动检查一次，不受提醒设置影响" : updates.manualNote)
+                                            .font(.system(size: 10.5))
+                                            .foregroundStyle(palette.textDim)
+                                    }
+                                    Spacer(minLength: 0)
+                                    if updates.checking {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                            .tint(palette.accent)
+                                    } else {
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundStyle(palette.textDim)
+                                    }
+                                }
+                                .padding(.vertical, 8)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(updates.checking)
+
+                            Divider().overlay(palette.border)
+
+                            Button {
+                                updateModeChooser = true
+                            } label: {
+                                HStack(spacing: 10) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("更新提醒")
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(palette.text)
+                                        Text(updateMode.label)
+                                            .font(.system(size: 10.5))
+                                            .foregroundStyle(palette.textDim)
+                                    }
+                                    Spacer(minLength: 0)
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(palette.textDim)
+                                }
+                                .padding(.vertical, 8)
+                            }
+                            .buttonStyle(.plain)
                         }
 
                         section("诊断")
@@ -806,6 +882,25 @@ struct SettingsScreen: View {
         .sheet(isPresented: $diagnostics) {
             DiagnosticsSheet(palette: palette)
         }
+        .confirmationDialog(
+            "更新提醒",
+            isPresented: $updateModeChooser,
+            titleVisibility: .visible
+        ) {
+            Button("每次启动都提示") {
+                updatePromptMode = UpdatePromptMode.always.rawValue
+            }
+            Button("每个版本只提示一次") {
+                updatePromptMode = UpdatePromptMode.once.rawValue
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("当前：\(updateMode.label)。手动检查始终会检查。")
+        }
+    }
+
+    private var updateMode: UpdatePromptMode {
+        UpdatePromptMode(rawValue: updatePromptMode) ?? .always
     }
 
     private var themeIndex: Int {

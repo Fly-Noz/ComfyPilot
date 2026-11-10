@@ -31,6 +31,11 @@ enum LaunchOptions {
     /// 用内置样例数据渲染，不连服务端。只用于调布局，不代表真实状态。
     static var fixture: Bool { flag("-uiFixture") }
 
+    /// CI/截图参数下不弹更新：否则启动就盖住要截的页面。
+    static var blocksUpdateCheck: Bool {
+        fixture || args.contains { $0.hasPrefix("-ui") }
+    }
+
     /// 连上后自动打开这个工作流（相对 workflows/ 的路径），CI 截图用。
     static var workflowPath: String? { value("-uiOpenWorkflow") }
 

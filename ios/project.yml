@@ -22,7 +22,7 @@ settings:
   base:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "0.3.5"
-    CURRENT_PROJECT_VERSION: "1"
+    CURRENT_PROJECT_VERSION: "9"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     # CI 与自签名分发都不走 Apple 的签名流程；真机签名交给 Sideloadly/AltStore。
     CODE_SIGNING_ALLOWED: NO
