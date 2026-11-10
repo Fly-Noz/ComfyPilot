@@ -71,25 +71,12 @@ struct ArtifactViewer: View {
     @ViewBuilder
     private func artifactCard(_ artifact: ArtifactRef) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            if artifact.isImage {
-                AsyncImage(url: url(for: artifact)) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFit()
-                    case .failure:
-                        placeholder("加载失败", icon: "exclamationmark.triangle")
-                    default:
-                        placeholder("加载中", icon: "photo")
-                    }
-                }
-                .frame(maxWidth: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(palette.cardStrong)
+            if artifact.isImage, let imageUrl = url(for: artifact) {
+                ZoomableImage(
+                    url: imageUrl,
+                    palette: palette,
+                    placeholder: { AnyView(placeholder($0, icon: $1)) }
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             } else if artifact.isVideo, let url = url(for: artifact) {
                 VideoPlayer(player: AVPlayer(url: url))
                     .frame(maxWidth: .infinity)
@@ -222,5 +209,85 @@ struct ArtifactViewer: View {
     private func url(for artifact: ArtifactRef) -> URL? {
         guard !artifact.path.isEmpty else { return nil }
         return URL(string: baseUrl + artifact.path)
+    }
+}
+
+/// 可缩放的产物图：双指缩放、双击在 1x/2x 之间切换、放大后可拖动。
+/// 和安卓的 `ZoomableImage` 行为一致——产地是本地推理图，经常要看细节。
+struct ZoomableImage: View {
+    let url: URL
+    let palette: SpectrumPalette
+    let placeholder: (String, String) -> AnyView
+
+    @State private var scale: CGFloat = 1
+    @State private var lastScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+
+    var body: some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case .success(let image):
+                image
+                    .resizable()
+                    .scaledToFit()
+                    .scaleEffect(scale)
+                    .offset(offset)
+                    .gesture(magnification)
+                    .simultaneousGesture(doubleTap)
+                    .simultaneousGesture(drag)
+            case .failure:
+                placeholder("加载失败", "exclamationmark.triangle")
+            default:
+                placeholder("加载中", "photo")
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(palette.cardStrong)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var magnification: some Gesture {
+        MagnificationGesture()
+            .onChanged { value in scale = min(max(lastScale * value, 1), 5) }
+            .onEnded { _ in
+                lastScale = scale
+                if scale <= 1 {
+                    offset = .zero
+                    lastOffset = .zero
+                }
+            }
+    }
+
+    private var doubleTap: some Gesture {
+        TapGesture(count: 2).onEnded {
+            withAnimation(.easeOut(duration: 0.18)) {
+                if scale > 1 {
+                    scale = 1
+                    lastScale = 1
+                    offset = .zero
+                    lastOffset = .zero
+                } else {
+                    scale = 2
+                    lastScale = 2
+                }
+            }
+        }
+    }
+
+    /// 只有放大后才允许拖动，否则会把「浏览列表」的手势抢掉。
+    private var drag: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                guard scale > 1 else { return }
+                offset = CGSize(
+                    width: lastOffset.width + value.translation.width,
+                    height: lastOffset.height + value.translation.height
+                )
+            }
+            .onEnded { _ in lastOffset = offset }
     }
 }
