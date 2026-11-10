@@ -54,6 +54,8 @@ struct CatalogRow: Identifiable {
     var id: String { path }
     let path: String
     let name: String
+    /// 文件字节数；服务端没给就为 0（不显示大小）。
+    let sizeBytes: Int64
 }
 
 /// 状态帧里这一版真正用得上的字段。其余字段原样躺在 JSON 里，等对应界面做出来再接。
@@ -72,6 +74,7 @@ struct SessionSnapshot {
     var tasks: [TaskRow] = []
     var catalog: [CatalogRow] = []
     var catalogState: String = "idle"
+    var catalogError: String = ""
     var workflowName: String = ""
     var workflowPath: String = ""
     var workflowError: String = ""
@@ -128,6 +131,9 @@ final class SessionStore: ObservableObject {
     /// 节点备注，键是节点 id。只在本机，和草稿一起存。
     @Published private(set) var nodeNotes: [String: String] = [:]
 
+    /// 一次性提示条（提交成功/被拒、上传完成等）。Android 用 Toast，iOS 用底部小胶囊。
+    @Published private(set) var toast: String?
+
     /// 正在上传的字段 id；nil 表示没有上传在跑。
     @Published private(set) var uploadingFieldId: String?
     @Published private(set) var uploadError: String = ""
@@ -150,6 +156,7 @@ final class SessionStore: ObservableObject {
     private var bridge: BridgeHost?
     private var booted = false
     private var didAutoUpload = false
+    private var toastTask: Task<Void, Never>?
     private var lastPreviewAtMs: Int64 = 0
     private var lastAnimationSeq: Int64 = 0
 
@@ -263,10 +270,15 @@ final class SessionStore: ObservableObject {
         }
         if let catalog = state["catalog"] as? [String: Any] {
             next.catalogState = (catalog["state"] as? String) ?? "idle"
+            next.catalogError = (catalog["error"] as? String) ?? ""
             if let entries = catalog["entries"] as? [[String: Any]] {
                 next.catalog = entries.compactMap { entry in
                     guard let path = entry["path"] as? String else { return nil }
-                    return CatalogRow(path: path, name: (entry["name"] as? String) ?? path)
+                    return CatalogRow(
+                        path: path,
+                        name: (entry["name"] as? String) ?? path,
+                        sizeBytes: int64(entry["size"])
+                    )
                 }
             }
         }
@@ -506,6 +518,17 @@ final class SessionStore: ObservableObject {
         overrides.values.reduce(0) { $0 + $1.count }
     }
 
+    /// 弹一条 2.6 秒的提示。连着来两条时后一条顶掉前一条。
+    func showToast(_ text: String) {
+        toast = text
+        toastTask?.cancel()
+        toastTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 2_600_000_000)
+            guard !Task.isCancelled else { return }
+            self?.toast = nil
+        }
+    }
+
     /// 把一张相册图片传到服务器，成功后用返回的文件名覆盖 LoadImage 的 image 字段。
     ///
     /// 上传不进状态机：失败只影响这一个字段，不打断连接或任务。
@@ -571,6 +594,7 @@ final class SessionStore: ObservableObject {
                 self.uploadErrorFieldId = nil
                 self.setOverride(field, value: parts[1])
                 self.pushNotice("已上传 \(serverName)")
+                self.showToast("已上传 \(serverName)")
             }
         }.resume()
     }
@@ -582,6 +606,7 @@ final class SessionStore: ObservableObject {
         saveDraft()
         reloadWorkflow()
         pushNotice("已恢复默认参数")
+        showToast("已恢复默认参数")
     }
 
     func setOverride(_ field: WorkflowField, value: Any) {
@@ -604,6 +629,7 @@ final class SessionStore: ObservableObject {
               let promptData = try? JSONSerialization.data(withJSONObject: prompt),
               let promptText = String(data: promptData, encoding: .utf8) else {
             pushNotice("提交被拒绝：prompt 没通过本地校验")
+            showToast("提交被拒绝：本地校验没过")
             return
         }
         bridge.send([
@@ -613,6 +639,7 @@ final class SessionStore: ObservableObject {
             "workflowPath": view.path,
         ])
         pushNotice("已提交 \(view.name)")
+        showToast("已提交 \(view.name.isEmpty ? "任务" : view.name)")
     }
 
     private func requestJson(op: String, runToken: String? = nil) -> String {

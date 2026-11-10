@@ -42,6 +42,22 @@ struct RootView: View {
         let palette = Spectrum.palette(for: forcedScheme ?? scheme)
         content(palette)
             .preferredColorScheme(forcedScheme)
+            // 提示条浮在所有页面之上：提交、上传、恢复参数都用它给一次即时反馈。
+            .overlay(alignment: .bottom) {
+                if let toast = store.toast {
+                    Text(toast)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(palette.text)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .background(Capsule().fill(palette.dialog))
+                        .overlay(Capsule().stroke(palette.border, lineWidth: 1))
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 84)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(.easeOut(duration: 0.18), value: store.toast)
             .onAppear { store.boot() }
             .onChange(of: store.pendingScreen) { _, target in
                 if target == "tasks" { route = .tasks }

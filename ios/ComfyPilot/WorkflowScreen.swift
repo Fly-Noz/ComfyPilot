@@ -14,15 +14,24 @@ struct WorkflowListScreen: View {
         ScreenScaffold(palette: palette) {
             VStack(spacing: 0) {
                 SpectrumTopBar(palette: palette, title: "工作流", onBack: onBack) {
+                    TopBarAction(text: "刷新", palette: palette) {
+                        store.refreshWorkflows()
+                    }
                     TopBarAction(text: "任务", palette: palette, action: onTasks)
                 }
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 9) {
-                        Text("服务器上的工作流")
+                        Text(store.snapshot.catalog.isEmpty
+                             ? "服务器上的工作流"
+                             : "共 \(store.snapshot.catalog.count) 个，点一个打开。")
                             .font(.system(size: 10.5, design: .monospaced))
                             .foregroundStyle(palette.textDim)
                             .padding(.bottom, 2)
+
+                        if !store.snapshot.catalogError.isEmpty {
+                            errorCard(store.snapshot.catalogError)
+                        }
 
                         if store.snapshot.catalog.isEmpty {
                             emptyState
@@ -57,12 +66,48 @@ struct WorkflowListScreen: View {
                     .foregroundStyle(palette.textDim)
                     .lineLimit(1)
             }
-            Spacer()
+            Spacer(minLength: 6)
+
+            if entry.sizeBytes > 0 {
+                Text(sizeText(entry.sizeBytes))
+                    .font(.system(size: 9.5, design: .monospaced))
+                    .foregroundStyle(palette.textDim)
+            }
+
             Image(systemName: "chevron.right")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(palette.textDim)
         }
         .glassCard(palette)
+    }
+
+    private func sizeText(_ bytes: Int64) -> String {
+        if bytes >= 1024 * 1024 {
+            return String(format: "%.1f MB", Double(bytes) / 1024 / 1024)
+        }
+        return String(format: "%.0f KB", max(Double(bytes) / 1024, 0.1))
+    }
+
+    /// 读取失败：和安卓一样给原因 + 重试，不用退出重进。
+    private func errorCard(_ message: String) -> some View {
+        GlassCard(palette: palette, padding: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("读取失败")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(palette.err)
+                    Text(message)
+                        .font(.system(size: 10.5))
+                        .lineSpacing(3)
+                        .foregroundStyle(palette.textDim)
+                        .lineLimit(3)
+                }
+                Spacer(minLength: 0)
+                GhostButton(title: "重试", palette: palette, height: 30) {
+                    store.refreshWorkflows()
+                }
+            }
+        }
     }
 
     private var emptyState: some View {
@@ -92,6 +137,10 @@ struct WorkflowDetailScreen: View {
     @EnvironmentObject private var store: SessionStore
     /// 同一层视图只挂一个 sheet：SwiftUI 叠两个 .sheet 只有最后一个稳定生效。
     @State private var sheet: DetailSheet?
+    /// 节点展开状态。nil = 还没手动改过，按默认规则算。
+    @State private var expandedOverride: Set<Int>?
+    @State private var noteNodeId: Int?
+    @State private var noteText = ""
 
     enum DetailSheet: Identifiable {
         case nodes
@@ -155,6 +204,18 @@ struct WorkflowDetailScreen: View {
             }
         }
         .safeAreaInset(edge: .bottom) { submitBar }
+        .alert("节点备注", isPresented: noteAlertBinding) {
+            TextField("比如：这里控制构图", text: $noteText)
+            Button("保存") {
+                if let id = noteNodeId { store.setNote(nodeId: id, text: noteText) }
+                noteNodeId = nil
+            }
+            Button("清除", role: .destructive) {
+                if let id = noteNodeId { store.setNote(nodeId: id, text: "") }
+                noteNodeId = nil
+            }
+            Button("取消", role: .cancel) { noteNodeId = nil }
+        }
         .sheet(item: $sheet) { item in
             switch item {
             case .nodes:
@@ -239,56 +300,138 @@ struct WorkflowDetailScreen: View {
         .glassCard(palette)
     }
 
+    /// 节点卡：标题行 + 状态说明 + 可折叠的字段区。
+    /// 折叠规则照抄安卓：默认展开「置顶」或「含常用可调控件」的节点，其余收起。
     private func nodeCard(_ node: WorkflowNode) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(node.title.isEmpty ? node.type : node.title)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(node.missing ? palette.err : palette.text)
-                        .lineLimit(1)
-                    Text("\(node.type) · \(node.fields.count) 个输入")
-                        .font(.system(size: 10))
-                        .foregroundStyle(palette.textDim)
-                        .lineLimit(1)
+        let expanded = isExpanded(node)
+        let note = store.nodeNotes[String(node.id)] ?? ""
+        let pinned = store.pinnedNodeIds.contains(node.id)
+
+        return VStack(alignment: .leading, spacing: 10) {
+            Button {
+                toggleExpanded(node)
+            } label: {
+                HStack(alignment: .top, spacing: 6) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text("#\(node.id)")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(palette.textDim)
+                            Text(node.title.isEmpty ? node.type : node.title)
+                                .font(.system(size: 13.5, weight: .semibold))
+                                .foregroundStyle(node.enabled ? palette.text : palette.textMuted)
+                                .lineLimit(1)
+                        }
+                        Text("\(node.type) · \(node.fields.count) 个输入")
+                            .font(.system(size: 9.5, design: .monospaced))
+                            .foregroundStyle(node.enabled ? palette.textDim : palette.textMuted)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 4)
+
+                    if node.needsInput {
+                        SpectrumPill(text: "待填写", palette: palette, tone: .err)
+                    }
                 }
-                Spacer(minLength: 4)
-                Text("#\(node.id)")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(palette.textDim)
-                Button {
+            }
+            .buttonStyle(.plain)
+
+            // 图标行单独放：点卡片本体是展开/收起，图标各有各的动作。
+            HStack(spacing: 12) {
+                if !note.isEmpty {
+                    Text(note)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(palette.textMuted)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Spacer(minLength: 0)
+                }
+
+                iconButton("text.bubble", active: !note.isEmpty) {
+                    noteText = note
+                    noteNodeId = node.id
+                }
+                iconButton("point.topleft.down.curvedto.point.bottomright.up", active: false) {
                     sheet = .graph(node.id)
-                } label: {
-                    Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
-                        .font(.system(size: 12))
-                        .foregroundStyle(palette.textDim)
                 }
-                .buttonStyle(.plain)
-                Button {
+                iconButton(pinned ? "pin.fill" : "pin", active: pinned) {
                     store.togglePin(node.id)
-                } label: {
-                    Image(systemName: store.pinnedNodeIds.contains(node.id) ? "pin.fill" : "pin")
-                        .font(.system(size: 13))
-                        .foregroundStyle(store.pinnedNodeIds.contains(node.id) ? palette.accent : palette.textDim)
                 }
-                .buttonStyle(.plain)
-                Button {
+                iconButton(node.enabled ? "power.circle.fill" : "power.circle", active: node.enabled) {
                     store.setNodeBypassed(nodeId: node.id, bypassed: node.enabled)
-                } label: {
-                    Image(systemName: node.enabled ? "power.circle.fill" : "power.circle")
-                        .font(.system(size: 15))
-                        .foregroundStyle(node.enabled ? palette.ok : palette.textDim)
                 }
-                .buttonStyle(.plain)
+                iconButton(expanded ? "chevron.up" : "chevron.down", active: false) {
+                    toggleExpanded(node)
+                }
             }
 
-            ForEach(node.fields) { field in
-                FieldRow(field: field, palette: palette) { value in
-                    store.setOverride(field, value: value)
+            if let reason = statusNote(node) {
+                Text(reason)
+                    .font(.system(size: 10.5))
+                    .lineSpacing(3)
+                    .foregroundStyle(node.missing ? palette.err : palette.textDim)
+            }
+
+            if expanded {
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(node.fields) { field in
+                        FieldRow(field: field, palette: palette) { value in
+                            store.setOverride(field, value: value)
+                        }
+                    }
                 }
             }
         }
         .glassCard(palette)
+    }
+
+    private var noteAlertBinding: Binding<Bool> {
+        Binding(
+            get: { noteNodeId != nil },
+            set: { if !$0 { noteNodeId = nil } }
+        )
+    }
+
+    private func iconButton(_ systemName: String, active: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 14))
+                .foregroundStyle(active ? palette.accent : palette.textDim)
+                .frame(width: 26, height: 24)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// 卡片上的一行说明，对应安卓那段 when：缺定义 / 已关闭 / 不可达。
+    private func statusNote(_ node: WorkflowNode) -> String? {
+        if node.missing { return "服务端没有该节点的定义，不能调参；提交会被拒绝" }
+        if !node.enabled { return "已关闭，提交时会跳过该节点" }
+        if !node.reachable { return "未连接到输出节点，不会被提交" }
+        if node.needsInput { return "还有必填项没填" }
+        return nil
+    }
+
+    /// 展开状态：用户手动改过就以手动为准，否则按默认规则算。
+    private func isExpanded(_ node: WorkflowNode) -> Bool {
+        let set = expandedOverride ?? autoExpandedIds
+        return set.contains(node.id)
+    }
+
+    private func toggleExpanded(_ node: WorkflowNode) {
+        var set = expandedOverride ?? autoExpandedIds
+        if set.contains(node.id) {
+            set.remove(node.id)
+        } else {
+            set.insert(node.id)
+        }
+        expandedOverride = set
+    }
+
+    private var autoExpandedIds: Set<Int> {
+        let nodes = store.workflowView?.nodes ?? []
+        return Set(nodes.filter { store.pinnedNodeIds.contains($0.id) || $0.autoExpanded }.map { $0.id })
     }
 
     private func errorCard(_ message: String) -> some View {

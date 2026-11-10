@@ -14,6 +14,9 @@ struct WorkflowField: Identifiable {
     let linked: Bool
     let sourceLabel: String
     let required: Bool
+    /// 是不是前端控件（可调），以及是不是常用参数——决定节点卡默认展开与否。
+    let widget: Bool
+    let common: Bool
 
     var id: String { "\(nodeId).\(inputName)" }
 
@@ -34,7 +37,19 @@ struct WorkflowNode: Identifiable {
     let title: String
     let enabled: Bool
     let missing: Bool
+    /// 没连到输出节点：提交时会被跳过，卡片上要说明。
+    let reachable: Bool
+    /// 有必填项还没填。
+    let needsInput: Bool
+    /// 子图标签；同一标签的节点在列表里合成一簇。
+    let subgraph: String
+    let subgraphWidgets: String
     let fields: [WorkflowField]
+
+    /// 安卓的默认展开规则：置顶，或含「常用且可调的控件字段」。
+    var autoExpanded: Bool {
+        fields.contains { $0.common && $0.widget && !$0.linked }
+    }
 }
 
 struct WorkflowGraphChip: Identifiable {
@@ -198,6 +213,10 @@ struct WorkflowView {
                 title: string(node["title"]).isEmpty ? string(node["displayName"]) : string(node["title"]),
                 enabled: bool(node["enabled"]),
                 missing: bool(node["missing"]),
+                reachable: bool(node["reachable"]),
+                needsInput: bool(node["needsInput"]),
+                subgraph: string(node["subgraph"]),
+                subgraphWidgets: string(node["subgraphWidgets"]),
                 fields: (node["fields"] as? [[String: Any]] ?? []).map { field($0) }
             )
         }
@@ -220,7 +239,9 @@ struct WorkflowView {
             valueKind: string(raw["valueKind"]),
             linked: bool(raw["linked"]),
             sourceLabel: string(raw["fromNodeLabel"]),
-            required: bool(raw["required"])
+            required: bool(raw["required"]),
+            widget: bool(raw["widget"]),
+            common: bool(raw["common"])
         )
     }
 
