@@ -189,13 +189,17 @@ private struct AnimatedPreview: View {
     let fps: Int
 
     var body: some View {
-        let rate = Double(max(fps, 1))
-        TimelineView(.animation(minimumInterval: 1.0 / rate)) { context in
-            let total = frames.count
-            let index = total == 0 ? 0 : Int(context.date.timeIntervalSince1970 * rate) % total
-            Image(uiImage: frames[max(0, min(index, total - 1))])
-                .resizable()
-                .scaledToFit()
+        if frames.isEmpty {
+            EmptyView()
+        } else {
+            let rate = Double(max(fps, 1))
+            TimelineView(.animation(minimumInterval: 1.0 / rate)) { context in
+                let total = frames.count
+                let index = Int(context.date.timeIntervalSince1970 * rate) % total
+                Image(uiImage: frames[max(0, min(index, total - 1))])
+                    .resizable()
+                    .scaledToFit()
+            }
         }
     }
 }
