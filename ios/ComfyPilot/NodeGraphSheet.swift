@@ -85,9 +85,20 @@ struct NodeGraphSheet: View {
             (size.width - 32) / max(bounds.width, 1),
             (size.height - 32) / max(bounds.height, 1)
         )
-        let scale = min(max(fit, 0.05), 1.6)
-        let originX = (size.width - bounds.width * scale) / 2 - bounds.minX * scale
-        let originY = (size.height - bounds.height * scale) / 2 - bounds.minY * scale
+        // 下限 0.55：工作流常有十几个节点横铺两千多单位，纯「铺满」会把节点压到
+        // 五六十点宽，标题只能截成几个字。允许初始就溢出屏幕，靠拖动看其余部分。
+        let scale = min(max(fit, 0.55), 1.6)
+        let contentWidth = bounds.width * scale
+        let contentHeight = bounds.height * scale
+        var originX = (size.width - contentWidth) / 2 - bounds.minX * scale
+        let originY = (size.height - contentHeight) / 2 - bounds.minY * scale
+
+        // 溢出时以「点进来的那个节点」为中心，而不是从最左边开始画。
+        if contentWidth > size.width,
+           let focus = graph.nodes.first(where: { $0.id == focusNodeId }) {
+            let centerX = CGFloat(focus.x) + CGFloat(focus.width) / 2
+            originX = size.width / 2 - centerX * scale
+        }
 
         return Canvas { context, _ in
             for link in graph.links {
