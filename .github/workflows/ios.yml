@@ -192,7 +192,7 @@ jobs:
           # 截图里该字段应该变成服务器返回的文件名（photo-xxxx.jpg）
           # 用 demo_upload.json（只有 LoadImage → SaveImage）：LoadImage 在列表第一位，
           # 截图才看得见 image 字段被换成服务器文件名
-          shoot workflow-upload 6 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_upload.json -uiUploadImage
+          shoot workflow-upload 14 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_upload.json -uiUploadImage
 
           # 自动提交一次后自动跳到任务页：验证 prompt 能被服务端接受、任务真的入列，
           # 同时看产物行的排版（已完成的任务带 1 个产物）
@@ -214,6 +214,25 @@ jobs:
           shoot connect-light 8 -uiScreen connect -uiBaseUrl http://127.0.0.1:8188 -uiTheme light
 
           ls -lh shots
+
+      - name: 核对上传链路（mock 侧 lastUpload）
+        run: |
+          # 不再靠截图猜：直接问 mock 有没有真的收到 /upload/image。
+          STATE=$(curl -s http://127.0.0.1:8188/mock/state)
+          echo "mock state: $STATE"
+          LAST=$(echo "$STATE" | jq -r '.lastUpload.name // empty')
+          {
+            echo "## 上传链路核对"
+            echo ""
+            echo '```json'
+            echo "$STATE"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ -z "$LAST" ]; then
+            echo "::error::mock 没收到任何 /upload/image——app 的 -uiUploadImage 自动上传链路没跑通"
+            exit 1
+          fi
+          echo "lastUpload = $LAST，上传链路 OK"
 
       - name: 检查 App 有没有崩
         run: |
