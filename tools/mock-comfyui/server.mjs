@@ -143,6 +143,19 @@ const OBJECT_INFO = {
     category: 'image',
     output_node: true,
   },
+  PreviewImage: {
+    input: {
+      required: {
+        images: ['IMAGE'],
+      },
+    },
+    output: ['IMAGE'],
+    output_name: ['IMAGE'],
+    name: 'PreviewImage',
+    display_name: 'Preview Image',
+    category: 'image',
+    output_node: true,
+  },
   LoadImage: {
     input: {
       required: {

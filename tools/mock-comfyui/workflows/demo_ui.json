@@ -22,6 +22,7 @@
     {
       "id": 6,
       "type": "CLIPTextEncode",
+      "comfypilot_subgraph": "文本编码",
       "pos": [400, 60],
       "size": [420, 160],
       "flags": {},
@@ -35,6 +36,7 @@
     {
       "id": 7,
       "type": "CLIPTextEncode",
+      "comfypilot_subgraph": "文本编码",
       "pos": [400, 260],
       "size": [420, 160],
       "flags": {},
@@ -48,6 +50,7 @@
     {
       "id": 5,
       "type": "EmptyLatentImage",
+      "comfypilot_subgraph": "尺寸",
       "pos": [40, 280],
       "size": [315, 106],
       "flags": {},
@@ -104,6 +107,19 @@
       "outputs": [],
       "properties": { "Node name for S&R": "SaveImage" },
       "widgets_values": ["ComfyPilot"]
+    },
+    {
+      "id": 10,
+      "type": "PreviewImage",
+      "pos": [880, 440],
+      "size": [315, 340],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [{ "name": "images", "type": "IMAGE", "link": 11 }],
+      "outputs": [],
+      "properties": { "Node name for S&R": "PreviewImage" },
+      "widgets_values": []
     }
   ],
   "links": [
@@ -115,13 +131,14 @@
     [6, 7, 0, 3, 2, "CONDITIONING"],
     [7, 5, 0, 3, 3, "LATENT"],
     [8, 3, 0, 8, 0, "LATENT"],
-    [9, 8, 0, 9, 0, "IMAGE"]
+    [9, 8, 0, 9, 0, "IMAGE"],
+    [11, 8, 0, 10, 0, "IMAGE"]
   ],
   "groups": [
     {
       "id": 1,
       "title": "采样与保存",
-      "bounding": [860, 30, 1000, 400],
+      "bounding": [860, 30, 1000, 780],
       "color": "#3f789e",
       "font_size": 24,
       "flags": {}
