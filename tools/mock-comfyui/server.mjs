@@ -535,6 +535,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && path.startsWith('/object_info/')) {
       const name = decodeURIComponent(path.slice('/object_info/'.length))
       const info = OBJECT_INFO[name]
+      // 真实服务端里，上传的图会出现在 LoadImage 的下拉选项里；这里同步一下，
+      // 否则回填的文件名不在选项内，客户端本地校验会把它当成非法值。
+      if (info && name === 'LoadImage' && lastUpload?.name) {
+        const options = info.input?.required?.image?.[0]
+        if (Array.isArray(options) && !options.includes(lastUpload.name)) {
+          options.unshift(lastUpload.name)
+        }
+      }
       return sendJson(res, 200, info ? { [name]: info } : {})
     }
 
