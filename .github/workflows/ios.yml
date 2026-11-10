@@ -173,7 +173,9 @@ jobs:
 
           # 图片上传：打开工作流后把内置夹具图传到 LoadImage 的 image 字段，
           # 截图里该字段应该变成服务器返回的文件名（photo-xxxx.jpg）
-          shoot workflow-upload 18 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_ui.json -uiUploadImage
+          # 用 demo_upload.json（只有 LoadImage → SaveImage）：LoadImage 在列表第一位，
+          # 截图才看得见 image 字段被换成服务器文件名
+          shoot workflow-upload 16 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_upload.json -uiUploadImage
 
           # 自动提交一次后自动跳到任务页：验证 prompt 能被服务端接受、任务真的入列，
           # 同时看产物行的排版（已完成的任务带 1 个产物）
