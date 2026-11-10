@@ -50,6 +50,51 @@ struct WorkflowNode: Identifiable {
     var autoExpanded: Bool {
         fields.contains { $0.common && $0.widget && !$0.linked }
     }
+
+    /// 「全部节点」筛选用的粗粒度类型，规则照 WorkflowNodeTraits.of：
+    /// 只按已有输入类型分类，一个节点可以命中多个。
+    var traits: Set<NodeTrait> {
+        var set: Set<NodeTrait> = []
+        if needsInput { set.insert(.needsInput) }
+        if type == "LoadImage" { set.insert(.image) }
+        for field in fields {
+            switch field.type {
+            case "IMAGE": set.insert(.image)
+            case "STRING": set.insert(.text)
+            case "INT", "FLOAT": set.insert(.number)
+            default: break
+            }
+        }
+        return set
+    }
+
+    /// 搜索匹配：节点名、类型、#id、备注、字段类型；空关键词匹配全部。
+    func matches(_ query: String, note: String) -> Bool {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+        var haystacks = [title, type, "#\(id)"]
+        if !note.isEmpty { haystacks.append(note) }
+        haystacks.append(contentsOf: fields.map { $0.type })
+        return haystacks.contains { $0.localizedCaseInsensitiveContains(trimmed) }
+    }
+}
+
+enum NodeTrait: String, CaseIterable, Identifiable {
+    case image
+    case text
+    case number
+    case needsInput
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .image: return "图像输入"
+        case .text: return "文本输入"
+        case .number: return "数值输入"
+        case .needsInput: return "待填写"
+        }
+    }
 }
 
 struct WorkflowGraphChip: Identifiable {

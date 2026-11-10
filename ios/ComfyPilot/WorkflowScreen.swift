@@ -142,6 +142,8 @@ struct WorkflowDetailScreen: View {
     @State private var noteNodeId: Int?
     @State private var noteText = ""
     @State private var jumpNodeId: Int?
+    /// 关掉「COMFYUI 报错」卡片的时间点；比它新的失败才会再弹出来。
+    @State private var dismissedFailureAt: Int64 = 0
     @State private var collapsedSubgraphs: Set<String> = []
     @State private var expandedChildGraphs: Set<String> = []
     @State private var restExpanded = true
@@ -183,6 +185,7 @@ struct WorkflowDetailScreen: View {
                                 // 主机状态跟着工作流走。
                                 ServerStatsStrip(palette: palette, snapshot: store.snapshot)
 
+                                failureCard()
                                 graphPicker(view)
                                 problemsCard(view)
 
@@ -527,6 +530,42 @@ struct WorkflowDetailScreen: View {
 
     private func fieldCount(_ view: WorkflowView) -> Int {
         view.nodes.reduce(0) { $0 + $1.fields.count }
+    }
+
+    /// 最近一次失败的任务：安卓把报错直接摆在参数页上，省得切到任务页才发现。
+    private var latestFailure: TaskRow? {
+        store.snapshot.tasks
+            .filter { ($0.workflowPath == path || path.isEmpty) && $0.state == "Failed" }
+            .max { $0.updatedAtMs < $1.updatedAtMs }
+    }
+
+    @ViewBuilder
+    private func failureCard() -> some View {
+        if let failure = latestFailure, failure.updatedAtMs > dismissedFailureAt {
+            GlassCard(palette: palette, padding: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(palette.err)
+                            .frame(width: 5, height: 5)
+                        Text("COMFYUI 报错")
+                            .font(.system(size: 9.5, design: .monospaced))
+                            .tracking(0.8)
+                            .foregroundStyle(palette.err)
+                        Spacer(minLength: 0)
+                        TopBarAction(text: "关闭", palette: palette) {
+                            dismissedFailureAt = failure.updatedAtMs
+                        }
+                    }
+                    Text(failure.error ?? "任务失败")
+                        .font(.system(size: 11.5))
+                        .lineSpacing(4)
+                        .foregroundStyle(palette.textMuted)
+                        .lineLimit(4)
+                    TopBarAction(text: "查看任务", palette: palette, action: onTasks)
+                }
+            }
+        }
     }
 
     /// 图分组切换：照安卓的 showGraphPicker —— 多个图、或唯一那个被关掉时才出现。
@@ -1006,6 +1045,8 @@ struct NodeListSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var noteNodeId: Int?
     @State private var noteText = ""
+    @State private var query = ""
+    @State private var traits: Set<NodeTrait> = []
 
     var body: some View {
         ZStack {
@@ -1016,14 +1057,46 @@ struct NodeListSheet: View {
                     TopBarAction(text: "关闭", palette: palette) { dismiss() }
                 }
 
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("\(filtered.count) / \(nodes.count)")
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundStyle(palette.textDim)
+
+                    SpectrumTextField(
+                        placeholder: "搜索名称、类型、#id、备注",
+                        text: $query,
+                        palette: palette
+                    )
+
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(NodeTrait.allCases) { trait in
+                                SpectrumChip(
+                                    text: trait.label,
+                                    selected: traits.contains(trait),
+                                    palette: palette
+                                ) {
+                                    if traits.contains(trait) {
+                                        traits.remove(trait)
+                                    } else {
+                                        traits.insert(trait)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.bottom, 8)
+
                 ScrollView {
                     VStack(spacing: 9) {
-                        ForEach(nodes) { node in
+                        ForEach(filtered) { node in
                             row(node)
                         }
                     }
                     .padding(.horizontal, 18)
-                    .padding(.top, 8)
+                    .padding(.top, 2)
                     .padding(.bottom, 24)
                 }
             }
@@ -1044,6 +1117,18 @@ struct NodeListSheet: View {
 
     private var nodes: [WorkflowNode] {
         store.workflowView?.nodes ?? []
+    }
+
+    /// 筛选规则照安卓：类型之间是「或」，待填写是额外的「且」。
+    private var filtered: [WorkflowNode] {
+        let typeFilters = traits.subtracting([.needsInput])
+        return nodes.filter { node in
+            let nodeTraits = node.traits
+            let typeOk = typeFilters.isEmpty || !nodeTraits.isDisjoint(with: typeFilters)
+            let needsOk = !traits.contains(.needsInput) || nodeTraits.contains(.needsInput)
+            let note = store.nodeNotes[String(node.id)] ?? ""
+            return typeOk && needsOk && node.matches(query, note: note)
+        }
     }
 
     private func row(_ node: WorkflowNode) -> some View {
