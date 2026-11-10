@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 诊断页：只放连接层的事实，不做第二个调试台（照 `DebugScreen.kt` 的定位）。
 ///
@@ -49,6 +50,8 @@ struct DiagnosticsSheet: View {
                             }
                         }
 
+                        logCard
+
                         if !store.notices.isEmpty {
                             VStack(alignment: .leading, spacing: 6) {
                                 Text("最近事件")
@@ -72,6 +75,60 @@ struct DiagnosticsSheet: View {
                     .padding(.horizontal, 18)
                     .padding(.top, 8)
                     .padding(.bottom, 24)
+                }
+            }
+        }
+    }
+
+    /// 日志面板：和安卓 DebugScreen 一样，把 WS 事件、HTTP、重连原因按时间排开。
+    /// 高度固定，自己滚动，免得和整页 ScrollView 抢手势。
+    private var logCard: some View {
+        GlassCard(palette: palette, padding: 11) {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 8) {
+                    Text("日志")
+                        .font(.system(size: 9.5, design: .monospaced))
+                        .tracking(1.1)
+                        .foregroundStyle(palette.textDim)
+                    Text("\(store.diagnostics.count) 条")
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(palette.textDim)
+
+                    Spacer(minLength: 0)
+
+                    GhostButton(title: "复制", palette: palette, height: 26) {
+                        UIPasteboard.general.string = store.diagnosticsText
+                        store.showToast("日志已复制")
+                    }
+                    GhostButton(title: "清空", palette: palette, height: 26) {
+                        store.clearDiagnostics()
+                    }
+                }
+
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 2) {
+                            if store.diagnostics.isEmpty {
+                                Text("还没有日志：连接后这里会记录 WebSocket 事件与重连原因。")
+                                    .font(.system(size: 9.5))
+                                    .foregroundStyle(palette.textDim)
+                            }
+                            ForEach(Array(store.diagnostics.enumerated()), id: \.offset) { _, line in
+                                Text(line)
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundStyle(palette.textMuted)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            Color.clear.frame(height: 1).id("log-bottom")
+                        }
+                    }
+                    .frame(height: 320)
+                    .onChange(of: store.diagnostics.count) { _, _ in
+                        proxy.scrollTo("log-bottom", anchor: .bottom)
+                    }
+                    .onAppear {
+                        proxy.scrollTo("log-bottom", anchor: .bottom)
+                    }
                 }
             }
         }

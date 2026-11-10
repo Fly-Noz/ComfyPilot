@@ -134,6 +134,9 @@ final class SessionStore: ObservableObject {
     /// 一次性提示条（提交成功/被拒、上传完成等）。Android 用 Toast，iOS 用底部小胶囊。
     @Published private(set) var toast: String?
 
+    /// 诊断日志（带时间戳，最多 400 条）。只在内存里，退出即丢。
+    @Published private(set) var diagnostics: [String] = []
+
     /// 正在上传的字段 id；nil 表示没有上传在跑。
     @Published private(set) var uploadingFieldId: String?
     @Published private(set) var uploadError: String = ""
@@ -157,6 +160,13 @@ final class SessionStore: ObservableObject {
     private var booted = false
     private var didAutoUpload = false
     private var toastTask: Task<Void, Never>?
+    private var logConsumed: Int32 = 0
+    private static let logTime: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss.SSS"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }()
     private var lastPreviewAtMs: Int64 = 0
     private var lastAnimationSeq: Int64 = 0
 
@@ -249,6 +259,7 @@ final class SessionStore: ObservableObject {
     // MARK: - 桥回调
 
     private func apply(_ state: [String: Any]) {
+        if let bridge { drainDiagnostics(bridge) }
         var next = SessionSnapshot()
         next.phase = (state["phase"] as? String) ?? "Idle"
         next.label = (state["label"] as? String) ?? ""
@@ -759,6 +770,32 @@ final class SessionStore: ObservableObject {
         animationRate = max(rate, 1)
         animationFrames = frames
     }
+
+    /// 拉增量日志并打时间戳。Kotlin 那边不给时间（拿本地时区要碰 posix），
+    /// 宿主每 250ms 取一次，误差完全够用。
+    private func drainDiagnostics(_ bridge: BridgeHost) {
+        let total = bridge.diagnosticsTotal()
+        guard total != logConsumed else { return }
+        let text = bridge.diagnosticsSince(consumed: logConsumed)
+        logConsumed = total
+        guard !text.isEmpty else { return }
+        let stamp = Self.logTime.string(from: Date())
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { "\(stamp) \($0)" }
+        diagnostics.append(contentsOf: lines)
+        if diagnostics.count > 400 {
+            diagnostics.removeFirst(diagnostics.count - 400)
+        }
+    }
+
+    func clearDiagnostics() {
+        bridge?.diagnosticsClear()
+        diagnostics = []
+        logConsumed = 0
+    }
+
+    /// 复制按钮用：整段日志一次性拿走。
+    var diagnosticsText: String { diagnostics.joined(separator: "\n") }
 
     private func optionalDouble(_ value: Any?) -> Double? {
         if let number = value as? NSNumber { return number.doubleValue }

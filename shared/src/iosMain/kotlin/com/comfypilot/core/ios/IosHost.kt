@@ -1,5 +1,6 @@
 package com.comfypilot.core.ios
 
+import com.comfypilot.core.DiagnosticTrace
 import com.comfypilot.core.api.ApiCall
 import com.comfypilot.core.api.ApiCodec
 import com.comfypilot.core.api.ApiPaths
@@ -32,6 +33,26 @@ class IosHost(configJson: String, tasksJson: String) {
         initialTasks = restoredTasksFromJson(tasksJson),
     )
 
+    /** 诊断日志环形缓冲：只留最近 [LOG_LIMIT] 条，退出即丢。 */
+    private val logRing = ArrayDeque<String>()
+    /** 自启动以来写入的总条数（含已被挤掉的），Swift 靠它算增量。 */
+    private var logTotal = 0
+
+    init {
+        installDiagnostics()
+    }
+
+    private fun installDiagnostics() {
+        // 监控帧每秒两条，会把真正有用的事件挤掉；和安卓一样直接过滤。
+        DiagnosticTrace.sink = { raw ->
+            if (!raw.contains("\"crystools.monitor\"")) {
+                if (logRing.size >= LOG_LIMIT) logRing.removeFirst()
+                logRing.addLast(raw)
+                logTotal += 1
+            }
+        }
+    }
+
     fun start() {
         host.start()
     }
@@ -42,6 +63,32 @@ class IosHost(configJson: String, tasksJson: String) {
 
     /** 推进到 [nowMs]（Unix 毫秒），返回一帧 JSON：{revision, commands, state, nextDelayMs}。 */
     fun pump(nowMs: Long): String = host.pump(nowMs)
+
+    /** 日志总条数；界面对比上次读到的位置决定要不要取增量。 */
+    fun diagnosticsTotal(): Int = logTotal
+
+    /**
+     * 取 [consumed] 之后的日志，一行一条。已被环形缓冲挤掉的从最老的开始给。
+     *
+     * 时间戳交给 Swift 在收到时打：Kotlin/Native 这边取本地时区要拉 posix 结构体，
+     * 而宿主本来每 250ms 就来取一次，误差足够小。
+     */
+    fun diagnosticsSince(consumed: Int): String {
+        val oldest = logTotal - logRing.size
+        val start = maxOf(consumed, oldest)
+        if (start >= logTotal) return ""
+        val skip = start - oldest
+        return logRing.drop(skip).joinToString("\n")
+    }
+
+    fun diagnosticsClear() {
+        logRing.clear()
+        logTotal = 0
+    }
+
+    private companion object {
+        const val LOG_LIMIT = 400
+    }
 
     /** 宿主执行完 IO 后把结果送回来；返回 false 表示这条消息无法识别。 */
     fun deliver(raw: String): Boolean = host.deliver(raw)

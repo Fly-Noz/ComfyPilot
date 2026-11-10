@@ -91,6 +91,19 @@ final class BridgeHost {
         host.previewBase64()
     }
 
+    /// 诊断日志：总条数 + 取增量 + 清空。
+    func diagnosticsTotal() -> Int32 {
+        host.diagnosticsTotal()
+    }
+
+    func diagnosticsSince(consumed: Int32) -> String {
+        host.diagnosticsSince(consumed: consumed)
+    }
+
+    func diagnosticsClear() {
+        host.diagnosticsClear()
+    }
+
     /// 取当前这段 VHS 动画的全部帧（行分隔，首行是 `OK|seq|rate|帧数`）。
     func previewAnimationBase64() -> String {
         host.previewAnimationBase64()
