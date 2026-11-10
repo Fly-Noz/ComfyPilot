@@ -56,6 +56,9 @@ struct WorkflowGraphChip: Identifiable {
     let id: String
     let title: String
     let enabled: Bool
+    /// 子图才有父 id；顶层图是空串。
+    let parentId: String
+    let nodeIds: [Int]
 }
 
 /// 画布上的一个节点：坐标来自工作流文件，可能是任意尺度（ComfyUI 前端按 1x 存）。
@@ -203,7 +206,9 @@ struct WorkflowView {
             WorkflowGraphChip(
                 id: string(graph["id"]),
                 title: string(graph["title"]),
-                enabled: bool(graph["enabled"])
+                enabled: bool(graph["enabled"]),
+                parentId: string(graph["parentId"]),
+                nodeIds: (graph["nodeIds"] as? [Any] ?? []).map { Int(int64($0)) }
             )
         }
         view.nodes = (object["nodes"] as? [[String: Any]] ?? []).map { node in

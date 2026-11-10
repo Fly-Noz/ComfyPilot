@@ -141,6 +141,9 @@ struct WorkflowDetailScreen: View {
     @State private var expandedOverride: Set<Int>?
     @State private var noteNodeId: Int?
     @State private var noteText = ""
+    @State private var collapsedSubgraphs: Set<String> = []
+    @State private var expandedChildGraphs: Set<String> = []
+    @State private var restExpanded = true
 
     enum DetailSheet: Identifiable {
         case nodes
@@ -185,9 +188,7 @@ struct WorkflowDetailScreen: View {
                             .padding(.vertical, 2)
 
                             if tab == 0 {
-                                ForEach(orderedNodes(view)) { node in
-                                    nodeCard(node)
-                                }
+                                inputList(view)
                             } else {
                                 PreviewPane(palette: palette, workflowPath: path)
                             }
@@ -246,11 +247,259 @@ struct WorkflowDetailScreen: View {
 
 
     /// 置顶的排在最前，其余保持共享层给的顺序。
-    private func orderedNodes(_ view: WorkflowView) -> [WorkflowNode] {
-        let nodes = view.visibleNodes
+    private func ordered(_ nodes: [WorkflowNode]) -> [WorkflowNode] {
         let pinned = store.pinnedNodeIds
         guard !pinned.isEmpty else { return nodes }
         return nodes.filter { pinned.contains($0.id) } + nodes.filter { !pinned.contains($0.id) }
+    }
+
+    // MARK: - 输入区分区
+
+    /// 一张分区头 + 它自己的节点 + 子图 + 未归组节点。
+    /// 结构照 WorkflowDetailScreen.kt 的 InputPane：分区头不带卡片背景，
+    /// 只做分组标题，避免在列表里像多出来一张卡。
+    @ViewBuilder
+    private func inputList(_ view: WorkflowView) -> some View {
+        let plan = sectionPlan(view)
+        ForEach(plan.sections) { section in
+            sectionHeader(
+                title: section.title,
+                nodes: section.nodeCount,
+                submit: section.submitCount,
+                enabled: section.enabled,
+                first: section.id == (plan.sections.first?.id ?? "")
+            )
+
+            ForEach(rows(for: section.nodes)) { row in
+                switch row {
+                case .subgraph(let tag, let count, let widgets):
+                    subgraphHeader(tag: tag, count: count, widgets: widgets)
+                case .node(let node):
+                    nodeCard(node)
+                }
+            }
+
+            ForEach(section.children) { child in
+                childGraphRow(child)
+            }
+        }
+
+        if !plan.rest.isEmpty {
+            sectionHeader(
+                title: "其他节点",
+                nodes: plan.rest.count,
+                submit: plan.rest.filter { $0.reachable }.count,
+                enabled: true,
+                first: plan.sections.isEmpty
+            )
+            if restExpanded {
+                ForEach(rows(for: plan.rest)) { row in
+                    switch row {
+                    case .subgraph(let tag, let count, let widgets):
+                        subgraphHeader(tag: tag, count: count, widgets: widgets)
+                    case .node(let node):
+                        nodeCard(node)
+                    }
+                }
+            }
+        }
+    }
+
+    private func sectionHeader(
+        title: String,
+        nodes: Int,
+        submit: Int,
+        enabled: Bool,
+        first: Bool
+    ) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(0.4)
+                .foregroundStyle(enabled ? palette.textMuted : palette.textDim)
+                .lineLimit(1)
+            Text(enabled ? "\(nodes) 个节点 · \(submit) 个会提交" : "\(nodes) 个节点 · 未启用")
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(palette.textDim)
+            Spacer(minLength: 0)
+        }
+        .padding(.top, first ? 0 : 8)
+        .padding(.leading, 2)
+    }
+
+    private func subgraphHeader(tag: String, count: Int, widgets: String) -> some View {
+        let collapsed = collapsedSubgraphs.contains(tag)
+        return Button {
+            if collapsed {
+                collapsedSubgraphs.remove(tag)
+            } else {
+                collapsedSubgraphs.insert(tag)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Text(collapsed ? "▸" : "▾")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(palette.textDim)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("子图 \(tag)")
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(0.4)
+                        .foregroundStyle(palette.textMuted)
+                        .lineLimit(1)
+                    if !widgets.isEmpty {
+                        Text(widgets)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(palette.textDim)
+                            .lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 0)
+                Text("\(count) 个节点")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(palette.textDim)
+            }
+            .padding(.leading, 2)
+            .padding(.top, 6)
+            .padding(.bottom, 1)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func childGraphRow(_ child: DetailChildGraph) -> some View {
+        let open = expandedChildGraphs.contains(child.id)
+        return VStack(spacing: 8) {
+            Button {
+                if open {
+                    expandedChildGraphs.remove(child.id)
+                } else {
+                    expandedChildGraphs.insert(child.id)
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(open ? "▾" : "▸") └ \(child.title)")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(child.enabled ? palette.text : palette.textMuted)
+                            .lineLimit(1)
+                        Text("\(child.nodes.count) 个节点 · \(child.enabled ? "会提交" : "不会提交")")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(palette.textDim)
+                    }
+                    Spacer(minLength: 0)
+                    Text(child.enabled ? "已启用" : "未启用")
+                        .font(.system(size: 9.5, design: .monospaced))
+                        .foregroundStyle(child.enabled ? palette.ok : palette.textDim)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(child.enabled ? palette.okSoft : palette.cardStrong))
+                }
+            }
+            .buttonStyle(.plain)
+
+            if open {
+                VStack(alignment: .leading, spacing: 9) {
+                    ForEach(ordered(child.nodes)) { node in
+                        nodeCard(node)
+                    }
+                }
+                .padding(.leading, 10)
+            }
+        }
+        .padding(.leading, 6)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .fill(palette.card.opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .stroke(palette.border, lineWidth: 1)
+        )
+    }
+
+    /// 子图行：同一 tag 的节点连在一起时插一个分区头（安卓就是这么做的）。
+    private enum InputRow: Identifiable {
+        case subgraph(String, Int, String)
+        case node(WorkflowNode)
+
+        var id: String {
+            switch self {
+            case .subgraph(let tag, _, _): return "sg-\(tag)"
+            case .node(let node): return "node-\(node.id)"
+            }
+        }
+    }
+
+    private func rows(for nodes: [WorkflowNode]) -> [InputRow] {
+        var rows: [InputRow] = []
+        var lastTag: String?
+        let orderedNodes = ordered(nodes)
+        for node in orderedNodes {
+            let tag = node.subgraph
+            if !tag.isEmpty, tag != lastTag {
+                let count = nodes.filter { $0.subgraph == tag }.count
+                rows.append(.subgraph(tag, count, node.subgraphWidgets))
+            }
+            lastTag = tag
+            if tag.isEmpty || !collapsedSubgraphs.contains(tag) {
+                rows.append(.node(node))
+            }
+        }
+        return rows
+    }
+
+    /// 把图结构摊成可渲染的分区。子图的节点从父分区里剔除，避免重复出现。
+    private func sectionPlan(_ view: WorkflowView) -> (sections: [InputSection], rest: [WorkflowNode]) {
+        let byId = Dictionary(uniqueKeysWithValues: view.nodes.map { ($0.id, $0) })
+        let childNodeIds = Set(view.graphs.filter { !$0.parentId.isEmpty }.flatMap { $0.nodeIds })
+        let groupedIds = Set(view.graphs.flatMap { $0.nodeIds })
+
+        let sections: [InputSection] = view.graphs
+            .filter { $0.parentId.isEmpty }
+            .map { graph in
+                let own = graph.nodeIds.compactMap { byId[$0] }.filter { $0.fields.count > 0 }
+                let children = view.graphs
+                    .filter { $0.parentId == graph.id }
+                    .map { child in
+                        DetailChildGraph(
+                            id: child.id,
+                            title: child.title,
+                            enabled: child.enabled,
+                            nodes: child.nodeIds.compactMap { byId[$0] }.filter { $0.fields.count > 0 }
+                        )
+                    }
+                return InputSection(
+                    id: graph.id,
+                    title: graph.title,
+                    enabled: graph.enabled,
+                    nodeCount: own.count,
+                    submitCount: own.filter { $0.reachable }.count,
+                    nodes: own.filter { !childNodeIds.contains($0.id) },
+                    children: children
+                )
+            }
+            // 只带子图、自己没有直接节点的分区也要留着，否则子图整块消失。
+            .filter { $0.nodeCount > 0 || !$0.children.isEmpty }
+
+        let rest = view.nodes.filter { !groupedIds.contains($0.id) && !$0.fields.isEmpty }
+        return (sections, rest)
+    }
+
+    private struct InputSection: Identifiable {
+        let id: String
+        let title: String
+        let enabled: Bool
+        let nodeCount: Int
+        let submitCount: Int
+        let nodes: [WorkflowNode]
+        let children: [DetailChildGraph]
+    }
+
+    private struct DetailChildGraph: Identifiable {
+        let id: String
+        let title: String
+        let enabled: Bool
+        let nodes: [WorkflowNode]
     }
 
     private func fieldCount(_ view: WorkflowView) -> Int {
@@ -725,6 +974,9 @@ struct NodeListSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var noteNodeId: Int?
     @State private var noteText = ""
+    @State private var collapsedSubgraphs: Set<String> = []
+    @State private var expandedChildGraphs: Set<String> = []
+    @State private var restExpanded = true
 
     var body: some View {
         ZStack {
