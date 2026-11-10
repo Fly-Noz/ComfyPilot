@@ -15,6 +15,7 @@ struct ArtifactViewer: View {
     /// 正在下载/保存的产物 id，以及每个产物旁边的结果提示。
     @State private var saving: String?
     @State private var saveNotes: [String: String] = [:]
+    @State private var shareItem: ShareItem?
 
     var body: some View {
         ZStack {
@@ -33,6 +34,9 @@ struct ArtifactViewer: View {
                     .padding(.bottom, 26)
                 }
             }
+        }
+        .sheet(item: $shareItem) { item in
+            ShareSheet(items: [item.url])
         }
     }
 
@@ -116,6 +120,15 @@ struct ArtifactViewer: View {
                             .lineLimit(1)
                     }
                     GhostButton(
+                        title: saving == artifact.id ? "处理中…" : "分享",
+                        palette: palette,
+                        height: 30
+                    ) {
+                        share(artifact)
+                    }
+                    .disabled(saving != nil)
+
+                    GhostButton(
                         title: saving == artifact.id ? "保存中…" : "保存到相册",
                         palette: palette,
                         height: 30
@@ -126,6 +139,39 @@ struct ArtifactViewer: View {
                 }
             }
         }
+    }
+
+    /// 先落到临时文件再交给系统分享盘：远端地址对不在同一局域网的人没意义。
+    private func share(_ artifact: ArtifactRef) {
+        guard let url = url(for: artifact) else {
+            saveNotes[artifact.id] = "地址无效"
+            return
+        }
+        saving = artifact.id
+        saveNotes[artifact.id] = nil
+        URLSession.shared.dataTask(with: url) { data, _, error in
+            guard let data, !data.isEmpty else {
+                DispatchQueue.main.async {
+                    saving = nil
+                    saveNotes[artifact.id] = error == nil ? "文件为空" : "下载失败"
+                }
+                return
+            }
+            let name = artifact.filename.isEmpty ? "artifact" : artifact.filename
+            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+            do {
+                try data.write(to: tmp, options: .atomic)
+                DispatchQueue.main.async {
+                    saving = nil
+                    shareItem = ShareItem(url: tmp)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    saving = nil
+                    saveNotes[artifact.id] = "写入临时文件失败"
+                }
+            }
+        }.resume()
     }
 
     /// 直接重新下一遍原图再存：AsyncImage 只给了 SwiftUI 的 Image，

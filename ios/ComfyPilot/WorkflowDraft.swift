@@ -10,6 +10,8 @@ struct WorkflowDraft {
     var pinned: Set<Int> = []
     /// nil = 从没动过图分组，用工作流文件里的默认选择。
     var graphs: Set<String>?
+    /// 节点备注，键是节点 id。和安卓一样跟着草稿存本机。
+    var notes: [String: String] = [:]
     var updatedAtMs: Int64 = 0
 }
 
@@ -37,6 +39,9 @@ enum WorkflowDrafts {
         if let graphs = root["graphs"] as? [String] {
             draft.graphs = Set(graphs)
         }
+        if let notes = root["notes"] as? [String: String] {
+            draft.notes = notes
+        }
         draft.updatedAtMs = (root["updatedAtMs"] as? NSNumber)?.int64Value ?? 0
         return draft
     }
@@ -48,6 +53,7 @@ enum WorkflowDrafts {
         if !draft.overrides.isEmpty { root["overrides"] = draft.overrides }
         if !draft.pinned.isEmpty { root["pinned"] = draft.pinned.sorted() }
         if let graphs = draft.graphs { root["graphs"] = graphs.sorted() }
+        if !draft.notes.isEmpty { root["notes"] = draft.notes }
 
         guard let data = try? JSONSerialization.data(withJSONObject: root) else { return }
         UserDefaults.standard.set(data, forKey: key(host: host, path: path))

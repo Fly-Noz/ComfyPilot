@@ -119,6 +119,9 @@ final class SessionStore: ObservableObject {
     /// 置顶的节点。跟着草稿存本机，重开工作流还在。
     @Published private(set) var pinnedNodeIds: Set<Int> = []
 
+    /// 节点备注，键是节点 id。只在本机，和草稿一起存。
+    @Published private(set) var nodeNotes: [String: String] = [:]
+
     /// 正在上传的字段 id；nil 表示没有上传在跑。
     @Published private(set) var uploadingFieldId: String?
     @Published private(set) var uploadError: String = ""
@@ -190,6 +193,7 @@ final class SessionStore: ObservableObject {
         overrides = [:]
         enabledGraphIds = nil
         pinnedNodeIds = []
+        nodeNotes = [:]
         workflowView = nil
         catalogRequested = false
         snapshot.phase = "Idle"
@@ -419,12 +423,14 @@ final class SessionStore: ObservableObject {
         overrides = [:]
         enabledGraphIds = nil
         pinnedNodeIds = []
+        nodeNotes = [:]
         workflowView = nil
         // 打开就把本机草稿带出来：参数、置顶、图分组。安卓也是这个行为。
         if let draft = WorkflowDrafts.load(host: draftHost, path: path) {
             overrides = draft.overrides
             pinnedNodeIds = draft.pinned
             enabledGraphIds = draft.graphs
+            nodeNotes = draft.notes
         }
         sendOpenIfReady()
     }
@@ -461,6 +467,17 @@ final class SessionStore: ObservableObject {
         enabledGraphIds = next
         saveDraft()
         reloadWorkflow()
+    }
+
+    /// 写/清节点备注。空字符串等于删除。
+    func setNote(nodeId: Int, text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            nodeNotes.removeValue(forKey: String(nodeId))
+        } else {
+            nodeNotes[String(nodeId)] = trimmed
+        }
+        saveDraft()
     }
 
     /// 置顶/取消置顶。置顶只影响排序，不改变工作流本身。
@@ -621,6 +638,7 @@ final class SessionStore: ObservableObject {
         draft.overrides = overrides
         draft.pinned = pinnedNodeIds
         draft.graphs = enabledGraphIds
+        draft.notes = nodeNotes
         WorkflowDrafts.save(draft, host: draftHost, path: path)
     }
 

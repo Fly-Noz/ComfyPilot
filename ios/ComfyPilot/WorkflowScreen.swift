@@ -158,9 +158,15 @@ struct WorkflowDetailScreen: View {
         .sheet(item: $sheet) { item in
             switch item {
             case .nodes:
-                NodeListSheet(palette: palette) { nodeId, bypassed in
-                    store.setNodeBypassed(nodeId: nodeId, bypassed: bypassed)
-                }
+                NodeListSheet(
+                    palette: palette,
+                    onToggle: { nodeId, bypassed in
+                        store.setNodeBypassed(nodeId: nodeId, bypassed: bypassed)
+                    },
+                    onNote: { nodeId, text in
+                        store.setNote(nodeId: nodeId, text: text)
+                    }
+                )
             case .graph(let nodeId):
                 NodeGraphSheet(
                     palette: palette,
@@ -570,9 +576,12 @@ struct FieldRow: View {
 struct NodeListSheet: View {
     let palette: SpectrumPalette
     let onToggle: (Int, Bool) -> Void
+    let onNote: (Int, String) -> Void
 
     @EnvironmentObject private var store: SessionStore
     @Environment(\.dismiss) private var dismiss
+    @State private var noteNodeId: Int?
+    @State private var noteText = ""
 
     var body: some View {
         ZStack {
@@ -595,6 +604,18 @@ struct NodeListSheet: View {
                 }
             }
         }
+        .alert("节点备注", isPresented: noteAlertBinding) {
+            TextField("比如：这里控制构图", text: $noteText)
+            Button("保存") {
+                if let id = noteNodeId { onNote(id, noteText) }
+                noteNodeId = nil
+            }
+            Button("清除", role: .destructive) {
+                if let id = noteNodeId { onNote(id, "") }
+                noteNodeId = nil
+            }
+            Button("取消", role: .cancel) { noteNodeId = nil }
+        }
     }
 
     private var nodes: [WorkflowNode] {
@@ -602,7 +623,8 @@ struct NodeListSheet: View {
     }
 
     private func row(_ node: WorkflowNode) -> some View {
-        HStack(spacing: 10) {
+        let note = store.nodeNotes[String(node.id)] ?? ""
+        return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(node.title.isEmpty ? node.type : node.title)
                     .font(.system(size: 12.5, weight: .medium))
@@ -612,9 +634,25 @@ struct NodeListSheet: View {
                     .font(.system(size: 10))
                     .foregroundStyle(palette.textDim)
                     .lineLimit(1)
+                if !note.isEmpty {
+                    Text(note)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(palette.textMuted)
+                        .lineLimit(2)
+                }
             }
 
             Spacer(minLength: 4)
+
+            Button {
+                noteText = note
+                noteNodeId = node.id
+            } label: {
+                Image(systemName: note.isEmpty ? "text.bubble" : "text.bubble.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(note.isEmpty ? palette.textDim : palette.accent)
+            }
+            .buttonStyle(.plain)
 
             Button {
                 onToggle(node.id, node.enabled)
@@ -626,5 +664,12 @@ struct NodeListSheet: View {
             .buttonStyle(.plain)
         }
         .glassCard(palette, padding: 12)
+    }
+
+    private var noteAlertBinding: Binding<Bool> {
+        Binding(
+            get: { noteNodeId != nil },
+            set: { if !$0 { noteNodeId = nil } }
+        )
     }
 }
