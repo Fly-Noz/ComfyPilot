@@ -51,10 +51,10 @@ struct UpdateSheet: View {
                     }
 
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("iOS 版是未签名 IPA")
+                        Text("iOS 版需自行签名安装")
                             .font(.system(size: 11.5, weight: .medium))
                             .foregroundStyle(palette.warn)
-                        Text("下载后需要自己用 Sideloadly / AltStore 等工具签名安装；手机直接点 IPA 不会有反应。")
+                        Text("下载后需要自行签名安装；手机直接点 IPA 不会有反应。")
                             .font(.system(size: 10.5))
                             .lineSpacing(3)
                             .foregroundStyle(palette.textDim)
