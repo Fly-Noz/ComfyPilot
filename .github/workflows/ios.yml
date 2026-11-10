@@ -108,6 +108,20 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             build 2>&1 | tee "$RUNNER_TEMP/logs/04-xcodebuild.log"
 
+      - name: 打包模拟器 App（Appetize 上传用）
+        run: |
+          APP="ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app"
+          if [ ! -d "$APP" ]; then
+            echo "::error::没有找到 $APP"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/package"
+          # --keepParent 保证 zip 里是 ComfyPilot.app/ 这一层，Appetize 要求这个结构
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$RUNNER_TEMP/package/ComfyPilot-sim.zip"
+          ls -lh "$RUNNER_TEMP/package"
+          # 记一下架构，确认是 arm64 模拟器构建（Appetize 推荐）
+          lipo -info "$APP/ComfyPilot"
+
       - name: 启动模拟器
         run: |
           UDID="${{ steps.sim.outputs.udid }}"
@@ -230,6 +244,11 @@ jobs:
 
           if [ -d "$GITHUB_WORKSPACE/shots" ]; then
             cp "$GITHUB_WORKSPACE"/shots/*.png . 2>/dev/null || true
+          fi
+
+          # 模拟器包：给 Appetize 手动上传用（不进 Actions artifact，走 git 更方便取）
+          if [ -d "$RUNNER_TEMP/package" ]; then
+            cp "$RUNNER_TEMP"/package/*.zip . 2>/dev/null || true
           fi
 
           # 日志截断到末尾 2000 行，失败的真正原因通常在尾巴上。
