@@ -116,6 +116,9 @@ final class SessionStore: ObservableObject {
     /// 取预览失败时的原因。界面直接显示它，省得为了「为什么没有画面」再跑一轮 CI。
     @Published private(set) var previewError: String = ""
 
+    /// 置顶的节点。跟着草稿存本机，重开工作流还在。
+    @Published private(set) var pinnedNodeIds: Set<Int> = []
+
     /// 正在上传的字段 id；nil 表示没有上传在跑。
     @Published private(set) var uploadingFieldId: String?
     @Published private(set) var uploadError: String = ""
@@ -185,6 +188,8 @@ final class SessionStore: ObservableObject {
         openSentFor = nil
         loadedPath = ""
         overrides = [:]
+        enabledGraphIds = nil
+        pinnedNodeIds = []
         workflowView = nil
         catalogRequested = false
         snapshot.phase = "Idle"
@@ -413,7 +418,14 @@ final class SessionStore: ObservableObject {
         loadedNodeInfoCount = -1
         overrides = [:]
         enabledGraphIds = nil
+        pinnedNodeIds = []
         workflowView = nil
+        // 打开就把本机草稿带出来：参数、置顶、图分组。安卓也是这个行为。
+        if let draft = WorkflowDrafts.load(host: draftHost, path: path) {
+            overrides = draft.overrides
+            pinnedNodeIds = draft.pinned
+            enabledGraphIds = draft.graphs
+        }
         sendOpenIfReady()
     }
 
@@ -447,7 +459,18 @@ final class SessionStore: ObservableObject {
             next.insert(id)
         }
         enabledGraphIds = next
+        saveDraft()
         reloadWorkflow()
+    }
+
+    /// 置顶/取消置顶。置顶只影响排序，不改变工作流本身。
+    func togglePin(_ nodeId: Int) {
+        if pinnedNodeIds.contains(nodeId) {
+            pinnedNodeIds.remove(nodeId)
+        } else {
+            pinnedNodeIds.insert(nodeId)
+        }
+        saveDraft()
     }
 
     /// 当前工作流改过多少个参数。设置页用它决定「重置」是否可点。
@@ -528,6 +551,7 @@ final class SessionStore: ObservableObject {
     func resetOverrides() {
         guard !overrides.isEmpty else { return }
         overrides = [:]
+        saveDraft()
         reloadWorkflow()
         pushNotice("已恢复默认参数")
     }
@@ -536,6 +560,7 @@ final class SessionStore: ObservableObject {
         var node = overrides[String(field.nodeId)] ?? [:]
         node[field.inputName] = value
         overrides[String(field.nodeId)] = node
+        saveDraft()
         reloadWorkflow()
     }
 
@@ -580,6 +605,23 @@ final class SessionStore: ObservableObject {
     private static func runToken() -> String {
         let raw = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
         return String(raw.prefix(6))
+    }
+
+    // MARK: - 草稿
+
+    /// 草稿按「主机 + 路径」隔离；没连上时退回输入框里的地址。
+    private var draftHost: String {
+        let raw = snapshot.baseUrl.isEmpty ? address : snapshot.baseUrl
+        return raw.isEmpty ? "unconnected" : raw
+    }
+
+    private func saveDraft() {
+        guard let path = openedPath, !path.isEmpty else { return }
+        var draft = WorkflowDraft()
+        draft.overrides = overrides
+        draft.pinned = pinnedNodeIds
+        draft.graphs = enabledGraphIds
+        WorkflowDrafts.save(draft, host: draftHost, path: path)
     }
 
     // MARK: - 工具

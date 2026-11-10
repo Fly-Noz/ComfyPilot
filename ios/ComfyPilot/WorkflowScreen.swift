@@ -106,8 +106,6 @@ struct WorkflowDetailScreen: View {
     }
     /// 0 = 输入，1 = 预览。照 WorkflowDetailScreen.kt 的 SpectrumTabs。
     @State private var tab = LaunchOptions.detailTab
-    /// 置顶的节点。和安卓一样只在本次打开期间有效（不写回工作流文件）。
-    @State private var pinned: Set<Int> = []
 
     var body: some View {
         ScreenScaffold(palette: palette) {
@@ -183,6 +181,7 @@ struct WorkflowDetailScreen: View {
     /// 置顶的排在最前，其余保持共享层给的顺序。
     private func orderedNodes(_ view: WorkflowView) -> [WorkflowNode] {
         let nodes = view.visibleNodes
+        let pinned = store.pinnedNodeIds
         guard !pinned.isEmpty else { return nodes }
         return nodes.filter { pinned.contains($0.id) } + nodes.filter { !pinned.contains($0.id) }
     }
@@ -260,15 +259,11 @@ struct WorkflowDetailScreen: View {
                 }
                 .buttonStyle(.plain)
                 Button {
-                    if pinned.contains(node.id) {
-                        pinned.remove(node.id)
-                    } else {
-                        pinned.insert(node.id)
-                    }
+                    store.togglePin(node.id)
                 } label: {
-                    Image(systemName: pinned.contains(node.id) ? "pin.fill" : "pin")
+                    Image(systemName: store.pinnedNodeIds.contains(node.id) ? "pin.fill" : "pin")
                         .font(.system(size: 13))
-                        .foregroundStyle(pinned.contains(node.id) ? palette.accent : palette.textDim)
+                        .foregroundStyle(store.pinnedNodeIds.contains(node.id) ? palette.accent : palette.textDim)
                 }
                 .buttonStyle(.plain)
                 Button {
