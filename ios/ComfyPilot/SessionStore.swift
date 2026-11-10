@@ -142,6 +142,10 @@ final class SessionStore: ObservableObject {
     @Published private(set) var uploadError: String = ""
     /// 错误属于哪个字段：只在该字段下面显示，别让所有图片字段一起报错。
     @Published private(set) var uploadErrorFieldId: String?
+    /// 上传成功后的回填值（field.id -> 服务器文件名）。FieldRow 监听它把新名字刷进
+    /// 本地 text：字段值来自工作流原文（不含 override），只靠 valueText 变化回灌
+    /// 永远等不到，之前截图里 image 字段一直是 example.png 就是这个原因。
+    @Published private(set) var uploadBackfill: [String: String] = [:]
 
     private var didAutoSubmit = false
 
@@ -619,6 +623,7 @@ final class SessionStore: ObservableObject {
                 self.uploadError = ""
                 self.uploadErrorFieldId = nil
                 self.setOverride(field, value: parts[1])
+                self.uploadBackfill[field.id] = parts[1]
                 self.pushNotice("已上传 \(serverName)")
                 self.showToast("已上传 \(serverName)")
             }

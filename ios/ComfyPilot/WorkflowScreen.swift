@@ -891,6 +891,11 @@ struct FieldRow: View {
         .onChange(of: field.valueText) { _, newValue in
             if !focused { text = newValue }
         }
+        // 上传回填走独立通道：字段值不含 override（见 uploadBackfill 注释），
+        // 上传成功把服务器文件名直接刷进 text，截图/肉眼都能立刻看到。
+        .onChange(of: store.uploadBackfill[field.id] ?? "") { _, newValue in
+            if !newValue.isEmpty { text = newValue }
+        }
         .photosPicker(isPresented: $showPicker, selection: $pickedItem, matching: .images)
         .onChange(of: pickedItem) { _, item in
             guard let item else { return }
