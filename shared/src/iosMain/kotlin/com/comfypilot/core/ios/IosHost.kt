@@ -59,6 +59,26 @@ class IosHost(configJson: String, tasksJson: String) {
     fun workflowView(requestJson: String): String = sessionWorkflowJson(host.state, requestJson)
 
     /**
+     * VHS 多帧动画预览：第一行 `OK|seq|rate|帧数`，之后每行一帧的 base64。
+     *
+     * 帧数通常几十、单帧几十 KB，只在 seq 变化时取一次；没有动画返回 `ERR\n...`。
+     */
+    @OptIn(ExperimentalEncodingApi::class)
+    fun previewAnimationBase64(): String {
+        val animation = host.state.previewAnimation
+        if (animation == null || animation.frames.isEmpty()) return "ERR\n没有动画预览"
+        return buildString {
+            append("OK|")
+            append(animation.seq).append('|')
+            append(animation.rate).append('|')
+            append(animation.frames.size).append('\n')
+            animation.frames.forEach { frame ->
+                append(Base64.encode(frame)).append('\n')
+            }
+        }
+    }
+
+    /**
      * 组装 `/upload/image` 的 multipart 请求，Swift 拿着 body 自己 POST。
      *
      * 上传不进入状态机：它只为 LoadImage 准备一个服务器文件名，失败也不该影响

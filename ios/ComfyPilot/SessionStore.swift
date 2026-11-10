@@ -85,6 +85,8 @@ struct SessionSnapshot {
     var previewBytes: Int = 0
     var animationRate: Int = 0
     var animationCount: Int = 0
+    /// 每收满一轮帧 +1；只有它变了才重新取帧。
+    var animationSeq: Int64 = 0
 
     /// Crystools 监控采样（经 WebSocket 推来）；服务器没装扩展时全为 nil。
     var cpuPercent: Double?
@@ -113,6 +115,10 @@ final class SessionStore: ObservableObject {
     /// 最新一帧采样预览。状态帧只带元数据，图片走 IosHost.preview() 按需取，
     /// 只在 receivedAtMs 变化时拉一次——不然每 250ms 一帧会白白编码几十 KB。
     @Published private(set) var previewImage: UIImage?
+
+    /// VHS 动画帧（视频工作流的循环预览）。空表示当前没有动画。
+    @Published private(set) var animationFrames: [UIImage] = []
+    @Published private(set) var animationRate: Int = 0
     /// 取预览失败时的原因。界面直接显示它，省得为了「为什么没有画面」再跑一轮 CI。
     @Published private(set) var previewError: String = ""
 
@@ -145,6 +151,7 @@ final class SessionStore: ObservableObject {
     private var booted = false
     private var didAutoUpload = false
     private var lastPreviewAtMs: Int64 = 0
+    private var lastAnimationSeq: Int64 = 0
 
     func boot() {
         guard !booted else { return }
@@ -270,11 +277,14 @@ final class SessionStore: ObservableObject {
             next.previewBytes = int(preview["bytes"])
             next.animationRate = int(preview["animationRate"])
             next.animationCount = int(preview["animationCount"])
+            next.animationSeq = int64(preview["animationSeq"])
         } else {
             // 没有预览帧时把旧画面清掉，别让上一轮结束的画面留在界面上。
             if previewImage != nil { previewImage = nil }
+            if !animationFrames.isEmpty { animationFrames = [] }
             previewError = ""
             lastPreviewAtMs = 0
+            lastAnimationSeq = 0
         }
         if let monitor = state["monitor"] as? [String: Any] {
             next.cpuPercent = optionalDouble(monitor["cpu"])
@@ -314,6 +324,7 @@ final class SessionStore: ObservableObject {
         }
         snapshot = next
         refreshPreviewIfNeeded(next)
+        refreshAnimationIfNeeded(next)
 
         if next.phase == "Connected" {
             // 工作流列表只拉一次；断线重连后重新拉。
@@ -698,6 +709,28 @@ final class SessionStore: ObservableObject {
         }
         previewError = ""
         previewImage = image
+    }
+
+    /// 动画帧变了才取：几十帧、每帧几十 KB，追着取会明显吃内存和带宽。
+    private func refreshAnimationIfNeeded(_ next: SessionSnapshot) {
+        guard let bridge, next.animationCount > 0, next.animationSeq > 0 else { return }
+        guard next.animationSeq != lastAnimationSeq else { return }
+        lastAnimationSeq = next.animationSeq
+        let raw = bridge.previewAnimationBase64()
+        let lines = raw.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
+        guard let header = lines.first, header.hasPrefix("OK|") else { return }
+        let fields = header.split(separator: "|")
+        guard fields.count == 4, let rate = Int(fields[2]) else { return }
+
+        var frames: [UIImage] = []
+        frames.reserveCapacity(lines.count - 1)
+        for line in lines.dropFirst() {
+            guard let data = Data(base64Encoded: line), let image = UIImage(data: data) else { continue }
+            frames.append(image)
+        }
+        guard !frames.isEmpty else { return }
+        animationRate = max(rate, 1)
+        animationFrames = frames
     }
 
     private func optionalDouble(_ value: Any?) -> Double? {

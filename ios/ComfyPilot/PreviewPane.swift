@@ -44,7 +44,10 @@ struct PreviewPane: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(palette.cardStrong)
 
-                if let image = store.previewImage {
+                if !store.animationFrames.isEmpty {
+                    AnimatedPreview(frames: store.animationFrames, fps: store.animationRate)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                } else if let image = store.previewImage {
                     Image(uiImage: image)
                         .resizable()
                         .scaledToFit()
@@ -101,10 +104,10 @@ struct PreviewPane: View {
     private func liveLabel(_ task: TaskRow) -> String {
         var parts: [String] = ["生成中 \(Int(task.percent))%"]
         if !task.node.isEmpty { parts.append(task.node) }
-        if !store.snapshot.previewNodeId.isEmpty {
+        if !store.animationFrames.isEmpty {
+            parts.append("动画 \(store.animationFrames.count) 帧 · \(store.animationRate) fps")
+        } else if !store.snapshot.previewNodeId.isEmpty {
             parts.append("预览 #\(store.snapshot.previewNodeId)")
-        } else if store.snapshot.animationCount > 0 {
-            parts.append("动画 \(store.snapshot.animationCount) 帧")
         }
         return parts.joined(separator: " · ")
     }
@@ -176,5 +179,23 @@ struct PreviewPane: View {
     private func url(for artifact: ArtifactRef) -> URL? {
         guard !artifact.path.isEmpty else { return nil }
         return URL(string: store.snapshot.baseUrl + artifact.path)
+    }
+}
+
+/// VHS 动画循环播放。按帧率取模取当前帧，不做逐帧计时器——
+/// TimelineView 会跟着屏幕刷新走，掉帧时也不会积压。
+private struct AnimatedPreview: View {
+    let frames: [UIImage]
+    let fps: Int
+
+    var body: some View {
+        let rate = Double(max(fps, 1))
+        TimelineView(.animation(minimumInterval: 1.0 / rate)) { context in
+            let total = frames.count
+            let index = total == 0 ? 0 : Int(context.date.timeIntervalSince1970 * rate) % total
+            Image(uiImage: frames[max(0, min(index, total - 1))])
+                .resizable()
+                .scaledToFit()
+        }
     }
 }

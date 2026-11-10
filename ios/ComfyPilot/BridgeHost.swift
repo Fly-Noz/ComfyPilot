@@ -91,6 +91,11 @@ final class BridgeHost {
         host.previewBase64()
     }
 
+    /// 取当前这段 VHS 动画的全部帧（行分隔，首行是 `OK|seq|rate|帧数`）。
+    func previewAnimationBase64() -> String {
+        host.previewAnimationBase64()
+    }
+
     /// 组装 /upload/image 的 multipart 请求（内容见 IosHost 注释）。
     func uploadRequest(base64: String, filename: String, baseUrl: String, nowMs: Int64) -> String {
         host.uploadRequest(base64: base64, filename: filename, baseUrl: baseUrl, nowMs: nowMs)
