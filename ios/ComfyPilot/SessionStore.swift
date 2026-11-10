@@ -116,6 +116,12 @@ final class SessionStore: ObservableObject {
     /// 取预览失败时的原因。界面直接显示它，省得为了「为什么没有画面」再跑一轮 CI。
     @Published private(set) var previewError: String = ""
 
+    /// 正在上传的字段 id；nil 表示没有上传在跑。
+    @Published private(set) var uploadingFieldId: String?
+    @Published private(set) var uploadError: String = ""
+    /// 错误属于哪个字段：只在该字段下面显示，别让所有图片字段一起报错。
+    @Published private(set) var uploadErrorFieldId: String?
+
     private var didAutoSubmit = false
 
     private var overrides: [String: [String: Any]] = [:]
@@ -131,6 +137,7 @@ final class SessionStore: ObservableObject {
 
     private var bridge: BridgeHost?
     private var booted = false
+    private var didAutoUpload = false
     private var lastPreviewAtMs: Int64 = 0
 
     func boot() {
@@ -331,6 +338,16 @@ final class SessionStore: ObservableObject {
             reloadWorkflow()
         }
 
+        // CI 验证用：工作流一就绪就把内置夹具图传到第一个 LoadImage 字段。
+        if LaunchOptions.autoUpload,
+           !didAutoUpload,
+           let field = workflowView?.nodes.flatMap({ $0.fields }).first(where: { $0.isImageUpload }),
+           let url = Bundle.main.url(forResource: "preview", withExtension: "png"),
+           let data = try? Data(contentsOf: url) {
+            didAutoUpload = true
+            uploadImage(data: data, filename: "preview.png", field: field)
+        }
+
         // CI 验证用：参数页一就绪就提交一次，然后跳到任务页看结果。
         if LaunchOptions.autoSubmit,
            !didAutoSubmit,
@@ -436,6 +453,75 @@ final class SessionStore: ObservableObject {
     /// 当前工作流改过多少个参数。设置页用它决定「重置」是否可点。
     var overrideCount: Int {
         overrides.values.reduce(0) { $0 + $1.count }
+    }
+
+    /// 把一张相册图片传到服务器，成功后用返回的文件名覆盖 LoadImage 的 image 字段。
+    ///
+    /// 上传不进状态机：失败只影响这一个字段，不打断连接或任务。
+    func uploadImage(data: Data, filename: String, field: WorkflowField) {
+        guard let bridge else { return }
+        let maxSide: CGFloat = Prefs.weakNetwork ? 1536 : 2048
+        guard let jpeg = ImageUploadPrep.jpeg(from: data, maxSide: maxSide) else {
+            uploadError = "这张图读不出来，换一张试试"
+            uploadErrorFieldId = field.id
+            return
+        }
+        uploadingFieldId = field.id
+        uploadError = ""
+        uploadErrorFieldId = nil
+
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        let raw = bridge.uploadRequest(
+            base64: jpeg.base64EncodedString(),
+            filename: filename,
+            baseUrl: snapshot.baseUrl.isEmpty ? address : snapshot.baseUrl,
+            nowMs: nowMs
+        )
+        let lines = raw.split(separator: "\n", maxSplits: 4, omittingEmptySubsequences: false).map(String.init)
+        guard lines.count == 5, lines[0] == "OK" else {
+            uploadingFieldId = nil
+            uploadError = lines.count > 1 ? lines[1] : "上传准备失败"
+            uploadErrorFieldId = field.id
+            return
+        }
+        let serverName = lines[1]
+        guard let url = URL(string: lines[3]), let body = Data(base64Encoded: lines[4]) else {
+            uploadingFieldId = nil
+            uploadError = "上传请求不完整"
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue(lines[2], forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 60
+        request.httpBody = body
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            let status = Int32((response as? HTTPURLResponse)?.statusCode ?? 0)
+            let text = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            let failure = error?.localizedDescription
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.uploadingFieldId = nil
+                if let failure {
+                    self.uploadError = failure
+                    self.uploadErrorFieldId = field.id
+                    return
+                }
+                let result = bridge.uploadResult(status: status, body: text)
+                let parts = result.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+                guard parts.count == 2, parts[0] == "OK" else {
+                    self.uploadError = parts.count > 1 ? parts[1] : "上传失败"
+                    self.uploadErrorFieldId = field.id
+                    return
+                }
+                self.uploadError = ""
+                self.uploadErrorFieldId = nil
+                self.setOverride(field, value: parts[1])
+                self.pushNotice("已上传 \(serverName)")
+            }
+        }.resume()
     }
 
     /// 清掉本次打开后的所有参数修改（不写回服务器上的工作流文件）。

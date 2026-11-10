@@ -3,6 +3,8 @@ import Foundation
 /// 一个可编辑输入项。字段来自共享层的 `workflowView` 响应，Swift 不重算任何规则。
 struct WorkflowField: Identifiable {
     let nodeId: Int
+    /// 节点类型。判断「能不能选图上传」要靠它（LoadImage 的 image 控件）。
+    let nodeType: String
     let inputName: String
     let label: String
     let type: String
@@ -21,6 +23,9 @@ struct WorkflowField: Identifiable {
 
     /// 由连线提供值的字段不给编辑：真正的值在上游节点，改了也不会生效。
     var editable: Bool { !linked }
+
+    /// 和安卓一致：只有 LoadImage 的 image 控件走相册上传。
+    var isImageUpload: Bool { nodeType == "LoadImage" && inputName == "image" }
 }
 
 struct WorkflowNode: Identifiable {
@@ -206,6 +211,7 @@ struct WorkflowView {
     private static func field(_ raw: [String: Any]) -> WorkflowField {
         WorkflowField(
             nodeId: Int(int64(raw["nodeId"])),
+            nodeType: string(raw["nodeType"]),
             inputName: string(raw["inputName"]),
             label: string(raw["label"]),
             type: string(raw["type"]),

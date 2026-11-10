@@ -91,6 +91,16 @@ final class BridgeHost {
         host.previewBase64()
     }
 
+    /// 组装 /upload/image 的 multipart 请求（内容见 IosHost 注释）。
+    func uploadRequest(base64: String, filename: String, baseUrl: String, nowMs: Int64) -> String {
+        host.uploadRequest(base64: base64, filename: filename, baseUrl: baseUrl, nowMs: nowMs)
+    }
+
+    /// 解析 /upload/image 的响应。
+    func uploadResult(status: Int32, body: String) -> String {
+        host.uploadResult(status: status, body: body)
+    }
+
     // MARK: - 节拍
 
     private func tick() {

@@ -1,11 +1,16 @@
 package com.comfypilot.core.ios
 
+import com.comfypilot.core.api.ApiCall
+import com.comfypilot.core.api.ApiCodec
+import com.comfypilot.core.api.ApiPaths
+import com.comfypilot.core.api.ImageUpload
 import com.comfypilot.core.host.SessionHost
 import com.comfypilot.core.host.restoredTasksFromJson
 import com.comfypilot.core.host.sessionConfigFromJson
 import com.comfypilot.core.host.sessionWorkflowJson
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
+import kotlin.random.Random
 
 /**
  * iOS 侧的唯一入口。
@@ -52,6 +57,57 @@ class IosHost(configJson: String, tasksJson: String) {
      * 和鸿蒙的 `cp_session_workflow` 是同一个实现，只是换了调用方式。
      */
     fun workflowView(requestJson: String): String = sessionWorkflowJson(host.state, requestJson)
+
+    /**
+     * 组装 `/upload/image` 的 multipart 请求，Swift 拿着 body 自己 POST。
+     *
+     * 上传不进入状态机：它只为 LoadImage 准备一个服务器文件名，失败也不该影响
+     * 已有任务。multipart 的拼法复用共享层的 [ApiPaths]，和安卓发出去的字节一致。
+     *
+     * 返回四行（base64 与 url 都不含换行，用换行分隔比再包一层 JSON 简单）：
+     * ```
+     * OK
+     * <文件名>
+     * <Content-Type>
+     * <url>
+     * <body 的 base64>
+     * ```
+     * 失败时返回 `ERR\n<原因>`。
+     */
+    @OptIn(ExperimentalEncodingApi::class)
+    fun uploadRequest(base64: String, filename: String, baseUrl: String, nowMs: Long): String {
+        if (baseUrl.isBlank()) return "ERR\n尚未连接"
+        val bytes = runCatching { Base64.decode(base64) }.getOrNull()
+            ?: return "ERR\n图片解码失败"
+        if (bytes.isEmpty()) return "ERR\n图片内容为空"
+
+        val name = ImageUpload.uniqueFilename(filename, nowMs, Random.nextInt())
+        val resolved = runCatching {
+            ApiPaths.resolve(
+                baseUrl,
+                ApiCall.UploadImage(filename = name, subfolder = "", type = "input", bytes = bytes),
+            )
+        }.getOrElse { return "ERR\n" + (it.message ?: "请求构造失败") }
+
+        val body = resolved.body ?: return "ERR\n请求体为空"
+        return buildString {
+            append("OK\n")
+            append(name).append('\n')
+            append(resolved.contentType ?: "application/octet-stream").append('\n')
+            append(resolved.url).append('\n')
+            append(Base64.encode(body))
+        }
+    }
+
+    /** 解析 `/upload/image` 的响应：成功 `OK\n<引用名>`，失败 `ERR\n<原因>`。 */
+    fun uploadResult(status: Int, body: String): String {
+        if (status !in 200..299) return "ERR\n服务器返回 $status"
+        val parsed = runCatching { ApiCodec.decodeUploadImage(body) }.getOrNull()
+            ?: return "ERR\n响应不是有效 JSON"
+        val reference = if (parsed.subfolder.isBlank()) parsed.name else parsed.subfolder + "/" + parsed.name
+        if (reference.isBlank()) return "ERR\n响应里没有文件名"
+        return "OK\n$reference"
+    }
 
     /**
      * 按需取最新一帧采样预览，直接返回 base64（没有帧时返回空串）。

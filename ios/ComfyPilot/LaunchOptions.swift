@@ -45,4 +45,7 @@ enum LaunchOptions {
 
     /// 工作流加载完成后自动弹出节点图，CI 截图用。
     static var showGraph: Bool { flag("-uiGraph") }
+
+    /// 打开工作流后自动上传内置夹具图到 LoadImage 字段，CI 验证上传链路用。
+    static var autoUpload: Bool { flag("-uiUploadImage") }
 }

@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// 工作流列表。导航由 RootView 的页面栈负责，这里只发事件——
@@ -377,7 +378,10 @@ struct FieldRow: View {
     let palette: SpectrumPalette
     let onCommit: (Any) -> Void
 
+    @EnvironmentObject private var store: SessionStore
     @State private var text: String
+    @State private var showPicker = false
+    @State private var pickedItem: PhotosPickerItem?
     @FocusState private var focused: Bool
 
     init(field: WorkflowField, palette: SpectrumPalette, onCommit: @escaping (Any) -> Void) {
@@ -416,6 +420,22 @@ struct FieldRow: View {
                 }
             }
             control
+            if store.uploadErrorFieldId == field.id, !store.uploadError.isEmpty {
+                Text(store.uploadError)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(palette.err)
+                    .lineLimit(2)
+            }
+        }
+        .photosPicker(isPresented: $showPicker, selection: $pickedItem, matching: .images)
+        .onChange(of: pickedItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let data = try? await item.loadTransferable(type: Data.self) {
+                    store.uploadImage(data: data, filename: "photo.jpg", field: field)
+                }
+                pickedItem = nil
+            }
         }
     }
 
@@ -431,6 +451,36 @@ struct FieldRow: View {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(palette.cardStrong.opacity(0.5))
                 )
+        } else if field.isImageUpload {
+            HStack(spacing: 8) {
+                Text(text.isEmpty ? "—" : text)
+                    .font(.system(size: 12.5, design: .monospaced))
+                    .foregroundStyle(text.isEmpty ? palette.textDim : palette.text)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Spacer(minLength: 0)
+
+                if store.uploadingFieldId == field.id {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(palette.accent)
+                } else {
+                    GhostButton(title: text.isEmpty ? "选图" : "换图", palette: palette, height: 30) {
+                        showPicker = true
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(palette.card)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(palette.border, lineWidth: 1)
+            )
         } else if field.isSelect {
             Menu {
                 ForEach(field.options, id: \.self) { option in

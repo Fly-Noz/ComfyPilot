@@ -75,6 +75,7 @@ git show origin/ci-artifacts:tasks.png > .scratch/tasks.png
 | `-uiAutoSubmit` | 参数页就绪后自动提交一次（验证提交链路用） |
 | `-uiDiagnostics` | 启动即弹出诊断页 |
 | `-uiGraph` | 工作流加载完自动弹出节点图 |
+| `-uiUploadImage` | 自动把内置夹具图传到第一个 LoadImage 字段 |
 | `-uiBaseUrl http://127.0.0.1:8188` | 服务端地址 |
 | `-uiTheme dark\|light` | 强制配色，不传跟随系统 |
 | `-uiFixture` | 用内置样例数据渲染，不连服务端，**只用于调排版** |
@@ -105,7 +106,7 @@ xcrun simctl io booted screenshot .scratch/tasks.png
 - [x] 主机状态条（Crystools 采样 + `/system_stats` 轮询）
 - [x] 节点图浮层（只读，坐标与连线来自共享层 `graph`）
 - [ ] VHS 多帧动画预览
-- [ ] 图片字段上传
+- [x] 图片字段上传（LoadImage：相册选图 → 压成 JPEG → /upload/image → 回填文件名）
 - [x] 弱网模式（少抢带宽）、诊断页、忽略本地校验强制提交
 - [x] 外观切换（跟随系统 / 深 / 浅，持久化）、地址历史、参数一键恢复
 - [ ] AI 助手：设置里已留禁用入口，功能未开发
