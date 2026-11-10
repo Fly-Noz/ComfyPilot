@@ -46,6 +46,23 @@ xcodebuild -project ios/ComfyPilot.xcodeproj -scheme ComfyPilot \
   CODE_SIGNING_ALLOWED=NO build
 ```
 
+## 未签名 IPA
+
+```bash
+bash ios/package.sh
+```
+
+产物：
+
+```
+ios/build/ComfyPilot-unsigned.ipa
+```
+
+脚本会编译 `iosArm64` release framework、归档未签名 App、组装 `Payload/`。
+IPA 没有签名，**安装前需要自行签名**，手机直接点 IPA 不会有反应。
+
+也可以在 GitHub Actions 手动运行 `iOS Unsigned IPA`，或推 `v*` tag；tag 构建会把 IPA 附到 Release。
+
 ## 没有 Mac 时（当前状态）
 
 `.github/workflows/ios.yml` 是唯一能编译 iOS 的地方：
@@ -120,4 +137,4 @@ xcrun simctl io booted screenshot .scratch/tasks.png
 - [x] 更新检查与提醒（每次启动 / 每个版本只提示一次）
 - [ ] AI 助手：设置里已留禁用入口，功能未开发
 - [ ] 网络测速：设置里已留禁用入口，功能未开发
-- [ ] 未签名 IPA 打包脚本
+- [x] 未签名 IPA 打包脚本与 Actions workflow
