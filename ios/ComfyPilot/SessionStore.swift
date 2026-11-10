@@ -795,9 +795,9 @@ enum Fixtures {
         snapshot.workflowName = "SDXL 基础 · 文生图"
         snapshot.catalogState = "ready"
         snapshot.catalog = [
-            CatalogRow(path: "sdxl_base.json", name: "SDXL 基础"),
-            CatalogRow(path: "flux_portrait.json", name: "Flux 人像"),
-            CatalogRow(path: "wan_video.json", name: "Wan 视频"),
+            CatalogRow(path: "sdxl_base.json", name: "SDXL 基础", sizeBytes: 18_432),
+            CatalogRow(path: "flux_portrait.json", name: "Flux 人像", sizeBytes: 7_680),
+            CatalogRow(path: "wan_video.json", name: "Wan 视频", sizeBytes: 2_411_724),
         ]
         snapshot.tasks = [
             TaskRow(
