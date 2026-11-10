@@ -4,7 +4,7 @@ import UIKit
 
 /// 一个产物引用。`path` 是共享层给好的相对地址（/view?...），
 /// 宿主拼上 baseUrl 就能取，不用自己拼查询参数。
-struct ArtifactRef: Identifiable {
+struct ArtifactRef: Identifiable, Equatable {
     var id: String { "\(type)/\(subfolder)/\(filename)" }
     let filename: String
     let displayName: String
@@ -16,7 +16,7 @@ struct ArtifactRef: Identifiable {
     let path: String
 }
 
-struct TaskRow: Identifiable {
+struct TaskRow: Identifiable, Equatable {
     let id: String
     let promptId: String
     let name: String
@@ -50,7 +50,7 @@ struct TaskRow: Identifiable {
     }
 }
 
-struct CatalogRow: Identifiable {
+struct CatalogRow: Identifiable, Equatable {
     var id: String { path }
     let path: String
     let name: String
@@ -58,8 +58,24 @@ struct CatalogRow: Identifiable {
     let sizeBytes: Int64
 }
 
+/// 关闭节点前的影响探测结果；只有 breaking 才需要二次确认。
+struct BypassConfirmation: Identifiable {
+    let nodeId: Int
+    let reason: String
+    var id: Int { nodeId }
+}
+
+/// 本地校验通过、但带 warnings 的提交；等用户确认后再发。
+struct PendingSubmit: Identifiable {
+    let id = UUID()
+    let promptText: String
+    let workflowName: String
+    let workflowPath: String
+    let warnings: [String]
+}
+
 /// 状态帧里这一版真正用得上的字段。其余字段原样躺在 JSON 里，等对应界面做出来再接。
-struct SessionSnapshot {
+struct SessionSnapshot: Equatable {
     var phase: String = "Idle"
     var label: String = ""
     var baseUrl: String = ""
@@ -142,10 +158,13 @@ final class SessionStore: ObservableObject {
     @Published private(set) var uploadError: String = ""
     /// 错误属于哪个字段：只在该字段下面显示，别让所有图片字段一起报错。
     @Published private(set) var uploadErrorFieldId: String?
-    /// 上传成功后的回填值（field.id -> 服务器文件名）。FieldRow 监听它把新名字刷进
-    /// 本地 text：字段值来自工作流原文（不含 override），只靠 valueText 变化回灌
-    /// 永远等不到，之前截图里 image 字段一直是 example.png 就是这个原因。
-    @Published private(set) var uploadBackfill: [String: String] = [:]
+    /// 参数显示刷新计数。字段值来自工作流原文（不含 override），只靠 valueText
+    /// 变化回灌永远等不到；上传回填、恢复默认、重开工作流都靠它让 FieldRow 重取显示值。
+    @Published private(set) var fieldDisplayRevision: Int = 0
+    /// 关闭关键节点前的确认；nil 表示没有待确认的开关。
+    @Published private(set) var bypassConfirmation: BypassConfirmation?
+    /// 带 warnings 的提交；用户确认后才真正发出。
+    @Published private(set) var pendingSubmit: PendingSubmit?
 
     private var didAutoSubmit = false
 
@@ -230,6 +249,12 @@ final class SessionStore: ObservableObject {
         pinnedNodeIds = []
         nodeNotes = [:]
         workflowView = nil
+        fieldDisplayRevision &+= 1
+        uploadingFieldId = nil
+        uploadError = ""
+        uploadErrorFieldId = nil
+        pendingSubmit = nil
+        bypassConfirmation = nil
         catalogRequested = false
         snapshot.phase = "Idle"
         snapshot.label = "已断开"
@@ -249,9 +274,43 @@ final class SessionStore: ObservableObject {
         bridge?.send(["t": "reconcile"])
     }
 
-    /// 关闭/重新启用单个节点。改动只存在会话内存里，不写回服务器文件。
-    /// 共享层收下命令后要等下一拍才重算，所以这里延后一点再拉视图。
-    func setNodeBypassed(nodeId: Int, bypassed: Bool) {
+    /// 关闭/重新启用单个节点。关闭前先做一次构建试算；breaking 时先确认。
+    /// 改动只存在会话内存里，不写回服务器文件。
+    func requestNodeToggle(nodeId: Int, bypassed: Bool) {
+        if !bypassed {
+            sendBypass(nodeId: nodeId, bypassed: false)
+            return
+        }
+        guard let bridge else { return }
+        let raw = bridge.workflowView(
+            requestJson: requestJson(op: "disable_impact", nodeId: nodeId)
+        )
+        guard let data = raw.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              (object["ok"] as? Bool) == true,
+              (object["breaking"] as? Bool) == true else {
+            // 探测失败不阻塞用户：退回原来的直接开关。
+            sendBypass(nodeId: nodeId, bypassed: true)
+            return
+        }
+        let reason = (object["reason"] as? String) ?? ""
+        bypassConfirmation = BypassConfirmation(
+            nodeId: nodeId,
+            reason: reason.isEmpty ? "关闭后提交可能失败。" : reason
+        )
+    }
+
+    func confirmBypass() {
+        guard let pending = bypassConfirmation else { return }
+        bypassConfirmation = nil
+        sendBypass(nodeId: pending.nodeId, bypassed: true)
+    }
+
+    func cancelBypass() {
+        bypassConfirmation = nil
+    }
+
+    private func sendBypass(nodeId: Int, bypassed: Bool) {
         bridge?.send(["t": "bypass", "nodeId": nodeId, "bypassed": bypassed ? 1 : 0])
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
             self?.reloadWorkflow()
@@ -356,7 +415,10 @@ final class SessionStore: ObservableObject {
                 )
             }
         }
-        snapshot = next
+        // 250ms 一帧不等于 250ms 一改：只有内容真的变了才发布，避免整页 4Hz 重绘。
+        if next != snapshot {
+            snapshot = next
+        }
         refreshPreviewIfNeeded(next)
         refreshAnimationIfNeeded(next)
 
@@ -485,6 +547,12 @@ final class SessionStore: ObservableObject {
             enabledGraphIds = draft.graphs
             nodeNotes = draft.notes
         }
+        fieldDisplayRevision &+= 1
+        uploadingFieldId = nil
+        uploadError = ""
+        uploadErrorFieldId = nil
+        pendingSubmit = nil
+        bypassConfirmation = nil
         sendOpenIfReady()
     }
 
@@ -564,6 +632,7 @@ final class SessionStore: ObservableObject {
     /// 上传不进状态机：失败只影响这一个字段，不打断连接或任务。
     func uploadImage(data: Data, filename: String, field: WorkflowField) {
         guard let bridge else { return }
+        let startPath = openedPath
         let maxSide: CGFloat = Prefs.weakNetwork ? 1536 : 2048
         guard let jpeg = ImageUploadPrep.jpeg(from: data, maxSide: maxSide) else {
             uploadError = "这张图读不出来，换一张试试"
@@ -607,7 +676,11 @@ final class SessionStore: ObservableObject {
             let failure = error?.localizedDescription
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.uploadingFieldId = nil
+                // 上传期间切了工作流或重连：这次结果已经不属于当前页面，直接丢弃。
+                guard self.openedPath == startPath, self.bridge === bridge else { return }
+                if self.uploadingFieldId == field.id {
+                    self.uploadingFieldId = nil
+                }
                 if let failure {
                     self.uploadError = failure
                     self.uploadErrorFieldId = field.id
@@ -623,7 +696,6 @@ final class SessionStore: ObservableObject {
                 self.uploadError = ""
                 self.uploadErrorFieldId = nil
                 self.setOverride(field, value: parts[1])
-                self.uploadBackfill[field.id] = parts[1]
                 self.pushNotice("已上传 \(serverName)")
                 self.showToast("已上传 \(serverName)")
             }
@@ -636,6 +708,7 @@ final class SessionStore: ObservableObject {
         overrides = [:]
         saveDraft()
         reloadWorkflow()
+        fieldDisplayRevision &+= 1
         pushNotice("已恢复默认参数")
         showToast("已恢复默认参数")
     }
@@ -646,6 +719,26 @@ final class SessionStore: ObservableObject {
         overrides[String(field.nodeId)] = node
         saveDraft()
         reloadWorkflow()
+        fieldDisplayRevision &+= 1
+    }
+
+    /// 字段当前应显示的值：优先本次会话的 override，其次工作流原文。
+    /// 上传回填、恢复默认、重启后读草稿都走这一条，避免只在上传成功那一刻刷新。
+    func fieldDisplayText(for field: WorkflowField) -> String {
+        guard let raw = overrides[String(field.nodeId)]?[field.inputName] else {
+            return field.valueText
+        }
+        if let bool = raw as? Bool {
+            return bool ? "true" : "false"
+        }
+        if let number = raw as? NSNumber {
+            let value = number.doubleValue
+            if value == value.rounded() {
+                return String(Int64(value))
+            }
+            return String(value)
+        }
+        return String(describing: raw)
     }
 
     func submitWorkflow() {
@@ -663,20 +756,50 @@ final class SessionStore: ObservableObject {
             showToast("提交被拒绝：本地校验没过")
             return
         }
-        bridge.send([
-            "t": "submit",
-            "workflow": promptText,
-            "workflowName": view.name,
-            "workflowPath": view.path,
-        ])
-        pushNotice("已提交 \(view.name)")
-        showToast("已提交 \(view.name.isEmpty ? "任务" : view.name)")
+        let warnings = (object["warnings"] as? [String]) ?? []
+        if !warnings.isEmpty {
+            // 有告警时先让用户看一眼；确认后由 confirmSubmit 真正发出。
+            pendingSubmit = PendingSubmit(
+                promptText: promptText,
+                workflowName: view.name,
+                workflowPath: view.path,
+                warnings: warnings
+            )
+            return
+        }
+        sendPrompt(promptText, workflowName: view.name, workflowPath: view.path)
     }
 
-    private func requestJson(op: String, runToken: String? = nil) -> String {
+    func confirmSubmit() {
+        guard let pending = pendingSubmit else { return }
+        pendingSubmit = nil
+        sendPrompt(
+            pending.promptText,
+            workflowName: pending.workflowName,
+            workflowPath: pending.workflowPath
+        )
+    }
+
+    func cancelSubmit() {
+        pendingSubmit = nil
+    }
+
+    private func sendPrompt(_ promptText: String, workflowName: String, workflowPath: String) {
+        bridge?.send([
+            "t": "submit",
+            "workflow": promptText,
+            "workflowName": workflowName,
+            "workflowPath": workflowPath,
+        ])
+        pushNotice("已提交 \(workflowName)")
+        showToast("已提交 \(workflowName.isEmpty ? "任务" : workflowName)")
+    }
+
+    private func requestJson(op: String, runToken: String? = nil, nodeId: Int? = nil) -> String {
         var payload: [String: Any] = ["op": op]
         if !overrides.isEmpty { payload["overrides"] = overrides }
         if let enabledGraphIds { payload["graphs"] = enabledGraphIds.sorted() }
+        if let nodeId { payload["nodeId"] = nodeId }
         // 和安卓一样：开关打开时，本地问题只告警，prompt 照样构建。
         if Prefs.forceSubmit { payload["forceSubmit"] = true }
         if let runToken { payload["run"] = runToken }

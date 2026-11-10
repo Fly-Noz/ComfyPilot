@@ -224,7 +224,19 @@ struct WorkflowDetailScreen: View {
                 }
             }
         }
-        .safeAreaInset(edge: .bottom) { submitBar }
+        .safeAreaInset(edge: .bottom) {
+            submitBar.alert("请确认", isPresented: confirmAlertBinding) {
+                if store.pendingSubmit != nil {
+                    Button("取消", role: .cancel) { store.cancelSubmit() }
+                    Button("仍然提交") { store.confirmSubmit() }
+                } else {
+                    Button("取消", role: .cancel) { store.cancelBypass() }
+                    Button("仍然关闭", role: .destructive) { store.confirmBypass() }
+                }
+            } message: {
+                Text(confirmAlertMessage)
+            }
+        }
         .alert("节点备注", isPresented: noteAlertBinding) {
             TextField("比如：这里控制构图", text: $noteText)
             Button("保存") {
@@ -243,7 +255,7 @@ struct WorkflowDetailScreen: View {
                 NodeListSheet(
                     palette: palette,
                     onToggle: { nodeId, bypassed in
-                        store.setNodeBypassed(nodeId: nodeId, bypassed: bypassed)
+                        store.requestNodeToggle(nodeId: nodeId, bypassed: bypassed)
                     },
                     onNote: { nodeId, text in
                         store.setNote(nodeId: nodeId, text: text)
@@ -675,7 +687,7 @@ struct WorkflowDetailScreen: View {
                     store.togglePin(node.id)
                 }
                 iconButton(node.enabled ? "power.circle.fill" : "power.circle", active: node.enabled) {
-                    store.setNodeBypassed(nodeId: node.id, bypassed: node.enabled)
+                    store.requestNodeToggle(nodeId: node.id, bypassed: node.enabled)
                 }
                 iconButton(expanded ? "chevron.up" : "chevron.down", active: false) {
                     toggleExpanded(node)
@@ -707,6 +719,25 @@ struct WorkflowDetailScreen: View {
             get: { noteNodeId != nil },
             set: { if !$0 { noteNodeId = nil } }
         )
+    }
+
+    private var confirmAlertBinding: Binding<Bool> {
+        Binding(
+            get: { store.pendingSubmit != nil || store.bypassConfirmation != nil },
+            set: { presented in
+                if !presented {
+                    store.cancelSubmit()
+                    store.cancelBypass()
+                }
+            }
+        )
+    }
+
+    private var confirmAlertMessage: String {
+        if let pending = store.pendingSubmit {
+            return pending.warnings.joined(separator: "\n")
+        }
+        return store.bypassConfirmation?.reason ?? ""
     }
 
     private func iconButton(_ systemName: String, active: Bool, action: @escaping () -> Void) -> some View {
@@ -888,13 +919,14 @@ struct FieldRow: View {
         }
         // 外部改动（上传回填、恢复默认参数）要回灌到输入框：
         // FieldRow 的 @State text 只在初始化时取一次值，不接这一下会一直显示旧文本。
-        .onChange(of: field.valueText) { _, newValue in
-            if !focused { text = newValue }
+        .onChange(of: field.valueText) { _, _ in
+            if !focused { text = store.fieldDisplayText(for: field) }
         }
-        // 上传回填走独立通道：字段值不含 override（见 uploadBackfill 注释），
-        // 上传成功把服务器文件名直接刷进 text，截图/肉眼都能立刻看到。
-        .onChange(of: store.uploadBackfill[field.id] ?? "") { _, newValue in
-            if !newValue.isEmpty { text = newValue }
+        .onChange(of: store.fieldDisplayRevision) { _, _ in
+            if !focused { text = store.fieldDisplayText(for: field) }
+        }
+        .onAppear {
+            if !focused { text = store.fieldDisplayText(for: field) }
         }
         .photosPicker(isPresented: $showPicker, selection: $pickedItem, matching: .images)
         .onChange(of: pickedItem) { _, item in
@@ -1105,6 +1137,12 @@ struct NodeListSheet: View {
                     .padding(.bottom, 24)
                 }
             }
+            .alert("关闭该节点？", isPresented: bypassAlertBinding) {
+                Button("取消", role: .cancel) { store.cancelBypass() }
+                Button("仍然关闭", role: .destructive) { store.confirmBypass() }
+            } message: {
+                Text(store.bypassConfirmation?.reason ?? "")
+            }
         }
         .alert("节点备注", isPresented: noteAlertBinding) {
             TextField("比如：这里控制构图", text: $noteText)
@@ -1184,6 +1222,13 @@ struct NodeListSheet: View {
         Binding(
             get: { noteNodeId != nil },
             set: { if !$0 { noteNodeId = nil } }
+        )
+    }
+
+    private var bypassAlertBinding: Binding<Bool> {
+        Binding(
+            get: { store.bypassConfirmation != nil },
+            set: { if !$0 { store.cancelBypass() } }
         )
     }
 }

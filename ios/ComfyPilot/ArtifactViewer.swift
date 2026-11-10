@@ -1,4 +1,5 @@
 import AVKit
+import Foundation
 import SwiftUI
 import UIKit
 
@@ -144,9 +145,17 @@ struct ArtifactViewer: View {
                 }
                 return
             }
-            let name = artifact.filename.isEmpty ? "artifact" : artifact.filename
-            let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+            let rawName = artifact.filename.isEmpty ? "artifact" : artifact.filename
+            // 服务器给的文件名只取最后一段，防止 ../ 或子目录把文件写出临时目录；
+            // 每次放进独立子目录，避免不同产物同名互相覆盖。
+            let normalized = rawName.replacingOccurrences(of: "\\", with: "/")
+            let last = (normalized as NSString).lastPathComponent
+            let name = (last.isEmpty || last == "." || last == "..") ? "artifact" : last
+            let folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let tmp = folder.appendingPathComponent(name)
             do {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 try data.write(to: tmp, options: .atomic)
                 DispatchQueue.main.async {
                     saving = nil
