@@ -141,6 +141,7 @@ struct WorkflowDetailScreen: View {
     @State private var expandedOverride: Set<Int>?
     @State private var noteNodeId: Int?
     @State private var noteText = ""
+    @State private var jumpNodeId: Int?
     @State private var collapsedSubgraphs: Set<String> = []
     @State private var expandedChildGraphs: Set<String> = []
     @State private var restExpanded = true
@@ -173,34 +174,46 @@ struct WorkflowDetailScreen: View {
                     TopBarAction(text: "任务", palette: palette, action: onTasks)
                 }
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
-                        if let view = store.workflowView {
-                            summary(view)
-                            // 主机状态跟着工作流走：安卓只在这一页放它。
-                            ServerStatsStrip(palette: palette, snapshot: store.snapshot)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 12) {
+                            if let view = store.workflowView {
+                                summary(view)
+                                // 主机状态跟着工作流走：安卓只在这一页放它。
+                                ServerStatsStrip(palette: palette, snapshot: store.snapshot)
 
-                            SpectrumTabs(
-                                labels: ["输入 \(fieldCount(view))", "预览"],
-                                selected: tab,
-                                palette: palette
-                            ) { tab = $0 }
-                            .padding(.vertical, 2)
+                                SpectrumTabs(
+                                    labels: ["输入 \(fieldCount(view))", "预览"],
+                                    selected: tab,
+                                    palette: palette
+                                ) { tab = $0 }
+                                .padding(.vertical, 2)
 
-                            if tab == 0 {
-                                inputList(view)
+                                if tab == 0 {
+                                    inputList(view)
+                                } else {
+                                    PreviewPane(palette: palette, workflowPath: path)
+                                }
+                            } else if !store.snapshot.workflowError.isEmpty {
+                                errorCard(store.snapshot.workflowError)
                             } else {
-                                PreviewPane(palette: palette, workflowPath: path)
+                                loadingCard
                             }
-                        } else if !store.snapshot.workflowError.isEmpty {
-                            errorCard(store.snapshot.workflowError)
-                        } else {
-                            loadingCard
+                        }
+                        .padding(.horizontal, 18)
+                        .padding(.top, 8)
+                        .padding(.bottom, 16)
+                    }
+                    .onChange(of: jumpNodeId) { _, target in
+                        guard let target else { return }
+                        // 展开要一帧才生效：稍晚一点再滚，否则滚到的是折叠时的高度。
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                            withAnimation(.easeInOut(duration: 0.25)) {
+                                proxy.scrollTo(target, anchor: .top)
+                            }
+                            jumpNodeId = nil
                         }
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.top, 8)
-                    .padding(.bottom, 16)
                 }
             }
         }
@@ -233,7 +246,13 @@ struct WorkflowDetailScreen: View {
                 NodeGraphSheet(
                     palette: palette,
                     graph: store.workflowView?.graph ?? WorkflowGraph(),
-                    focusNodeId: nodeId
+                    focusNodeId: nodeId,
+                    onJump: { target in
+                        var set = expandedOverride ?? autoExpandedIds
+                        set.insert(target)
+                        expandedOverride = set
+                        jumpNodeId = target
+                    }
                 )
             }
         }
@@ -974,9 +993,6 @@ struct NodeListSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var noteNodeId: Int?
     @State private var noteText = ""
-    @State private var collapsedSubgraphs: Set<String> = []
-    @State private var expandedChildGraphs: Set<String> = []
-    @State private var restExpanded = true
 
     var body: some View {
         ZStack {

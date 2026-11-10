@@ -9,6 +9,8 @@ struct NodeGraphSheet: View {
     let palette: SpectrumPalette
     let graph: WorkflowGraph
     var focusNodeId: Int?
+    /// 点「跳转」时通知父视图：关掉浮层、展开那张参数卡并滚过去。
+    var onJump: ((Int) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
     @State private var zoom: CGFloat = 1
@@ -22,6 +24,12 @@ struct NodeGraphSheet: View {
 
             VStack(spacing: 0) {
                 SpectrumTopBar(palette: palette, title: "节点图", onBack: { dismiss() }) {
+                    if let focus = focusNodeId, let onJump {
+                        TopBarAction(text: "跳转 #\(focus)", palette: palette) {
+                            onJump(focus)
+                            dismiss()
+                        }
+                    }
                     TopBarAction(text: "复位", palette: palette) {
                         withAnimation(.easeOut(duration: 0.2)) {
                             zoom = 1
