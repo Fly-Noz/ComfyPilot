@@ -251,6 +251,10 @@ class SessionHost(
                 runtime.openWorkflow(message.path)
                 true
             }
+            is HostMessage.OpenLocalWorkflow -> {
+                runtime.openLocalWorkflow(message.path, message.name, message.raw)
+                true
+            }
         }
     }
 

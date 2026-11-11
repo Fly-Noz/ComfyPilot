@@ -117,6 +117,10 @@ class SessionRuntime(
 
     fun openWorkflow(path: String) = enqueue(SessionInput.WorkflowOpenRequested(path))
 
+    /** 打开本地导入的工作流；[raw] 是 JSON 原文，节点定义仍从主机拉。 */
+    fun openLocalWorkflow(path: String, name: String, raw: String) =
+        enqueue(SessionInput.LocalWorkflowOpenRequested(path, name, raw))
+
     /** 关闭/重新启用当前工作流里的一个节点；只改会话内存。 */
     fun setNodeBypass(nodeId: Int, bypassed: Boolean) =
         enqueue(SessionInput.NodeBypassChanged(nodeId, bypassed))

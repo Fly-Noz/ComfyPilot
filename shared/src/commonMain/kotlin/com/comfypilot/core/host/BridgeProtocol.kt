@@ -297,6 +297,13 @@ sealed interface HostMessage {
     /** 打开某个工作流文件。 */
     data class OpenWorkflow(val path: String) : HostMessage
 
+    /** 打开宿主本地导入的工作流：原文随命令传入，节点定义仍从主机拉。 */
+    data class OpenLocalWorkflow(
+        val path: String,
+        val name: String,
+        val raw: String,
+    ) : HostMessage
+
     companion object {
         /**
          * 无法识别或字段不全时返回 null：宿主送来的可能是它自己版本的扩展字段，
@@ -358,6 +365,11 @@ sealed interface HostMessage {
                 "cancel" -> Cancel(obj.stringOrNull("promptId") ?: return null)
                 "workflows" -> Workflows
                 "workflow.open" -> OpenWorkflow(obj.stringOrNull("path") ?: return null)
+                "workflow.open_local" -> OpenLocalWorkflow(
+                    path = obj.stringOrNull("path") ?: return null,
+                    name = obj.stringOrNull("name") ?: "",
+                    raw = obj.stringOrNull("raw") ?: return null,
+                )
                 else -> null
             }
         }

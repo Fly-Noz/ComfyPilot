@@ -172,6 +172,12 @@ fun ComfyPilotApp(
                         onOpenWorkflow(path)
                         screen = Screen.Detail
                     },
+                    onOpenLocal = { path, name, raw ->
+                        if (state.lease != null) {
+                            SessionHost.openLocalWorkflow(path, name, raw)
+                            screen = Screen.Detail
+                        }
+                    },
                     onTasks = { screen = Screen.Tasks },
                     onBack = { screen = Screen.Connect },
                     onDisconnect = onDisconnect,

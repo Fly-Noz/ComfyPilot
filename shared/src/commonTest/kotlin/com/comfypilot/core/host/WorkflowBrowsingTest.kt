@@ -164,6 +164,32 @@ class WorkflowBrowsingTest {
     }
 
     @Test
+    fun `a local workflow opens without reading a host file`() {
+        val driver = connected()
+        driver.deliver(
+            buildJsonObject {
+                put("t", "workflow.open_local")
+                put("path", "local://demo")
+                put("name", "导入的示例")
+                put("raw", UI_WORKFLOW)
+            }.toString(),
+        )
+
+        assertEquals(
+            "local://demo",
+            driver.workflowField("path"),
+            driver.workflowField("error") ?: "没有错误信息",
+        )
+        assertEquals("导入的示例", driver.workflowField("name"))
+        assertEquals("UI", driver.workflowField("format"))
+        assertTrue(driver.httpUrls().none { it.contains("/userdata/workflows/") }, "本地导入不该去主机读文件")
+        assertTrue(
+            driver.httpUrls().any { it.contains("/object_info/KSampler") },
+            "节点定义仍然要从主机拉",
+        )
+    }
+
+    @Test
     fun `an unreadable body becomes a visible error, not an empty document`() {
         val driver = connected()
         driver.openWorkflow("broken.json")

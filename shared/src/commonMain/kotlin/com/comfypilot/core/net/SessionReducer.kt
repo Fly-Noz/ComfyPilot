@@ -31,6 +31,9 @@ import kotlinx.serialization.json.JsonObject
 /** 一份工作流最多为这么多个节点类拉定义：病态文件不能变成几百个请求。 */
 private const val MAX_OBJECT_INFO_REQUESTS = 128
 
+/** 本地导入的 JSON 上限；2 MB 足够容纳正常 UI 工作流，避免误选大文件。 */
+private const val MAX_LOCAL_WORKFLOW_CHARS = 2 * 1024 * 1024
+
 /**
  * 纯函数状态机：输入 -> (新状态, 副作用)。
  * 不启动协程、不碰平台 API，因此所有连接语义都能在 jvmTest 里直接断言。
@@ -59,6 +62,7 @@ class SessionReducer(
         is SessionInput.CancelRequested -> onCancel(state, input)
         SessionInput.WorkflowCatalogRequested -> onCatalogRequested(state)
         is SessionInput.WorkflowOpenRequested -> onWorkflowOpenRequested(state, input)
+        is SessionInput.LocalWorkflowOpenRequested -> onLocalWorkflowOpenRequested(state, input)
         is SessionInput.NodeBypassChanged -> onNodeBypassChanged(state, input)
         is SessionInput.UserReconnect -> onUserReconnect(state, input.nowMs)
         is SessionInput.ReconcileRequested -> onReconcileRequested(state, input)
@@ -563,6 +567,32 @@ class SessionReducer(
         return ReduceResult(state.copy(catalog = WorkflowCatalog.Ready(WorkflowCodec.parseCatalog(body))))
     }
 
+    private fun onLocalWorkflowOpenRequested(
+        state: SessionState,
+        input: SessionInput.LocalWorkflowOpenRequested,
+    ): ReduceResult {
+        if (state.lease == null) {
+            return ReduceResult(
+                state.copy(
+                    workflow = WorkflowSelection(error = "未连接 ComfyUI"),
+                    bypassedNodeIds = emptySet(),
+                    enabledNodeIds = emptySet(),
+                ),
+            )
+        }
+        if (input.raw.length > MAX_LOCAL_WORKFLOW_CHARS) {
+            return ReduceResult(
+                state.copy(workflow = WorkflowSelection(error = "工作流文件过大，最多 2 MB")),
+            )
+        }
+        return openDocument(
+            state.copy(nodeInfoRequested = emptySet()),
+            input.path,
+            input.name,
+            input.raw,
+        )
+    }
+
     private fun onWorkflowFileResult(
         state: SessionState,
         tag: RequestTag.WorkflowFile,
@@ -570,22 +600,32 @@ class SessionReducer(
     ): ReduceResult {
         val body = bodyOf(outcome)
             ?: return ReduceResult(state.copy(workflow = WorkflowSelection(error = describeFailure(outcome))))
-        return when (val parsed = WorkflowCodec.parseDocument(body)) {
+        return openDocument(state, tag.path, workflowNameOf(tag.path), body)
+    }
+
+    /** 服务器文件和本地导入共用同一套解析、节点定义拉取与文档落地。 */
+    private fun openDocument(
+        state: SessionState,
+        path: String,
+        name: String,
+        raw: String,
+    ): ReduceResult {
+        return when (val parsed = WorkflowCodec.parseDocument(raw)) {
             is WorkflowCodec.Parsed.Bad ->
                 ReduceResult(state.copy(workflow = WorkflowSelection(error = parsed.reason)))
 
             is WorkflowCodec.Parsed.Ok -> {
                 val document = WorkflowDocument(
-                    path = tag.path,
-                    name = workflowNameOf(tag.path),
-                    raw = body,
+                    path = path,
+                    name = name.ifBlank { workflowNameOf(path) },
+                    raw = raw,
                     format = parsed.format,
                     nodeClasses = parsed.nodeClasses,
                 )
                 // 只为还没取过定义的类发请求：同一台服务器上节点定义是稳定的。
                 // 子图/Power LoRA 展开会动态生成新类（LoraLoaderModelOnly 等），
                 // 这些类不在文件里，但同样需要定义，否则会被判成「服务端没有该节点」。
-                val missing = (parsed.nodeClasses + syntheticNodeClasses(body, parsed.format))
+                val missing = (parsed.nodeClasses + syntheticNodeClasses(raw, parsed.format))
                     .distinct()
                     .filter { it !in state.nodeInfo && it !in state.nodeInfoRequested }
                     .take(MAX_OBJECT_INFO_REQUESTS)
@@ -598,6 +638,8 @@ class SessionReducer(
                     state.copy(
                         workflow = WorkflowSelection(document = document),
                         nodeInfoRequested = state.nodeInfoRequested + missing,
+                        bypassedNodeIds = emptySet(),
+                        enabledNodeIds = emptySet(),
                     ),
                     effects,
                 )

@@ -43,20 +43,32 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.net.Uri
+import android.provider.OpenableColumns
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.comfypilot.app.LocalWorkflowStore
 import com.comfypilot.app.ui.theme.Dot
 import com.comfypilot.app.ui.theme.GentleFloat
 import com.comfypilot.app.ui.theme.GhostButton
 import com.comfypilot.app.ui.theme.GlassCard
 import com.comfypilot.app.ui.theme.ShimmerBox
 import com.comfypilot.app.ui.theme.Spectrum
+import com.comfypilot.app.ui.theme.SpectrumDialog
 import com.comfypilot.app.ui.theme.SpectrumMono
 import com.comfypilot.app.ui.theme.SpectrumScaffold
 import com.comfypilot.app.ui.theme.SpectrumTopBar
 import com.comfypilot.app.ui.theme.TopBarAction
 import com.comfypilot.core.net.SessionState
 import com.comfypilot.core.workflow.WorkflowCatalog
+import com.comfypilot.core.workflow.WorkflowCodec
 import com.comfypilot.core.workflow.WorkflowEntry
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.nio.charset.StandardCharsets
 
 @Composable
 fun WorkflowCatalogScreen(
@@ -67,14 +79,32 @@ fun WorkflowCatalogScreen(
     onBack: () -> Unit,
     onDisconnect: () -> Unit,
     onSettings: () -> Unit,
+    onOpenLocal: (String, String, String) -> Unit,
 ) {
     val c = Spectrum.colors
     val connected = state.lease != null
     val context = LocalContext.current
     val pinnedStore = remember(context) { PinnedWorkflowStore(context.applicationContext) }
     var pinnedPaths by remember(context) { mutableStateOf(pinnedStore.load()) }
+    val localStore = remember(context) { LocalWorkflowStore(context.applicationContext) }
+    var localItems by remember(context) { mutableStateOf(localStore.list()) }
+    var localDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            when (val result = withContext(Dispatchers.IO) { readLocalWorkflow(context, uri) }) {
+                is LocalImport.Ok -> {
+                    val item = withContext(Dispatchers.IO) { localStore.save(result.name, result.raw) }
+                    localItems = localStore.list()
+                    Toast.makeText(context, "已导入 ${item.name}", Toast.LENGTH_SHORT).show()
+                    onOpenLocal(item.path, item.name, result.raw)
+                }
+                is LocalImport.Bad -> Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     // 进入页面时如果还没拉过列表，自动拉一次；失败后不自动重试，交给用户点"刷新"。
     LaunchedEffect(connected, state.catalog) {
@@ -126,6 +156,81 @@ fun WorkflowCatalogScreen(
                     fontSize = 10.sp,
                     fontFamily = SpectrumMono,
                 )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                GhostButton(
+                    text = "导入本地工作流",
+                    onClick = {
+                        importLauncher.launch(
+                            arrayOf("application/json", "text/plain", "application/octet-stream", "*/*"),
+                        )
+                    },
+                    enabled = connected,
+                    height = 32.dp,
+                )
+                if (localItems.isNotEmpty()) {
+                    GhostButton(
+                        text = "本地 ${localItems.size}",
+                        onClick = { localDialog = true },
+                        height = 32.dp,
+                    )
+                }
+            }
+
+            if (localDialog) {
+                SpectrumDialog(
+                    title = "本地工作流",
+                    onDismiss = { localDialog = false },
+                    confirmText = "关闭",
+                    onConfirm = { localDialog = false },
+                ) {
+                    if (localItems.isEmpty()) {
+                        Text(
+                            text = "还没有导入的工作流。",
+                            color = c.textDim,
+                            fontSize = 12.sp,
+                        )
+                    }
+                    localItems.forEach { item ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    localDialog = false
+                                    scope.launch {
+                                        val raw = withContext(Dispatchers.IO) { localStore.read(item.path) }
+                                        if (raw == null) {
+                                            Toast.makeText(context, "本地文件已丢失", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            onOpenLocal(item.path, item.name, raw)
+                                        }
+                                    }
+                                }
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = item.name,
+                                color = c.text,
+                                fontSize = 13.sp,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                text = "本地",
+                                color = c.textDim,
+                                fontSize = 9.5.sp,
+                                fontFamily = SpectrumMono,
+                            )
+                        }
+                    }
+                }
             }
 
             // 加载态 → 内容态交叉淡化：骨架屏不是"啪"地消失，内容也不是突然冒出来。
@@ -377,4 +482,41 @@ private fun formatSize(bytes: Long): String = when {
     bytes < 1024 -> "$bytes B"
     bytes < 1024 * 1024 -> "${bytes / 1024} KB"
     else -> "${bytes / (1024 * 1024)} MB"
+}
+private sealed interface LocalImport {
+    data class Ok(val name: String, val raw: String) : LocalImport
+    data class Bad(val message: String) : LocalImport
+}
+
+/** 读取用户选中的 JSON，限制 2 MB；不是 UI 工作流或过大都直接拒绝。 */
+private fun readLocalWorkflow(context: android.content.Context, uri: Uri): LocalImport {
+    val name = runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+    }.getOrNull().orEmpty().ifBlank { "导入的工作流" }
+    val raw = runCatching {
+        context.contentResolver.openInputStream(uri)?.use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                total += count
+                if (total > 2 * 1024 * 1024) return LocalImport.Bad("工作流文件过大，最多 2 MB")
+                output.write(buffer, 0, count)
+            }
+            output.toString(StandardCharsets.UTF_8.name())
+        }
+    }.getOrNull() ?: return LocalImport.Bad("无法读取文件")
+
+    return when (val parsed = WorkflowCodec.parseDocument(raw)) {
+        is WorkflowCodec.Parsed.Bad -> LocalImport.Bad("不是 ComfyUI UI 工作流：${parsed.reason}")
+        is WorkflowCodec.Parsed.Ok -> LocalImport.Ok(
+            name = name.removeSuffix(".json").ifBlank { "本地工作流" },
+            raw = raw,
+        )
+    }
 }

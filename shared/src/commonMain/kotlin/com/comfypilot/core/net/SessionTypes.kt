@@ -54,6 +54,16 @@ sealed interface SessionInput {
     data class WorkflowOpenRequested(val path: String) : SessionInput
 
     /**
+     * 打开本地导入的工作流：原文由宿主从沙盒读出来交给共享层，
+     * 节点定义仍然从当前连接的主机拉；[path] 用宿主生成的本地标识。
+     */
+    data class LocalWorkflowOpenRequested(
+        val path: String,
+        val name: String,
+        val raw: String,
+    ) : SessionInput
+
+    /**
      * 用户在当前工作流里关闭/重新启用一个节点（旁路开关）。
      *
      * 只改会话内存，不写回工作流文件；打开另一个工作流时清空。

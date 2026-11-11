@@ -389,6 +389,11 @@ export class ComfyBridge {
     this.send({ t: 'workflow.open', path: path });
   }
 
+  /** 打开本地导入的工作流：原文由 ArkTS 从沙盒读出，节点定义仍从主机拉。 */
+  openLocalWorkflow(path: string, name: string, raw: string): void {
+    this.send({ t: 'workflow.open_local', path: path, name: name, raw: raw });
+  }
+
   /**
    * 按需工作流视图/构建 prompt。共享层负责字段、节点图和 overrides 校验；
    * 宿主只把 ArkTS 的 JSON 请求原样送过去。
