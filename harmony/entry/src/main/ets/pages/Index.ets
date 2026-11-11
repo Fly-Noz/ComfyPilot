@@ -4219,7 +4219,27 @@ struct Index {
   }
 
   @Builder
+  LocalWorkflowSection() {
+    if (this.localWorkflows.length > 0) {
+      Column({ space: 9 }) {
+        Text('本地导入')
+          .fontSize(9.5)
+          .fontColor(this.c().textDim)
+          .fontFamily('monospace')
+          .width('100%')
+          .margin({ top: 2 })
+        ForEach(this.localWorkflows, (item: LocalWorkflowItem) => {
+          this.LocalWorkflowCard(item)
+        }, (item: LocalWorkflowItem) => item.path)
+      }
+      .width('100%')
+    }
+  }
+
+  @Builder
   WorkflowCatalog() {
+    // 本地导入独立于服务器目录状态：目录加载/失败时也能看到。
+    this.LocalWorkflowSection()
     // 与 Android WorkflowCatalogScreen 的 when(catalog) 一一对应：Idle / Loading / Failed / Ready。 
     if (this.catalog.state === 'loading') {
       // 骨架屏：和真实条目卡一样的形状，数据到达时整页不跳动；透明度呼吸代替转圈。
@@ -4326,24 +4346,13 @@ struct Index {
 
       Scroll(this.catalogScroller) {
         Column({ space: 9 }) {
-          if (this.localWorkflows.length > 0) {
-            Text('本地导入')
+          if ((this.catalog.entries ?? []).length > 0) {
+            Text('服务器')
               .fontSize(9.5)
               .fontColor(this.c().textDim)
               .fontFamily('monospace')
               .width('100%')
               .margin({ top: 2 })
-            ForEach(this.localWorkflows, (item: LocalWorkflowItem) => {
-              this.LocalWorkflowCard(item)
-            }, (item: LocalWorkflowItem) => item.path)
-            if ((this.catalog.entries ?? []).length > 0) {
-              Text('服务器')
-                .fontSize(9.5)
-                .fontColor(this.c().textDim)
-                .fontFamily('monospace')
-                .width('100%')
-                .margin({ top: 5 })
-            }
           }
           ForEach(this.orderedCatalogEntries(), (entry: CatalogEntry) => {
             // 对应 Android EntryCard：置顶时左侧 3vp 强调色条 + accentBorder 描边。 
