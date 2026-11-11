@@ -25,6 +25,7 @@ enum AppRoute: Equatable {
         case "workflow": return .catalog
         case "tasks": return .tasks
         case "settings": return .settings
+        case "about": return .settings
         default: return .connect
         }
     }
@@ -652,6 +653,8 @@ struct SettingsScreen: View {
     @AppStorage("updatePromptMode") private var updatePromptMode = "always"
     @State private var diagnostics = false
     @State private var updateModeChooser = false
+    /// CI 截图用：-uiScreen about 直接弹关于页（模拟器点不了设置入口）。
+    @State private var aboutOpen = LaunchOptions.screen == "about"
 
     var body: some View {
         ScreenScaffold(palette: palette) {
@@ -861,6 +864,27 @@ struct SettingsScreen: View {
                         section("关于")
                         GlassCard(palette: palette) {
                             VStack(spacing: 0) {
+                                Button {
+                                    aboutOpen = true
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        Text("关于 ComfyPilot")
+                                            .font(.system(size: 13))
+                                            .foregroundStyle(palette.text)
+                                        Spacer(minLength: 0)
+                                        Text(bundleVersion)
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(palette.textDim)
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 11, weight: .semibold))
+                                            .foregroundStyle(palette.textDim)
+                                    }
+                                    .padding(.vertical, 8)
+                                }
+                                .buttonStyle(.plain)
+
+                                Divider().overlay(palette.border)
+
                                 row("版本", bundleVersion)
                                 row("共享核心", "Kotlin/Native · ComfyCore")
                                 row("主题", themeName)
@@ -881,6 +905,9 @@ struct SettingsScreen: View {
         }
         .sheet(isPresented: $diagnostics) {
             DiagnosticsSheet(palette: palette)
+        }
+        .fullScreenCover(isPresented: $aboutOpen) {
+            AboutScreen(palette: palette)
         }
         .confirmationDialog(
             "更新提醒",

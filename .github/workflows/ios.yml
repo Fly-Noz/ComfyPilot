@@ -185,6 +185,9 @@ jobs:
           shoot tasks    8 -uiScreen tasks    -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark
           shoot settings 8 -uiScreen settings -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark
 
+          # 关于页：独立页面（图标/简介/检查更新/项目地址/开源许可证），与安卓/鸿蒙对齐
+          shoot about 8 -uiScreen about -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark
+
           # 打开真实工作流：要等目录、文档、节点定义依次就绪，给的时间长一点
           shoot workflow-detail 16 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_ui.json
 
