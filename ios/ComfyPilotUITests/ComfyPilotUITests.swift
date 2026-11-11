@@ -45,17 +45,21 @@ final class ComfyPilotUITests: XCTestCase {
         )
         submit.tap()
 
-        // 任务页的完成态：mock 每 0.5s 一次进度、8 次完成；给足余量
-        let done = app.staticTexts["已完成"].firstMatch
-        let failed = app.staticTexts["失败"].firstMatch
-        let submitDone = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "已提交")).firstMatch
-        let stateAppeared = done.waitForExistence(timeout: 30)
-            || failed.exists
-            || submitDone.waitForExistence(timeout: 10)
+        // 提交后 App 留在工作流页（不自动跳任务页）：点顶栏「任务」进去看状态。
+        // mock 每 0.5s 一次进度、8 次完成；首次加载还要拉 history，给足余量。
+        let tasksButton = app.buttons["任务"].firstMatch
         XCTAssertTrue(
-            stateAppeared,
-            "提交后没有看到任务状态（已完成/失败/已提交）。界面树：\n\(app.debugDescription)"
+            tasksButton.waitForExistence(timeout: 10),
+            "工作流页没有「任务」入口。界面树：\n\(app.debugDescription)"
         )
+        tasksButton.tap()
+
+        let done = app.staticTexts["已完成"].firstMatch
+        XCTAssertTrue(
+            done.waitForExistence(timeout: 40),
+            "任务页没有出现「已完成」。界面树：\n\(app.debugDescription)"
+        )
+        let failed = app.staticTexts["失败"].firstMatch
         XCTAssertFalse(failed.exists, "任务提交失败（mock 应成功）")
     }
 
@@ -77,14 +81,16 @@ final class ComfyPilotUITests: XCTestCase {
             about.waitForExistence(timeout: 15),
             "设置页没有「关于 ComfyPilot」入口。界面树：\n\(app.debugDescription)"
         )
+        scrollToHittable(about, in: app)
         about.tap()
 
+        let license = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS %@", "GPL-3.0")
+        ).firstMatch
         XCTAssertTrue(
-            app.staticTexts["GPL-3.0"].waitForExistence(timeout: 15),
+            license.waitForExistence(timeout: 15),
             "关于页缺少「开源许可证 GPL-3.0」行。界面树：\n\(app.debugDescription)"
         )
-
-        let license = app.staticTexts["GPL-3.0"].firstMatch
         license.tap()
         XCTAssertTrue(
             app.staticTexts["开源许可证"].waitForExistence(timeout: 10),
@@ -105,6 +111,15 @@ final class ComfyPilotUITests: XCTestCase {
     }
 
     // MARK: - 辅助
+
+    /// 元素存在但在滚动视图的可视区域外时，tap 会点空：先上滑直到可点击。
+    private func scrollToHittable(_ element: XCUIElement, in app: XCUIApplication) {
+        var attempts = 0
+        while !element.isHittable && attempts < 6 {
+            app.swipeUp()
+            attempts += 1
+        }
+    }
 
     private func openWorkflow(named name: String, in app: XCUIApplication) {
         let buttonRow = app.buttons[name].firstMatch
