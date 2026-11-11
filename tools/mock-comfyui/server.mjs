@@ -44,6 +44,28 @@ const SAMPLE_MP4 = existsSync(SAMPLE_MP4_PATH)
   ? readFileSync(SAMPLE_MP4_PATH)
   : Buffer.alloc(0)
 
+/**
+ * fixtures/：演示素材夹具（可选）。
+ * frames/frame-1..8.jpg 是同一张图的采样过程帧（噪点云团 → 逐渐显影 → 成品），
+ * sample-output.jpg 是出图产物。没有这些文件时回退到程序化生成/1x1 占位图。
+ */
+const FIXTURES_DIR = nodePath.join(
+  nodePath.dirname(fileURLToPath(import.meta.url)),
+  'fixtures',
+)
+const PREVIEW_FRAMES = (() => {
+  const frames = []
+  for (let i = 1; i <= 8; i++) {
+    const file = nodePath.join(FIXTURES_DIR, 'frames', `frame-${i}.jpg`)
+    if (existsSync(file)) frames.push(readFileSync(file))
+  }
+  return frames
+})()
+const SAMPLE_OUTPUT = (() => {
+  const file = nodePath.join(FIXTURES_DIR, 'sample-output.jpg')
+  return existsSync(file) ? readFileSync(file) : null
+})()
+
 /** 与真实服务端 `/object_info` 同构的最小节点定义。 */
 const OBJECT_INFO = {
   CheckpointLoaderSimple: {
@@ -260,7 +282,16 @@ function previewFrame(promptId, progress = 0) {
   const head = Buffer.alloc(8)
   head.writeUInt32BE(4, 0) // BinaryEventTypes.PREVIEW_IMAGE_WITH_METADATA
   head.writeUInt32BE(meta.length, 4)
-  return Buffer.concat([head, meta, makePreviewImage(progress)])
+  // 有素材帧就按进度取帧（1..8），没有则回退程序化「逐渐显影」。
+  const image = PREVIEW_FRAMES.length
+    ? PREVIEW_FRAMES[
+        Math.min(
+          PREVIEW_FRAMES.length - 1,
+          Math.max(0, Math.ceil(progress * PREVIEW_FRAMES.length) - 1),
+        )
+      ]
+    : makePreviewImage(progress)
+  return Buffer.concat([head, meta, image])
 }
 
 // ------------------------------------------------------------ 程序化 PNG
@@ -481,7 +512,8 @@ function startJob(promptId, job) {
 
 function finishJob(promptId, job) {
   running.delete(promptId)
-  const filename = `ComfyPilot_mock_${promptId.slice(0, 8)}.${job.isVideo ? 'mp4' : 'png'}`
+  const ext = job.isVideo ? 'mp4' : SAMPLE_OUTPUT ? 'jpg' : 'png'
+  const filename = `ComfyPilot_mock_${promptId.slice(0, 8)}.${ext}`
   broadcast({
     type: 'executing',
     data: { prompt_id: promptId, node: null },
@@ -632,7 +664,11 @@ const server = http.createServer(async (req, res) => {
         })
         return res.end(SAMPLE_MP4)
       }
-      // 1x1 红色 PNG，足够验证"接续方从服务端取图"的链路
+      // 有素材就返回成品图（真实尺寸 jpg）；否则 1x1 红色 PNG 占位。
+      if (SAMPLE_OUTPUT) {
+        res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': SAMPLE_OUTPUT.length })
+        return res.end(SAMPLE_OUTPUT)
+      }
       const png = PREVIEW_PNG
       res.writeHead(200, { 'content-type': 'image/png', 'content-length': png.length })
       return res.end(png)

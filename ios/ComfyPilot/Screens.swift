@@ -400,6 +400,20 @@ struct TasksScreen: View {
     /// 一个 sheet 两个用途：SwiftUI 在同一条视图上叠两个 .sheet 只有最后一个稳定生效。
     @State private var sheet: TaskSheet?
 
+    /// 已完成且有产物的任务数：onChange 用它感知「任务跑完了」。
+    private var completedArtifactCount: Int {
+        store.snapshot.tasks.filter { $0.state == "Completed" && !$0.artifacts.isEmpty }.count
+    }
+
+    private func maybeOpenArtifact() {
+        guard LaunchOptions.openArtifact, sheet == nil,
+              let task = store.snapshot.tasks.first(where: {
+                  $0.state == "Completed" && !$0.artifacts.isEmpty
+              })
+        else { return }
+        sheet = .artifacts(task)
+    }
+
     enum TaskSheet: Identifiable {
         case artifacts(TaskRow)
         case diagnostics
@@ -472,6 +486,10 @@ struct TasksScreen: View {
                 }
             }
         }
+        // CI 截图用：-uiOpenArtifact 时，任务一出现产物就自动打开查看器
+        // （模拟器点不了任务行里的「查看产物」）。
+        .onAppear { maybeOpenArtifact() }
+        .onChange(of: completedArtifactCount) { _, _ in maybeOpenArtifact() }
         .sheet(item: $sheet) { item in
             switch item {
             case .artifacts(let task):

@@ -53,4 +53,7 @@ enum LaunchOptions {
 
     /// 打开工作流后自动上传内置夹具图到 LoadImage 字段，CI 验证上传链路用。
     static var autoUpload: Bool { flag("-uiUploadImage") }
+
+    /// 任务页出现「完成且有产物」的任务时自动打开产物查看器，CI 截图用。
+    static var openArtifact: Bool { flag("-uiOpenArtifact") }
 }

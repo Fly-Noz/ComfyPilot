@@ -201,10 +201,13 @@ jobs:
           # 同时看产物行的排版（已完成的任务带 1 个产物）
           shoot tasks-after-submit 20 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_ui.json -uiAutoSubmit
 
+          # 结果预览：任务已完成，-uiOpenArtifact 自动打开产物查看器（含保存按钮）
+          shoot artifact 25 -uiScreen tasks -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenArtifact
+
           # 采样预览：先把 mock 切成 slow（每 10s 才推一次进度），
           # 这样自动提交后任务会一直停在执行中，够时间截到 ws.binary 解出来的画面。
           curl -sf -X POST http://127.0.0.1:8188/mock/scenario -H 'Content-Type: application/json' -d '{"scenario":"slow"}' > /dev/null
-          shoot workflow-preview 22 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_ui.json -uiAutoSubmit -uiTab preview
+          shoot workflow-preview 42 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_ui.json -uiAutoSubmit -uiTab preview
           curl -sf -X POST http://127.0.0.1:8188/mock/scenario -H 'Content-Type: application/json' -d '{"scenario":"normal"}' > /dev/null
 
           # 节点图：加载完成后自动弹出只读节点图
