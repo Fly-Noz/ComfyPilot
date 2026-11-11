@@ -758,6 +758,12 @@ final class SessionStore: ObservableObject {
         }
         let warnings = (object["warnings"] as? [String]) ?? []
         if !warnings.isEmpty {
+            // CI 自动化（-uiAutoSubmit）：不弹确认框直接提交——否则「请确认」
+            // 弹窗会把任务页/采样预览/产物三张截图全部挡成空白页。
+            if LaunchOptions.autoSubmit {
+                sendPrompt(promptText, workflowName: view.name, workflowPath: view.path)
+                return
+            }
             // 有告警时先让用户看一眼；确认后由 confirmSubmit 真正发出。
             pendingSubmit = PendingSubmit(
                 promptText: promptText,
