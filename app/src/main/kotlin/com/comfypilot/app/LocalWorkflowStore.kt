@@ -58,6 +58,13 @@ class LocalWorkflowStore(context: Context) {
         return runCatching { file.readText() }.getOrNull()
     }
 
+    /** 删除本地导入；只删沙盒文件，不影响主机。 */
+    fun delete(path: String) {
+        val remaining = list().filter { it.path != path }
+        fileFor(path).delete()
+        writeIndex(remaining)
+    }
+
     private fun fileFor(path: String): File {
         val id = path.substringAfterLast('/').substringAfterLast(':')
         return File(dir, "$id.json")

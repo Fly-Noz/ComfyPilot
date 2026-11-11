@@ -88,7 +88,7 @@ fun WorkflowCatalogScreen(
     var pinnedPaths by remember(context) { mutableStateOf(pinnedStore.load()) }
     val localStore = remember(context) { LocalWorkflowStore(context.applicationContext) }
     var localItems by remember(context) { mutableStateOf(localStore.list()) }
-    var localDialog by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<LocalWorkflowStore.Item?>(null) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -173,63 +173,27 @@ fun WorkflowCatalogScreen(
                     enabled = connected,
                     height = 32.dp,
                 )
-                if (localItems.isNotEmpty()) {
-                    GhostButton(
-                        text = "本地 ${localItems.size}",
-                        onClick = { localDialog = true },
-                        height = 32.dp,
-                    )
-                }
             }
 
-            if (localDialog) {
+            pendingDelete?.let { item ->
                 SpectrumDialog(
-                    title = "本地工作流",
-                    onDismiss = { localDialog = false },
-                    confirmText = "关闭",
-                    onConfirm = { localDialog = false },
+                    title = "删除本地工作流？",
+                    onDismiss = { pendingDelete = null },
+                    confirmText = "删除",
+                    dismissText = "取消",
+                    onConfirm = {
+                        localStore.delete(item.path)
+                        localItems = localStore.list()
+                        pendingDelete = null
+                        Toast.makeText(context, "已删除 ${item.name}", Toast.LENGTH_SHORT).show()
+                    },
                 ) {
-                    if (localItems.isEmpty()) {
-                        Text(
-                            text = "还没有导入的工作流。",
-                            color = c.textDim,
-                            fontSize = 12.sp,
-                        )
-                    }
-                    localItems.forEach { item ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    localDialog = false
-                                    scope.launch {
-                                        val raw = withContext(Dispatchers.IO) { localStore.read(item.path) }
-                                        if (raw == null) {
-                                            Toast.makeText(context, "本地文件已丢失", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            onOpenLocal(item.path, item.name, raw)
-                                        }
-                                    }
-                                }
-                                .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = item.name,
-                                color = c.text,
-                                fontSize = 13.sp,
-                                modifier = Modifier.weight(1f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                text = "本地",
-                                color = c.textDim,
-                                fontSize = 9.5.sp,
-                                fontFamily = SpectrumMono,
-                            )
-                        }
-                    }
+                    Text(
+                        text = "只会删除本机的导入副本，不影响主机上的工作流文件。",
+                        color = c.textMuted,
+                        fontSize = 12.sp,
+                        lineHeight = 18.sp,
+                    )
                 }
             }
 
@@ -308,7 +272,7 @@ fun WorkflowCatalogScreen(
                 }
 
                 is WorkflowCatalog.Ready -> {
-                    if (catalog.entries.isEmpty()) {
+                    if (catalog.entries.isEmpty() && localItems.isEmpty()) {
                         GlassCard {
                             Text(
                                 text = "服务器 workflows 目录里没有 .json 工作流。",
@@ -324,7 +288,7 @@ fun WorkflowCatalogScreen(
                         }
                     } else {
                         Text(
-                            text = "共 ${catalog.entries.size} 个，点一个打开。",
+                            text = "本地 ${localItems.size} 个 · 服务器 ${catalog.entries.size} 个，点一个打开。",
                             color = c.textDim,
                             fontSize = 10.5.sp,
                             fontFamily = SpectrumMono,
@@ -338,24 +302,61 @@ fun WorkflowCatalogScreen(
                             verticalArrangement = Arrangement.spacedBy(9.dp),
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp),
                         ) {
-                            items(orderedEntries, key = { it.path }) { entry ->
-                                EntryCard(
-                                    entry = entry,
-                                    pinned = entry.path in pinnedPaths,
-                                    onClick = { onOpen(entry.path) },
-                                    onTogglePin = {
-                                        val pinning = entry.path !in pinnedPaths
-                                        val next = if (pinning) {
-                                            pinnedPaths + entry.path
-                                        } else {
-                                            pinnedPaths - entry.path
-                                        }
-                                        pinnedPaths = next
-                                        pinnedStore.save(next)
-                                        // 置顶后条目会移到列表最前；把视口带回去，避免像"消失"了。
-                                        if (pinning) scope.launch { listState.animateScrollToItem(0) }
-                                    },
-                                )
+                            if (localItems.isNotEmpty()) {
+                                item(key = "local-header") {
+                                    Text(
+                                        text = "本地导入",
+                                        color = c.textDim,
+                                        fontSize = 9.5.sp,
+                                        fontFamily = SpectrumMono,
+                                        modifier = Modifier.padding(top = 4.dp),
+                                    )
+                                }
+                                items(localItems, key = { "local:${it.path}" }) { item ->
+                                    LocalEntryCard(
+                                        item = item,
+                                        onClick = {
+                                            scope.launch {
+                                                val raw = withContext(Dispatchers.IO) { localStore.read(item.path) }
+                                                if (raw == null) {
+                                                    Toast.makeText(context, "本地文件已丢失", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    onOpenLocal(item.path, item.name, raw)
+                                                }
+                                            }
+                                        },
+                                        onDelete = { pendingDelete = item },
+                                    )
+                                }
+                            }
+                            if (orderedEntries.isNotEmpty()) {
+                                item(key = "server-header") {
+                                    Text(
+                                        text = "服务器",
+                                        color = c.textDim,
+                                        fontSize = 9.5.sp,
+                                        fontFamily = SpectrumMono,
+                                        modifier = Modifier.padding(top = 6.dp),
+                                    )
+                                }
+                                items(orderedEntries, key = { it.path }) { entry ->
+                                    EntryCard(
+                                        entry = entry,
+                                        pinned = entry.path in pinnedPaths,
+                                        onClick = { onOpen(entry.path) },
+                                        onTogglePin = {
+                                            val pinning = entry.path !in pinnedPaths
+                                            val next = if (pinning) {
+                                                pinnedPaths + entry.path
+                                            } else {
+                                                pinnedPaths - entry.path
+                                            }
+                                            pinnedPaths = next
+                                            pinnedStore.save(next)
+                                            if (pinning) scope.launch { listState.animateScrollToItem(0) }
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -518,5 +519,87 @@ private fun readLocalWorkflow(context: android.content.Context, uri: Uri): Local
             name = name.removeSuffix(".json").ifBlank { "本地工作流" },
             raw = raw,
         )
+    }
+}
+
+/** 本地导入条目：和服务器卡片同一列表，但明确标记来源，并带删除入口。 */
+@Composable
+private fun LocalEntryCard(
+    item: LocalWorkflowStore.Item,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val c = Spectrum.colors
+    val shape = RoundedCornerShape(18.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(c.card)
+            .border(1.dp, c.accentBorder, shape)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            ),
+    ) {
+        Row(modifier = Modifier.height(IntrinsicSize.Min)) {
+            Box(
+                modifier = Modifier
+                    .width(3.dp)
+                    .fillMaxHeight()
+                    .background(c.accentSoft),
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = item.name,
+                        color = c.text,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = "本地导入",
+                        color = c.accent,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(c.accentSoft)
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
+                Text(
+                    text = "仅存本机 · 不会出现在主机网页端",
+                    color = c.textDim,
+                    fontSize = 10.sp,
+                    fontFamily = SpectrumMono,
+                )
+            }
+            Text(
+                text = "删除",
+                color = c.textDim,
+                fontSize = 10.5.sp,
+                modifier = Modifier
+                    .align(Alignment.CenterVertically)
+                    .padding(horizontal = 14.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDelete,
+                    ),
+            )
+        }
     }
 }
