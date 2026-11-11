@@ -9290,15 +9290,6 @@ struct Index {
             this.catalogRequested = true;
             this.bridge.refreshWorkflows();
           })
-        Text('导入')
-          .fontSize(12)
-          .fontColor(this.running ? this.c().textMuted : this.c().textDim)
-          .padding({ left: 7, right: 7, top: 7, bottom: 7 })
-          .borderRadius(8)
-          .enabled(this.running)
-          .onClick(() => {
-            this.importLocalWorkflow();
-          })
         Text('任务')
           .fontSize(12)
           .fontColor(this.c().textMuted)
@@ -9340,6 +9331,17 @@ struct Index {
             .fontSize(10)
             .fontColor(this.c().textDim)
             .fontFamily('monospace')
+          Blank()
+          Text('导入')
+            .fontSize(11)
+            .fontColor(this.running ? this.c().accent : this.c().textDim)
+            .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+            .backgroundColor(this.running ? this.c().accentSoft : this.c().card)
+            .borderRadius(8)
+            .enabled(this.running)
+            .onClick(() => {
+              this.importLocalWorkflow();
+            })
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)

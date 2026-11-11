@@ -156,22 +156,20 @@ fun WorkflowCatalogScreen(
                     fontSize = 10.sp,
                     fontFamily = SpectrumMono,
                 )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                GhostButton(
-                    text = "导入本地工作流",
-                    onClick = {
-                        importLauncher.launch(
-                            arrayOf("application/json", "text/plain", "application/octet-stream", "*/*"),
-                        )
-                    },
-                    enabled = connected,
-                    height = 32.dp,
+                Spacer(Modifier.weight(1f))
+                Text(
+                    text = "导入",
+                    color = if (connected) c.accent else c.textDim,
+                    fontSize = 11.sp,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (connected) c.accentSoft else c.card)
+                        .clickable(enabled = connected) {
+                            importLauncher.launch(
+                                arrayOf("application/json", "text/plain", "application/octet-stream", "*/*"),
+                            )
+                        }
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
                 )
             }
 
