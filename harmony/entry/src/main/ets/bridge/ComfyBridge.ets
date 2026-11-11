@@ -186,6 +186,9 @@ interface BridgeCommand {
   /** `cancel` 用：要取消的 ComfyUI promptId（不是宿主侧的任务 id）。 */
   promptId?: string;
   path?: string;
+  /** 本地导入工作流的显示名与 JSON 原文；`workflow.open_local` 专用。 */
+  name?: string;
+  raw?: string;
   code?: number;
   reason?: string;
   transport?: string;
