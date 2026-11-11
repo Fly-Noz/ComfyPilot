@@ -87,6 +87,10 @@ final class ComfyPilotUITests: XCTestCase {
         let license = app.buttons.matching(
             NSPredicate(format: "label CONTAINS %@", "GPL-3.0")
         ).firstMatch
+        if !license.waitForExistence(timeout: 6) {
+            // 惯性还是吞了一次：再点一次（页面已静止，第二次必中）
+            about.tap()
+        }
         XCTAssertTrue(
             license.waitForExistence(timeout: 15),
             "关于页缺少「开源许可证 GPL-3.0」行。界面树：\n\(app.debugDescription)"
@@ -118,6 +122,8 @@ final class ComfyPilotUITests: XCTestCase {
         while !element.isHittable && attempts < 6 {
             app.swipeUp()
             attempts += 1
+            // 等滚动惯性停下：滑动刚结束时的 tap 会被当成「停止滚动」而吞掉。
+            Thread.sleep(forTimeInterval: 0.6)
         }
     }
 
