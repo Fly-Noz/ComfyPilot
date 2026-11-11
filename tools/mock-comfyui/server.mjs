@@ -1,6 +1,7 @@
 import http from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
+import zlib from 'node:zlib'
 import nodePath from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
@@ -254,12 +255,85 @@ function broadcast(message) {
 }
 
 /** 采样预览走二进制帧：4 字节事件类型 + 4 字节 metadata 长度 + JSON + 图片。 */
-function previewFrame(promptId) {
+function previewFrame(promptId, progress = 0) {
   const meta = Buffer.from(JSON.stringify({ prompt_id: promptId, node_id: '3' }))
   const head = Buffer.alloc(8)
   head.writeUInt32BE(4, 0) // BinaryEventTypes.PREVIEW_IMAGE_WITH_METADATA
   head.writeUInt32BE(meta.length, 4)
-  return Buffer.concat([head, meta, PREVIEW_PNG])
+  return Buffer.concat([head, meta, makePreviewImage(progress)])
+}
+
+// ------------------------------------------------------------ 程序化 PNG
+// 手写 PNG 编码（node 内置 zlib 即可，无第三方依赖）：模拟真实 ComfyUI 的
+// latent 采样预览——进度越高，画面从上往下逐渐「渲染成型」，下方仍是噪点。
+
+const CRC_TABLE = (() => {
+  const t = new Int32Array(256)
+  for (let n = 0; n < 256; n++) {
+    let c = n
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
+    t[n] = c
+  }
+  return t
+})()
+
+function pngChunk(type, data) {
+  const len = Buffer.alloc(4)
+  len.writeUInt32BE(data.length, 0)
+  const typeBuf = Buffer.from(type, 'ascii')
+  const crc = Buffer.alloc(4)
+  crc.writeUInt32BE(
+    (() => {
+      const body = Buffer.concat([typeBuf, data])
+      let c = -1
+      for (let i = 0; i < body.length; i++) c = CRC_TABLE[(c ^ body[i]) & 0xff] ^ (c >>> 8)
+      return (c ^ -1) >>> 0
+    })(),
+    0,
+  )
+  return Buffer.concat([len, typeBuf, data, crc])
+}
+
+/** progress 0~1：上 percent 部分是「成图」，下面是彩色噪点，视觉上逐渐显影 */
+function makePreviewImage(progress) {
+  const size = 256
+  const cut = Math.max(2, Math.floor(size * Math.min(Math.max(progress, 0), 1)))
+  const ihdr = Buffer.alloc(13)
+  ihdr.writeUInt32BE(size, 0)
+  ihdr.writeUInt32BE(size, 4)
+  ihdr[8] = 8 // bit depth
+  ihdr[9] = 2 // color type: truecolor RGB
+  const raw = Buffer.alloc(size * (1 + size * 3))
+  let p = 0
+  for (let y = 0; y < size; y++) {
+    raw[p++] = 0 // filter: none
+    for (let x = 0; x < size; x++) {
+      let r, g, b
+      if (y < cut) {
+        // 「成图」区：柔和渐变条纹，越往下越接近成品色调
+        const t = y / size
+        const band = Math.floor((x / size) * 6) % 2 ? 46 : 208
+        r = (band * (0.45 + 0.55 * t)) | 0
+        g = (140 + ((x + y) % 48)) | 0
+        b = (96 + (x % 90)) | 0
+      } else {
+        // 噪点区：伪随机彩色噪点（每帧随 cut 变化，看起来在动）
+        r = (x * 7 + y * 13 + cut * 31) % 255
+        g = (x * 3 + y * 17 + cut * 11) % 255
+        b = (x * 11 + y * 5 + cut * 7) % 255
+      }
+      raw[p++] = r
+      raw[p++] = g
+      raw[p++] = b
+    }
+  }
+  const idat = zlib.deflateSync(raw)
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', idat),
+    pngChunk('IEND', Buffer.alloc(0)),
+  ])
 }
 
 function broadcastBinary(payload) {
@@ -395,7 +469,7 @@ function startJob(promptId, job) {
         max: job.max,
       },
     })
-    broadcastBinary(previewFrame(promptId))
+    broadcastBinary(previewFrame(promptId, job.progress / job.max))
     if (job.progress >= job.max) {
       finishJob(promptId, job)
     } else {
