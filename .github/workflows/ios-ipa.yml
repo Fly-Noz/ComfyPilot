@@ -69,3 +69,5 @@ jobs:
         with:
           files: ios/build/ComfyPilot-unsigned.ipa
           fail_on_unmatched_files: true
+          # iOS 测试 tag（如 v0.3.5-ios）不要抢 /releases/latest。
+          prerelease: ${{ contains(github.ref, '-ios') }}
