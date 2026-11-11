@@ -195,172 +195,157 @@ fun WorkflowCatalogScreen(
                 }
             }
 
-            // 加载态 → 内容态交叉淡化：骨架屏不是"啪"地消失，内容也不是突然冒出来。
-            val catalogKind = when (state.catalog) {
-                is WorkflowCatalog.Idle -> "idle"
-                is WorkflowCatalog.Loading -> "loading"
-                is WorkflowCatalog.Failed -> "failed"
-                is WorkflowCatalog.Ready -> "ready"
+            val readyEntries = (state.catalog as? WorkflowCatalog.Ready)?.entries.orEmpty()
+            val orderedEntries = remember(readyEntries, pinnedPaths) {
+                orderWorkflowEntries(readyEntries, pinnedPaths)
             }
-            AnimatedContent(
-                targetState = catalogKind,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                transitionSpec = {
-                    fadeIn(tween(260)).togetherWith(fadeOut(tween(160)))
-                },
-                label = "catalog-state",
-            ) { _ ->
-            // 内容自己的 Column 作用域：列表的 weight(1f) 必须挂在这个 Column 上，
-            // 挂到 AnimatedContent 里会丢失作用域，导致列表和上方文字重叠。
-            Column(modifier = Modifier.fillMaxSize()) {
-            when (val catalog = state.catalog) {                is WorkflowCatalog.Idle -> HintCard(
-                    text = if (connected) "准备读取服务器工作流…" else "尚未连接 ComfyUI。",
+            if (localItems.isNotEmpty() || readyEntries.isNotEmpty()) {
+                Text(
+                    text = "本地 ${localItems.size} 个 · 服务器 ${readyEntries.size} 个，点一个打开。",
+                    color = c.textDim,
+                    fontSize = 10.5.sp,
+                    fontFamily = SpectrumMono,
                 )
+            }
 
-                is WorkflowCatalog.Loading -> Column {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = c.accent,
-                            strokeWidth = 2.dp,
-                        )
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(9.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp),
+            ) {
+                if (localItems.isNotEmpty()) {
+                    item(key = "local-header") {
                         Text(
-                            text = "正在读取服务器 workflows 目录…",
-                            color = c.textMuted,
-                            fontSize = 12.sp,
+                            text = "本地导入",
+                            color = c.textDim,
+                            fontSize = 9.5.sp,
+                            fontFamily = SpectrumMono,
+                            modifier = Modifier.padding(top = 4.dp),
                         )
                     }
-                    Spacer(Modifier.height(14.dp))
-                    // 骨架屏：先用和真实卡片同样的形状占位，数据到达时不会整页跳动。
-                    repeat(4) { index ->
-                        GlassCard {
-                            ShimmerBox(
-                                modifier = Modifier
-                                    .fillMaxWidth((0.62f - index * 0.07f).coerceAtLeast(0.36f))
-                                    .height(13.dp),
-                                shape = RoundedCornerShape(6.dp),
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            ShimmerBox(
-                                modifier = Modifier.fillMaxWidth(0.34f).height(10.dp),
-                                shape = RoundedCornerShape(5.dp),
-                            )
-                        }
-                        Spacer(Modifier.height(10.dp))
+                    items(localItems, key = { "local:${it.path}" }) { item ->
+                        LocalEntryCard(
+                            item = item,
+                            onClick = {
+                                scope.launch {
+                                    val raw = withContext(Dispatchers.IO) { localStore.read(item.path) }
+                                    if (raw == null) {
+                                        Toast.makeText(context, "本地文件已丢失", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        onOpenLocal(item.path, item.name, raw)
+                                    }
+                                }
+                            },
+                            onDelete = { pendingDelete = item },
+                        )
                     }
                 }
 
-                is WorkflowCatalog.Failed -> GlassCard {
-                    Text(
-                        text = "读取失败：${catalog.message}",
-                        color = c.err,
-                        fontSize = 12.5.sp,
-                        lineHeight = 18.sp,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    GhostButton(
-                        text = "重试",
-                        onClick = onRefresh,
-                        enabled = connected,
-                        modifier = Modifier.width(96.dp),
-                    )
-                }
+                when (val catalog = state.catalog) {
+                    is WorkflowCatalog.Idle -> item(key = "catalog-idle") {
+                        HintCard(
+                            text = if (connected) "准备读取服务器工作流…" else "尚未连接 ComfyUI。",
+                        )
+                    }
 
-                is WorkflowCatalog.Ready -> {
-                    if (catalog.entries.isEmpty() && localItems.isEmpty()) {
+                    is WorkflowCatalog.Loading -> {
+                        item(key = "catalog-loading") {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    color = c.accent,
+                                    strokeWidth = 2.dp,
+                                )
+                                Text(
+                                    text = "正在读取服务器 workflows 目录…",
+                                    color = c.textMuted,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                        }
+                        items(4, key = { "skeleton-$it" }) { index ->
+                            GlassCard {
+                                ShimmerBox(
+                                    modifier = Modifier
+                                        .fillMaxWidth((0.62f - index * 0.07f).coerceAtLeast(0.36f))
+                                        .height(13.dp),
+                                    shape = RoundedCornerShape(6.dp),
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                ShimmerBox(
+                                    modifier = Modifier.fillMaxWidth(0.34f).height(10.dp),
+                                    shape = RoundedCornerShape(5.dp),
+                                )
+                            }
+                        }
+                    }
+
+                    is WorkflowCatalog.Failed -> item(key = "catalog-failed") {
                         GlassCard {
                             Text(
-                                text = "服务器 workflows 目录里没有 .json 工作流。",
-                                color = c.textMuted,
+                                text = "读取失败：${catalog.message}",
+                                color = c.err,
                                 fontSize = 12.5.sp,
+                                lineHeight = 18.sp,
                             )
                             Spacer(Modifier.height(10.dp))
                             GhostButton(
-                                text = "刷新",
+                                text = "重试",
                                 onClick = onRefresh,
+                                enabled = connected,
                                 modifier = Modifier.width(96.dp),
                             )
                         }
-                    } else {
-                        Text(
-                            text = "本地 ${localItems.size} 个 · 服务器 ${catalog.entries.size} 个，点一个打开。",
-                            color = c.textDim,
-                            fontSize = 10.5.sp,
-                            fontFamily = SpectrumMono,
-                        )
-                        val orderedEntries = remember(catalog.entries, pinnedPaths) {
-                            orderWorkflowEntries(catalog.entries, pinnedPaths)
-                        }
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(9.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 16.dp),
-                        ) {
-                            if (localItems.isNotEmpty()) {
-                                item(key = "local-header") {
-                                    Text(
-                                        text = "本地导入",
-                                        color = c.textDim,
-                                        fontSize = 9.5.sp,
-                                        fontFamily = SpectrumMono,
-                                        modifier = Modifier.padding(top = 4.dp),
-                                    )
-                                }
-                                items(localItems, key = { "local:${it.path}" }) { item ->
-                                    LocalEntryCard(
-                                        item = item,
-                                        onClick = {
-                                            scope.launch {
-                                                val raw = withContext(Dispatchers.IO) { localStore.read(item.path) }
-                                                if (raw == null) {
-                                                    Toast.makeText(context, "本地文件已丢失", Toast.LENGTH_SHORT).show()
-                                                } else {
-                                                    onOpenLocal(item.path, item.name, raw)
-                                                }
-                                            }
-                                        },
-                                        onDelete = { pendingDelete = item },
-                                    )
-                                }
+                    }
+
+                    is WorkflowCatalog.Ready -> {
+                        if (orderedEntries.isNotEmpty()) {
+                            item(key = "server-header") {
+                                Text(
+                                    text = "服务器",
+                                    color = c.textDim,
+                                    fontSize = 9.5.sp,
+                                    fontFamily = SpectrumMono,
+                                    modifier = Modifier.padding(top = 6.dp),
+                                )
                             }
-                            if (orderedEntries.isNotEmpty()) {
-                                item(key = "server-header") {
-                                    Text(
-                                        text = "服务器",
-                                        color = c.textDim,
-                                        fontSize = 9.5.sp,
-                                        fontFamily = SpectrumMono,
-                                        modifier = Modifier.padding(top = 6.dp),
-                                    )
-                                }
-                                items(orderedEntries, key = { it.path }) { entry ->
-                                    EntryCard(
-                                        entry = entry,
-                                        pinned = entry.path in pinnedPaths,
-                                        onClick = { onOpen(entry.path) },
-                                        onTogglePin = {
-                                            val pinning = entry.path !in pinnedPaths
-                                            val next = if (pinning) {
-                                                pinnedPaths + entry.path
-                                            } else {
-                                                pinnedPaths - entry.path
-                                            }
-                                            pinnedPaths = next
-                                            pinnedStore.save(next)
-                                            if (pinning) scope.launch { listState.animateScrollToItem(0) }
-                                        },
-                                    )
-                                }
+                            items(orderedEntries, key = { it.path }) { entry ->
+                                EntryCard(
+                                    entry = entry,
+                                    pinned = entry.path in pinnedPaths,
+                                    onClick = { onOpen(entry.path) },
+                                    onTogglePin = {
+                                        val pinning = entry.path !in pinnedPaths
+                                        val next = if (pinning) {
+                                            pinnedPaths + entry.path
+                                        } else {
+                                            pinnedPaths - entry.path
+                                        }
+                                        pinnedPaths = next
+                                        pinnedStore.save(next)
+                                        if (pinning) scope.launch { listState.animateScrollToItem(0) }
+                                    },
+                                )
+                            }
+                        } else {
+                            item(key = "server-empty") {
+                                Text(
+                                    text = if (localItems.isEmpty()) {
+                                        "服务器 workflows 目录里没有 .json 工作流。"
+                                    } else {
+                                        "服务器 workflows 目录为空；本地导入仍可正常使用。"
+                                    },
+                                    color = c.textMuted,
+                                    fontSize = 12.5.sp,
+                                )
                             }
                         }
                     }
                 }
-            }
-            }
             }
         }
     }

@@ -41,6 +41,7 @@
 - Edits are stored on-device per host + workflow, restored on next launch, and never written back to the server
 - Disabling a critical node triggers a dry-run build and a confirmation prompt, so a workflow is not silently broken
 - Seed fields support random / reuse last / randomize each run; the mode is stored locally only
+- Import ComfyUI UI workflows from local storage; they stay on-device, are marked as local, and can be deleted without touching the host
 - Fields supplied by a link show their source node (e.g. `#330 Seed (rgthree)`)
 - Values are coerced to their declared types before submit, so string numbers like `"8"` are not rejected by the server
 
