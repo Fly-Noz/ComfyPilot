@@ -117,7 +117,9 @@ final class ComfyPilotUITests: XCTestCase {
 
         let back = app.buttons["返回"].firstMatch
         XCTAssertTrue(back.waitForExistence(timeout: 10), "关于页没有返回按钮")
-        back.tap()
+        // toolbar 里的按钮 tap 会先尝试 AXScrollToVisible 并失败（kAXErrorCannotComplete）：
+        // 直接点中心坐标绕过这套 AX 动作。
+        back.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
 
     // MARK: - 辅助
