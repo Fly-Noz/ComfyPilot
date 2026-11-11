@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 关于页：与 Android / 鸿蒙对齐——App 图标、名称、版本、简介，
 /// 以及「检查更新 / 项目地址 / 开源许可证」三行。
