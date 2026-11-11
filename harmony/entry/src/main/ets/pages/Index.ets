@@ -5,6 +5,7 @@ import { util } from '@kit.ArkTS';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { AnimatorOptions, AnimatorResult, promptAction } from '@kit.ArkUI';
 import { http, connection } from '@kit.NetworkKit';
+import { fileIo, picker } from '@kit.CoreFileKit';
 import {
   BridgeCatalog,
   BridgeMonitor,
@@ -33,6 +34,7 @@ import { AppearanceStore } from '../bridge/AppearanceStore';
 import { SubmitPrefs } from '../bridge/SubmitPrefs';
 import { WeakNetworkPrefs } from '../bridge/WeakNetworkPrefs';
 import { UpdatePrefs, UPDATE_MODE_ONCE } from '../bridge/UpdatePrefs';
+import { LocalWorkflowItem, LocalWorkflowStore } from '../bridge/LocalWorkflowStore';
 import { SeedPrefs } from '../bridge/SeedPrefs';
 import { ClientIdStore } from '../bridge/ClientIdStore';
 import { TaskNotifier } from '../notify/TaskNotifier';
@@ -319,6 +321,9 @@ struct Index {
   @State monitor: BridgeMonitor | null = null;
   /** 性能条展开/收起；收起时只剩一行标题，纯界面状态，不进 summaryKey。 */
   @State statsExpanded: boolean = false;
+  /** 本地导入工作流列表与待删除路径。 */
+  @State localWorkflows: LocalWorkflowItem[] = [];
+  @State localDeletePath: string = '';
   /** 释放主机显存：确认框、请求中、结果提示。 */
   @State freeDialogOpen: boolean = false;
   @State freeing: boolean = false;
@@ -487,6 +492,7 @@ struct Index {
   private submitPrefs: SubmitPrefs = new SubmitPrefs();
   private weakPrefs: WeakNetworkPrefs = new WeakNetworkPrefs();
   private updatePrefs: UpdatePrefs = new UpdatePrefs();
+  private localWorkflowStore: LocalWorkflowStore = new LocalWorkflowStore();
   private seedPrefs: SeedPrefs = new SeedPrefs();
   /** 忽略本地校验，强制提交：请求里带给共享层。 */
   @State forceSubmit: boolean = false;
@@ -1087,6 +1093,8 @@ struct Index {
     this.weakNetwork = await this.weakPrefs.load(context);
     this.updateMode = await this.updatePrefs.loadMode(context);
     await this.seedPrefs.load(context);
+    await this.localWorkflowStore.open(context);
+    this.localWorkflows = await this.localWorkflowStore.list();
     this.imageUploader.weakNetwork = this.weakNetwork;
     this.bridge.weakNetwork = this.weakNetwork;
     this.ai.forceMechanical = this.weakNetwork;
@@ -1960,7 +1968,72 @@ struct Index {
     this.log('已断开');
   }
 
-  private openWorkflow(path: string, name: string): void {
+  private async importLocalWorkflow(): Promise<void> {
+    if (!this.running) {
+      promptAction.showToast({ message: '请先连接 ComfyUI', duration: 1600 });
+      return;
+    }
+    try {
+      const options = new picker.DocumentSelectOptions();
+      options.maxSelectNumber = 1;
+      options.fileSuffixFilters = ['.json'];
+      const context = (this.uiContext ?? getContext(this)) as common.Context;
+      const viewPicker = new picker.DocumentViewPicker(context);
+      const uris = await viewPicker.select(options);
+      if (uris.length === 0 || uris[0].length === 0) {
+        return;
+      }
+      const uri = uris[0];
+      const stat = await fileIo.stat(uri);
+      if (stat.size > 2 * 1024 * 1024) {
+        promptAction.showToast({ message: '工作流文件过大，最多 2 MB', duration: 2000 });
+        return;
+      }
+      const buffer = new ArrayBuffer(stat.size);
+      const file = await fileIo.open(uri, fileIo.OpenMode.READ_ONLY);
+      try {
+        await fileIo.read(file.fd, buffer);
+      } finally {
+        fileIo.closeSync(file);
+      }
+      const decoder = util.TextDecoder.create('utf-8', { ignoreBOM: true });
+      const raw = decoder.decodeWithStream(new Uint8Array(buffer), { stream: false });
+      if (raw.indexOf('"nodes"') < 0 || raw.indexOf('"links"') < 0) {
+        promptAction.showToast({ message: '不是 ComfyUI UI 工作流', duration: 2200 });
+        return;
+      }
+      const rawName = decodeURIComponent(uri.substring(uri.lastIndexOf('/') + 1));
+      const name = rawName.replace(/\.json$/i, '') || '本地工作流';
+      const item = await this.localWorkflowStore.save(name, raw);
+      this.localWorkflows = await this.localWorkflowStore.list();
+      this.openWorkflow(item.path, item.name, raw);
+      promptAction.showToast({ message: `已导入 ${item.name}`, duration: 1600 });
+    } catch (err) {
+      promptAction.showToast({ message: `导入失败：${this.errorText(err)}`, duration: 2200 });
+    }
+  }
+
+  private async openLocalWorkflowItem(item: LocalWorkflowItem): Promise<void> {
+    const raw = await this.localWorkflowStore.read(item.path);
+    if (raw === null) {
+      promptAction.showToast({ message: '本地文件已丢失', duration: 1600 });
+      return;
+    }
+    this.openWorkflow(item.path, item.name, raw);
+  }
+
+  private async deleteLocalWorkflow(): Promise<void> {
+    const path = this.localDeletePath;
+    if (path.length === 0) {
+      return;
+    }
+    this.localDeletePath = '';
+    await this.localWorkflowStore.delete(path);
+    this.localWorkflows = await this.localWorkflowStore.list();
+    promptAction.showToast({ message: '已删除本地副本', duration: 1600 });
+  }
+
+  private openWorkflow(path: string, name: string, raw: string = ''): void {
     if (!this.running) {
       this.notice = '请先连接 ComfyUI';
       return;
@@ -2023,7 +2096,11 @@ struct Index {
     this.collapsedSubgraphs = [];
     this.log(`打开工作流：${name || path}`);
     this.registerAiHost();
-    this.bridge.openWorkflow(path);
+    if (raw.length > 0) {
+      this.bridge.openLocalWorkflow(path, name, raw);
+    } else {
+      this.bridge.openWorkflow(path);
+    }
     setTimeout(() => {
       this.scroller.scrollEdge(Edge.Top);
     }, 0);
@@ -4086,6 +4163,61 @@ struct Index {
     .border({ width: 1, color: this.c().border })
   }
 
+  /** 本地导入卡片：和工作流卡片同列表，带来源标记与删除。 */
+  @Builder
+  LocalWorkflowCard(item: LocalWorkflowItem) {
+    Column() {
+      Row({ space: 8 }) {
+        Column({ space: 6 }) {
+          Text(item.name)
+            .fontSize(13.5)
+            .fontWeight(600)
+            .fontColor(this.c().text)
+            .maxLines(2)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+          Row({ space: 8 }) {
+            Text('本地导入')
+              .fontSize(9)
+              .fontColor(this.c().accent)
+              .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+              .backgroundColor(this.c().accentSoft)
+              .borderRadius(6)
+            Text('仅存本机 · 不会同步到主机')
+              .fontSize(9.5)
+              .fontColor(this.c().textDim)
+              .fontFamily('monospace')
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .layoutWeight(1)
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+
+        Text('删除')
+          .fontSize(10.5)
+          .fontColor(this.c().textDim)
+          .padding({ left: 8, right: 2, top: 10, bottom: 10 })
+          .onClick(() => {
+            this.localDeletePath = item.path;
+          })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+    }
+    .width('100%')
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .backgroundColor(this.c().card)
+    .borderRadius(18)
+    .border({ width: 1, color: this.c().accentBorder })
+    .onClick(() => {
+      this.openLocalWorkflowItem(item);
+    })
+  }
+
   @Builder
   WorkflowCatalog() {
     // 与 Android WorkflowCatalogScreen 的 when(catalog) 一一对应：Idle / Loading / Failed / Ready。 
@@ -4150,7 +4282,8 @@ struct Index {
       .backgroundColor(this.c().card)
       .borderRadius(18)
       .border({ width: 1, color: this.c().border })
-    } else if (this.catalog.state === 'ready' && (this.catalog.entries ?? []).length === 0) {
+    } else if (this.catalog.state === 'ready' &&
+      ((this.catalog.entries ?? []).length === 0 && this.localWorkflows.length === 0)) {
       Column() {
         Text('服务器 workflows 目录里没有 .json 工作流。')
           .fontSize(12.5)
@@ -4184,7 +4317,7 @@ struct Index {
       .borderRadius(18)
       .border({ width: 1, color: this.c().border })
     } else if (this.catalog.state === 'ready') {
-      Text(`共 ${(this.catalog.entries ?? []).length} 个，点一个打开。`)
+      Text(`本地 ${this.localWorkflows.length} 个 · 服务器 ${(this.catalog.entries ?? []).length} 个，点一个打开。`)
         .fontSize(10.5)
         .fontColor(this.c().textDim)
         .fontFamily('monospace')
@@ -4193,6 +4326,25 @@ struct Index {
 
       Scroll(this.catalogScroller) {
         Column({ space: 9 }) {
+          if (this.localWorkflows.length > 0) {
+            Text('本地导入')
+              .fontSize(9.5)
+              .fontColor(this.c().textDim)
+              .fontFamily('monospace')
+              .width('100%')
+              .margin({ top: 2 })
+            ForEach(this.localWorkflows, (item: LocalWorkflowItem) => {
+              this.LocalWorkflowCard(item)
+            }, (item: LocalWorkflowItem) => item.path)
+            if ((this.catalog.entries ?? []).length > 0) {
+              Text('服务器')
+                .fontSize(9.5)
+                .fontColor(this.c().textDim)
+                .fontFamily('monospace')
+                .width('100%')
+                .margin({ top: 5 })
+            }
+          }
           ForEach(this.orderedCatalogEntries(), (entry: CatalogEntry) => {
             // 对应 Android EntryCard：置顶时左侧 3vp 强调色条 + accentBorder 描边。 
             Column() {
@@ -9138,6 +9290,15 @@ struct Index {
             this.catalogRequested = true;
             this.bridge.refreshWorkflows();
           })
+        Text('导入')
+          .fontSize(12)
+          .fontColor(this.running ? this.c().textMuted : this.c().textDim)
+          .padding({ left: 7, right: 7, top: 7, bottom: 7 })
+          .borderRadius(8)
+          .enabled(this.running)
+          .onClick(() => {
+            this.importLocalWorkflow();
+          })
         Text('任务')
           .fontSize(12)
           .fontColor(this.c().textMuted)
@@ -10002,6 +10163,56 @@ struct Index {
         .justifyContent(FlexAlign.End)
       }
       .width('86%')
+      .padding(18)
+      .backgroundColor(this.c().dialog)
+      .borderRadius(20)
+      .border({ width: 1, color: this.c().border })
+      .alignItems(HorizontalAlign.Start)
+    }
+    .width('100%')
+    .height('100%')
+    .position({ x: 0, y: 0 })
+  }
+
+  @Builder
+  LocalWorkflowDeleteDialog() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#99000000')
+        .onClick(() => { this.localDeletePath = ''; })
+      Column({ space: 10 }) {
+        Text('删除本地工作流？')
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.c().text)
+        Text('只会删除本机的导入副本，不影响主机上的工作流文件。')
+          .fontSize(12)
+          .lineHeight(18)
+          .fontColor(this.c().textMuted)
+          .width('100%')
+        Row({ space: 10 }) {
+          Text('取消')
+            .fontSize(12.5)
+            .fontColor(this.c().textMuted)
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .backgroundColor(this.c().card)
+            .borderRadius(10)
+            .onClick(() => { this.localDeletePath = ''; })
+          Text('删除')
+            .fontSize(12.5)
+            .fontColor('#FFFFFF')
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+            .borderRadius(10)
+            .onClick(() => { this.deleteLocalWorkflow(); })
+        }
+        .width('100%')
+        .margin({ top: 4 })
+        .justifyContent(FlexAlign.End)
+      }
+      .width('84%')
       .padding(18)
       .backgroundColor(this.c().dialog)
       .borderRadius(20)
@@ -10881,6 +11092,9 @@ struct Index {
       }
       if (this.updateModeOpen) {
         this.UpdateModeDialog()
+      }
+      if (this.localDeletePath.length > 0) {
+        this.LocalWorkflowDeleteDialog()
       }
       if (this.promptConfirmOpen) {
         this.PromptConfirm()

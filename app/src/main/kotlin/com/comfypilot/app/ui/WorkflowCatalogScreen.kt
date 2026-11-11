@@ -554,21 +554,20 @@ private fun LocalEntryCard(
                 modifier = Modifier
                     .weight(1f)
                     .padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(5.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
             ) {
+                Text(
+                    text = item.name,
+                    color = c.text,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(
-                        text = item.name,
-                        color = c.text,
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
                     Text(
                         text = "本地导入",
                         color = c.accent,
@@ -579,13 +578,13 @@ private fun LocalEntryCard(
                             .background(c.accentSoft)
                             .padding(horizontal = 6.dp, vertical = 2.dp),
                     )
+                    Text(
+                        text = "仅存本机 · 不会同步到主机",
+                        color = c.textDim,
+                        fontSize = 9.5.sp,
+                        fontFamily = SpectrumMono,
+                    )
                 }
-                Text(
-                    text = "仅存本机 · 不会出现在主机网页端",
-                    color = c.textDim,
-                    fontSize = 10.sp,
-                    fontFamily = SpectrumMono,
-                )
             }
             Text(
                 text = "删除",
@@ -593,7 +592,7 @@ private fun LocalEntryCard(
                 fontSize = 10.5.sp,
                 modifier = Modifier
                     .align(Alignment.CenterVertically)
-                    .padding(horizontal = 14.dp)
+                    .padding(horizontal = 12.dp, vertical = 12.dp)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
