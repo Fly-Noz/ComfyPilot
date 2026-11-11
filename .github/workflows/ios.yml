@@ -218,6 +218,22 @@ jobs:
 
           ls -lh shots
 
+      - name: XCUITest 交互回归
+        working-directory: ios
+        run: |
+          set -o pipefail
+          # 截图只能验证「渲染成什么样」，点按/输入/弹层要靠 UI 测试：
+          # 连接 → 打开工作流、提交任务、设置 → 关于页 → 许可证浮层 → 返回。
+          # mock 在 8188 上已就绪（上一步），App 用 -uiBaseUrl 自动连接。
+          xcodebuild test \
+            -project ComfyPilot.xcodeproj \
+            -scheme ComfyPilot \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            -only-testing:ComfyPilotUITests \
+            2>&1 | tee "$RUNNER_TEMP/logs/07-uitest.log" | tail -120
+
       - name: 核对上传链路（mock 侧 lastUpload）
         run: |
           # 不再靠截图猜：直接问 mock 有没有真的收到 /upload/image。

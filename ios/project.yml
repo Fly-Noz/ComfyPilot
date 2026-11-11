@@ -55,6 +55,20 @@ targets:
           - -framework
           - ComfyCore
 
+  # CI 的模拟器交互回归：xcodebuild test 驱动，不需要签名。
+  ComfyPilotUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: ComfyPilotUITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.fly.comfypilot.uitests
+        TEST_TARGET_NAME: ComfyPilot
+        GENERATE_INFOPLIST_FILE: YES
+    dependencies:
+      - target: ComfyPilot
+
 # 显式声明 scheme：CI 用 xcodebuild -scheme，必须有共享 scheme，
 # 不能指望「用 Xcode 打开时自动生成」。
 schemes:
@@ -62,6 +76,11 @@ schemes:
     build:
       targets:
         ComfyPilot: all
+        ComfyPilotUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - ComfyPilotUITests
     run:
       config: Debug
     archive:
