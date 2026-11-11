@@ -1,6 +1,6 @@
 import http from 'node:http'
 import { randomUUID } from 'node:crypto'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
 import nodePath from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { WebSocketServer } from 'ws'
@@ -33,6 +33,15 @@ const WORKFLOW_DIR = nodePath.join(nodePath.dirname(fileURLToPath(import.meta.ur
 const PREVIEW_PNG = readFileSync(
   nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), 'preview.png'),
 )
+
+/** 视频样例：ffmpeg 生成的 4 秒 H.264。视频任务（VHS_VideoCombine）经 /view 返回它。 */
+const SAMPLE_MP4_PATH = nodePath.join(
+  nodePath.dirname(fileURLToPath(import.meta.url)),
+  'sample.mp4',
+)
+const SAMPLE_MP4 = existsSync(SAMPLE_MP4_PATH)
+  ? readFileSync(SAMPLE_MP4_PATH)
+  : Buffer.alloc(0)
 
 /** 与真实服务端 `/object_info` 同构的最小节点定义。 */
 const OBJECT_INFO = {
@@ -167,6 +176,31 @@ const OBJECT_INFO = {
     name: 'LoadImage',
     display_name: 'Load Image',
     category: 'image',
+  },
+  VHS_VideoCombine: {
+    input: {
+      required: {
+        frame_rate: ['INT', { default: 24, min: 1, max: 120 }],
+        loop_count: ['INT', { default: 0 }],
+        format: [
+          ['video/h264-mp4', 'video/h265-mp4', 'video/webm'],
+          { default: 'video/h264-mp4' },
+        ],
+        pix_fmt: [['yuv420p', 'yuvp10le'], { default: 'yuv420p' }],
+        crf: ['INT', { default: 19, min: 0, max: 51 }],
+        images: ['IMAGE'],
+      },
+      optional: {
+        audio: ['AUDIO'],
+      },
+    },
+    output: ['VHS_VIDEOINFO'],
+    output_name: ['video_info'],
+    name: 'VHS_VideoCombine',
+    display_name: 'Video Combine 🎥🅥🅗🅢',
+    description: ' mock: combines frames into a video and reports it as an mp4 artifact.',
+    category: 'video',
+    output_node: true,
   },
 }
 
@@ -373,7 +407,7 @@ function startJob(promptId, job) {
 
 function finishJob(promptId, job) {
   running.delete(promptId)
-  const filename = `ComfyPilot_mock_${promptId.slice(0, 8)}.png`
+  const filename = `ComfyPilot_mock_${promptId.slice(0, 8)}.${job.isVideo ? 'mp4' : 'png'}`
   broadcast({
     type: 'executing',
     data: { prompt_id: promptId, node: null },
@@ -434,7 +468,18 @@ const server = http.createServer(async (req, res) => {
       lastPrompt = payload.prompt
       const promptId = randomUUID()
       const number = seq++
-      const job = { number, createdAt: Date.now(), progress: 0, max: 8, status: 'pending' }
+      // 输出节点里有 VideoCombine → 这次任务产出视频（/view 与 history 都按 mp4 走）
+      const isVideo = Object.values(payload.prompt).some(
+        (n) => n && n.class_type === 'VHS_VideoCombine',
+      )
+      const job = {
+        number,
+        createdAt: Date.now(),
+        progress: 0,
+        max: 8,
+        status: 'pending',
+        isVideo,
+      }
       pending.set(promptId, job)
       broadcast({ type: 'status', data: { status: { exec_info: { queue_remaining: pending.size + running.size } } } })
       sendJson(res, 200, { prompt_id: promptId, number, node_errors: {} })
@@ -487,6 +532,32 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && path === '/view') {
+      // filename 以 .mp4 结尾 → 回视频样例（AVPlayer 严格依赖 Range，必须实现 206）
+      if ((url.searchParams.get('filename') || '').endsWith('.mp4') && SAMPLE_MP4) {
+        const total = SAMPLE_MP4.length
+        const range = req.headers.range
+        if (range) {
+          const m = /bytes=(\d*)-(\d*)/.exec(range)
+          let start = m && m[1] ? parseInt(m[1], 10) : 0
+          let end = m && m[2] ? parseInt(m[2], 10) : total - 1
+          if (Number.isNaN(start) || start > total - 1) start = 0
+          if (Number.isNaN(end) || end >= total) end = total - 1
+          const chunk = SAMPLE_MP4.subarray(start, end + 1)
+          res.writeHead(206, {
+            'content-type': 'video/mp4',
+            'content-length': chunk.length,
+            'content-range': `bytes ${start}-${end}/${total}`,
+            'accept-ranges': 'bytes',
+          })
+          return res.end(chunk)
+        }
+        res.writeHead(200, {
+          'content-type': 'video/mp4',
+          'content-length': total,
+          'accept-ranges': 'bytes',
+        })
+        return res.end(SAMPLE_MP4)
+      }
       // 1x1 红色 PNG，足够验证"接续方从服务端取图"的链路
       const png = PREVIEW_PNG
       res.writeHead(200, { 'content-type': 'image/png', 'content-length': png.length })
