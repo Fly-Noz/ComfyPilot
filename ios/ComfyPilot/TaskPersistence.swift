@@ -24,6 +24,9 @@ final class TaskPersistence {
 
     private var tasks: [String: [String: Any]] = [:]
     /// 已删除的 id：异步命令下，旧的 persist 可能晚于 remove 到达。
+    /// 只在本进程生命周期内有效——任务 id 是 shared 的 `draft-N`，进程内单调
+    /// 递增不复用（重启后 `restoreTasks` 会按恢复任务重算 nextDraftId，此时本
+    /// 集合已随进程销毁），所以永不清空是安全的，量级也只是本会话的删除数。
     private var removed: Set<String> = []
     private var lastFlush: TimeInterval = 0
     private var loaded = false
@@ -51,16 +54,11 @@ final class TaskPersistence {
         if let text = try? String(contentsOf: fileURL, encoding: .utf8), !text.isEmpty {
             return text
         }
-        // 首版存 UserDefaults：迁移一次后删掉旧 key。
+        // 首版存 UserDefaults：先写成功新文件，再删旧 key——
+        // 反过来的话，文件写失败时两份数据都没了。
         if let legacy = UserDefaults.standard.string(forKey: legacyDefaultsKey) {
-            UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
-            if let data = legacy.data(using: .utf8) {
-                try? FileManager.default.createDirectory(
-                    at: fileURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true,
-                    attributes: nil,
-                )
-                try? data.write(to: fileURL, options: .atomic)
+            if writeSnapshot(text: legacy) {
+                UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
             }
             return legacy
         }
@@ -91,19 +89,38 @@ final class TaskPersistence {
     }
 
     /// 强制落盘：桥停止、退到后台、退出时调用。
-    func flush() {
+    /// 返回是否写成功——写失败会进 NSLog（Console 可见），且不推进节流时间，
+    /// 让下一次 persist 立刻重试，而不是把失败静默吞掉。
+    @discardableResult
+    func flush() -> Bool {
         ensureLoaded()
         let sorted = tasks.values.sorted { updatedMs($0) > updatedMs($1) }
         let payload: [String: Any] = ["tasks": Array(sorted.prefix(limit))]
-        guard let data = try? JSONSerialization.data(withJSONObject: payload) else { return }
-        try? FileManager.default.createDirectory(
-            at: fileURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true,
-            attributes: nil,
-        )
-        // .atomic：先写临时文件再 rename，避免写一半被杀留下坏快照。
-        try? data.write(to: fileURL, options: .atomic)
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let text = String(data: data, encoding: .utf8) else {
+            NSLog("[ComfyPilot] 任务快照序列化失败，本次未落盘")
+            return false
+        }
+        guard writeSnapshot(text: text) else { return false }
         lastFlush = Date().timeIntervalSince1970
+        return true
+    }
+
+    /// 原子写快照：临时文件 + rename，避免写一半被杀留下坏文件。
+    private func writeSnapshot(text: String) -> Bool {
+        guard let data = text.data(using: .utf8) else { return false }
+        do {
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true,
+                attributes: nil,
+            )
+            try data.write(to: fileURL, options: .atomic)
+            return true
+        } catch {
+            NSLog("[ComfyPilot] 任务快照写盘失败: %@", error.localizedDescription)
+            return false
+        }
     }
 
     private func ensureLoaded() {

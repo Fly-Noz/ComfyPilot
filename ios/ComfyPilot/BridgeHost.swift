@@ -19,6 +19,8 @@ final class BridgeHost {
     private let session: URLSession
     private let network = NetworkMonitor()
     private var timer: Timer?
+    /// 上一次 tick 喂给共享层的墙钟时间；stop() 补泵用它 +1ms。
+    private var lastPumpMs: Int64 = 0
     private var sockets: [Int64: URLSessionWebSocketTask] = [:]
     private var tickScheduled = false
     private var running = false
@@ -70,16 +72,18 @@ final class BridgeHost {
         network.stop()
         // 关桥前补一次 pump：任务若在最后一个 tick 之后完成，这条 persist
         // 还躺在共享层的 outbox 里，直接 shutdown 会丢掉终结状态。
-        // 只处理持久化命令——网络已停，其他命令没有意义。
-        let nowMs = Int64((Date().timeIntervalSince1970 * 1000.0).rounded())
-        let frame = host.pump(nowMs: nowMs)
-        if let data = frame.data(using: .utf8),
-           let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-           let commands = object["commands"] as? [[String: Any]] {
-            for command in commands {
-                let type = command["t"] as? String ?? ""
-                if type == "persist" || type == "persist.remove" {
-                    handle(command)
+        // 时间只推进 1ms（不是墙钟）：watchdog/超时判定不会因为这次补泵误伤
+        // 正在跑的任务；只处理持久化命令——网络已停，其他命令没有意义。
+        if lastPumpMs > 0 {
+            let frame = host.pump(nowMs: lastPumpMs + 1)
+            if let data = frame.data(using: .utf8),
+               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+               let commands = object["commands"] as? [[String: Any]] {
+                for command in commands {
+                    let type = command["t"] as? String ?? ""
+                    if type == "persist" || type == "persist.remove" {
+                        handle(command)
+                    }
                 }
             }
         }
@@ -142,6 +146,7 @@ final class BridgeHost {
         guard running else { return }
         // Kotlin 用的是墙上时间；宿主被冻结后由 SessionHost 自己扣掉空档。
         let nowMs = Int64((Date().timeIntervalSince1970 * 1000.0).rounded())
+        lastPumpMs = nowMs
         let frame = host.pump(nowMs: nowMs)
         guard let data = frame.data(using: .utf8),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {

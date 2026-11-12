@@ -150,8 +150,8 @@ final class ComfyPilotUITests: XCTestCase {
             "首次提交没有完成。界面树：\n\(app.debugDescription)"
         )
 
-        // 等终结态快照落盘（原子写 + 终结态立即 flush，留余量）。
-        Thread.sleep(forTimeInterval: 1.5)
+        // 终结态由 TaskPersistence 同步原子写盘，只留很小余量即可。
+        Thread.sleep(forTimeInterval: 0.3)
 
         // 杀掉进程重开：不带 reset（否则会把刚存的清掉），直接进任务页看恢复。
         app.terminate()
@@ -176,7 +176,53 @@ final class ComfyPilotUITests: XCTestCase {
         )
     }
 
+    /// 运行中任务重启：shared 保留 Running 继续对账（Submitting 才是「结果未知」），
+    /// 任务不能丢、也不能被重启误判成完成或未知。
+    func testRunningTaskSurvivesRelaunch() throws {
+        // slow 场景：每 10s 一帧，保证 terminate 时任务还在跑。
+        setMockScenario("slow")
+        defer { setMockScenario("normal") }
+
+        let app = launch(["-uiResetTasks", "-uiOpenWorkflow", "demo_upload.json", "-uiAutoSubmit"])
+
+        let running = app.staticTexts["执行中"].firstMatch
+        XCTAssertTrue(
+            running.waitForExistence(timeout: 30),
+            "提交后任务没有进入执行中。界面树：\n\(app.debugDescription)"
+        )
+
+        app.terminate()
+        app.launchArguments = ["-uiBaseUrl", "http://127.0.0.1:8188", "-uiScreen", "tasks"]
+        app.launch()
+
+        // 恢复后可能是「执行中」（继续对账）或「已完成」（对账期间跑完了），
+        // 但绝不能是「结果未知」——那是 Submitting 才有的状态。
+        let restored = app.staticTexts.matching(
+            NSPredicate(format: "label IN %@", ["执行中", "已完成"])
+        ).firstMatch
+        XCTAssertTrue(
+            restored.waitForExistence(timeout: 40),
+            "重开后运行中任务没有恢复。界面树：\n\(app.debugDescription)"
+        )
+        XCTAssertFalse(
+            app.staticTexts["结果未知"].exists,
+            "运行中任务被误判为结果未知。界面树：\n\(app.debugDescription)"
+        )
+    }
+
     // MARK: - 辅助
+
+    /// 切 mock 场景（XCUITest 进程与宿主共享网络栈，直接打 127.0.0.1:8188）。
+    private func setMockScenario(_ name: String) {
+        guard let url = URL(string: "http://127.0.0.1:8188/mock/scenario") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = "{\"scenario\":\"\(name)\"}".data(using: .utf8)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let done = expectation(description: "mock scenario \(name)")
+        URLSession.shared.dataTask(with: request) { _, _, _ in done.fulfill() }.resume()
+        wait(for: [done], timeout: 10)
+    }
 
     /// 元素存在但在滚动视图的可视区域外时，tap 会点空：先上滑直到可点击。
     private func scrollToHittable(_ element: XCUIElement, in app: XCUIApplication) {
