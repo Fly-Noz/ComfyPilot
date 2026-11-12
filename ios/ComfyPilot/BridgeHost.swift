@@ -73,6 +73,8 @@ final class BridgeHost {
         }
         sockets.removeAll()
         host.shutdown()
+        // 最后一次落盘：被挂起前丢帧也只丢最后不到 1 秒的进度。
+        TaskPersistence.shared.flush()
     }
 
     /// 给状态机投一条命令：start / stop / reconnect / submit / cancel / workflows / workflow.open
@@ -154,6 +156,15 @@ final class BridgeHost {
         case "notice":
             if let notice = command["notice"] as? [String: Any] {
                 onEvent?(.notice(notice))
+            }
+        case "persist":
+            // 任务快照（Kotlin 独占 schema）：原样交给 TaskPersistence 存本机。
+            if let task = command["task"] as? [String: Any] {
+                TaskPersistence.shared.handlePersist(task)
+            }
+        case "persist.remove":
+            if let id = command["id"] as? String {
+                TaskPersistence.shared.handleRemove(id: id)
             }
         default:
             break

@@ -196,6 +196,15 @@ final class SessionStore: ObservableObject {
     func boot() {
         guard !booted else { return }
         booted = true
+        // 退到后台前把任务快照落盘：persist 命令有 1 秒节流窗口，
+        // 系统挂起可能正好落在这个窗口里。
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main,
+        ) { _ in
+            TaskPersistence.shared.flush()
+        }
         if LaunchOptions.fixture {
             snapshot = Fixtures.snapshot
             notices = ["样例数据 · 未连接任何服务端"]
@@ -216,7 +225,12 @@ final class SessionStore: ObservableObject {
         // 地址是用户手打的，常见问题是漏协议、带尾斜杠、带空格。
         address = SavedAddress.normalize(address)
         SavedAddress.save(address)
-        let bridge = BridgeHost(configJson: makeConfigJson(), tasksJson: "{}")
+        // 启动恢复：本机快照原样回传给 shared（schema 见 TaskPersistence），
+        // 杀掉进程重开后完成记录与未完成任务都还在。
+        let bridge = BridgeHost(
+            configJson: makeConfigJson(),
+            tasksJson: TaskPersistence.shared.loadTasksJson(),
+        )
         bridge.onEvent = { [weak self] event in
             // BridgeHost 保证回调都在主线程；这里断言一下，别把假设藏起来。
             MainActor.assumeIsolated {

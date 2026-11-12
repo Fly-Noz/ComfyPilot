@@ -139,6 +139,31 @@ final class ComfyPilotUITests: XCTestCase {
         )
     }
 
+    /// 任务历史持久化：提交完成 → 杀掉进程重开 → 任务仍在（本地快照恢复）。
+    func testTaskSurvivesRelaunch() throws {
+        let app = launch(["-uiOpenWorkflow", "demo_upload.json", "-uiAutoSubmit"])
+
+        let done = app.staticTexts["已完成"].firstMatch
+        XCTAssertTrue(
+            done.waitForExistence(timeout: 45),
+            "首次提交没有完成。界面树：\n\(app.debugDescription)"
+        )
+
+        // 杀掉进程重开：不带 autoSubmit / workflow，直接进任务页看恢复结果。
+        app.terminate()
+        app.launchArguments = [
+            "-uiBaseUrl", "http://127.0.0.1:8188",
+            "-uiScreen", "tasks",
+        ]
+        app.launch()
+
+        let restored = app.staticTexts["已完成"].firstMatch
+        XCTAssertTrue(
+            restored.waitForExistence(timeout: 40),
+            "重开后任务历史没有恢复。界面树：\n\(app.debugDescription)"
+        )
+    }
+
     // MARK: - 辅助
 
     /// 元素存在但在滚动视图的可视区域外时，tap 会点空：先上滑直到可点击。
