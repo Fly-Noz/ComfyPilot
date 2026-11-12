@@ -623,6 +623,15 @@ const server = http.createServer(async (req, res) => {
       })
     }
 
+    // 真实 ComfyUI：GET /history 不带 id 时返回全部历史。App 重启后靠它
+    // 恢复任务列表——没有这个接口，任务页每次启动都是空的（CI #54/#56 的
+    // artifact 截图就是这个原因）。
+    if (req.method === 'GET' && path === '/history') {
+      const all = {}
+      for (const [id, entry] of history) all[id] = entry
+      return sendJson(res, 200, all)
+    }
+
     if (req.method === 'GET' && path.startsWith('/history/')) {
       const promptId = decodeURIComponent(path.slice('/history/'.length))
       const entry = history.get(promptId)
