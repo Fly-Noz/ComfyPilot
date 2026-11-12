@@ -176,50 +176,9 @@ Enter `http://<host-ip>:8188` in the app, using the address printed by the launc
 - Across networks: join both the host and the phone to the same Tailscale / ZeroTier network and use the virtual adapter address (`100.x`)
 - USB debugging: `node tools/comfy-proxy.mjs 18188 <host> 8188` plus `adb reverse tcp:18188 tcp:18188`, then enter `http://127.0.0.1:18188`
 
-## Building
+## Building from source
 
-### Requirements
-
-- JDK 21
-- Android SDK (compileSdk 37)
-- DevEco Studio 5.0 (HarmonyOS SDK 12) with hvigor
-
-### Android
-
-```bash
-./gradlew :app:assembleDebug
-# output: app/build/outputs/apk/debug/app-debug.apk
-```
-
-Release builds need `keystore.properties` in the repository root (see `keystore.properties.example`). Without that file, the release build stays unsigned.
-
-### HarmonyOS
-
-```powershell
-# build the shared .so, copy headers, then package the HAP
-.\harmony\build.ps1
-```
-
-Output: `harmony/entry/build/default/outputs/default/entry-default-unsigned.hap` (`-signed.hap` once signing is configured).
-
-The first time you open `harmony/` in DevEco Studio you need to configure signing (automatic signing is fine). `harmony/build-profile.json5` is gitignored; a template lives in `harmony/build-profile.example.json5`.
-
-### iOS
-
-Requires macOS with Xcode and XcodeGen:
-
-```bash
-bash ios/package.sh
-# output: ios/build/ComfyPilot-unsigned.ipa (unsigned)
-```
-
-You can also run **iOS Unsigned IPA** from GitHub Actions, or push a `v*-ios*` test tag to produce a pre-release asset.
-
-### Tests
-
-```bash
-./gradlew :shared:jvmTest
-```
+Requires JDK 21, Android SDK and DevEco Studio 5.0; iOS additionally needs macOS + Xcode + XcodeGen. Full commands, signing and test instructions are in [docs/build.md](docs/build.md).
 
 ## Data and privacy
 

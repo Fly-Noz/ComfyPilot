@@ -175,50 +175,9 @@ App 里填 `http://<主机IP>:8188`，主机 IP 用启动脚本打印的那个�
 - 跨网络：主机和手机都加入同一个 Tailscale/ZeroTier 网络，填虚拟网卡地址（`100.x`）；
 - USB 调试：`node tools/comfy-proxy.mjs 18188 <主机> 8188` + `adb reverse tcp:18188 tcp:18188`，App 里填 `http://127.0.0.1:18188`。
 
-## 构建
+## 从源码构建
 
-### 环境
-
-- JDK 21
-- Android SDK（compileSdk 37）
-- DevEco Studio 5.0（HarmonyOS SDK 12）与 hvigor
-
-### Android
-
-```bash
-./gradlew :app:assembleDebug
-# 产物：app/build/outputs/apk/debug/app-debug.apk
-```
-
-正式签名构建需要仓库根目录的 `keystore.properties`（参考 `keystore.properties.example`），文件不存在时 release 构建保持未签名。
-
-### HarmonyOS
-
-```powershell
-# 编译共享层 .so、复制到头文件目录，再打包 HAP
-.\harmony\build.ps1
-```
-
-产物：`harmony/entry/build/default/outputs/default/entry-default-unsigned.hap`（配置签名后为 `-signed.hap`）。
-
-首次在 DevEco Studio 打开 `harmony/` 时需要配置签名（自动签名即可）；`harmony/build-profile.json5` 已被 gitignore，模板见 `harmony/build-profile.example.json5`。
-
-### iOS
-
-需要 macOS + Xcode 与 XcodeGen：
-
-```bash
-bash ios/package.sh
-# 产物：ios/build/ComfyPilot-unsigned.ipa（未签名）
-```
-
-也可以在 GitHub Actions 里运行 **iOS Unsigned IPA**，或推送 `v*-ios*` 测试 tag 生成 pre-release 附件。
-
-### 测试
-
-```bash
-./gradlew :shared:jvmTest
-```
+需要 JDK 21、Android SDK、DevEco Studio 5.0；iOS 另需 macOS + Xcode + XcodeGen。完整命令、签名与测试说明见 [docs/build.md](docs/build.md)。
 
 ## 数据与隐私
 
