@@ -122,6 +122,23 @@ final class ComfyPilotUITests: XCTestCase {
         back.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
 
+    /// 底栏节点图入口：打开工作流 → 点底栏图标 → 节点图浮层出现。
+    func testNodeGraphFromBottomBar() throws {
+        let app = launch(["-uiOpenWorkflow", "demo_upload.json"])
+
+        let graphButton = app.buttons["btnNodeGraph"].firstMatch
+        XCTAssertTrue(
+            graphButton.waitForExistence(timeout: 40),
+            "底栏没有节点图入口。界面树：\n\(app.debugDescription)"
+        )
+        graphButton.tap()
+
+        XCTAssertTrue(
+            app.staticTexts["节点图"].waitForExistence(timeout: 15),
+            "点底栏入口后节点图没有打开。界面树：\n\(app.debugDescription)"
+        )
+    }
+
     // MARK: - 辅助
 
     /// 元素存在但在滚动视图的可视区域外时，tap 会点空：先上滑直到可点击。

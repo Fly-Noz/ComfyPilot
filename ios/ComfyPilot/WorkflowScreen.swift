@@ -827,6 +827,29 @@ struct WorkflowDetailScreen: View {
                 }
 
                 HStack(spacing: 10) {
+                    // 节点图入口：对齐安卓底栏 GraphIconButton（42×42 圆角卡 + 流程图标）。
+                    // 节点卡上还有单个节点的快捷入口，这里是不带焦点的全局入口。
+                    Button {
+                        sheet = .graph(store.workflowView?.nodes.first?.id ?? 0)
+                    } label: {
+                        Image(systemName: "point.topleft.down.curvedto.point.bottomright.up")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(palette.textMuted)
+                            .frame(width: 42, height: 42)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(palette.card)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(palette.borderStrong, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(store.workflowView == nil)
+                    .accessibilityIdentifier("btnNodeGraph")
+                    .accessibilityLabel("节点图")
+
                     GhostButton(title: "全部节点", palette: palette) { sheet = .nodes }
 
                     Spacer(minLength: 0)
