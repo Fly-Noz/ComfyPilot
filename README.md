@@ -11,7 +11,7 @@
 <p>连上你自己的 ComfyUI，就能在手机上看进度、调参数、收结果。</p>
 
 <p>
-  <a href="https://github.com/Fly-Noz/ComfyPilot/releases"><img src="https://img.shields.io/github/v/release/Fly-Noz/ComfyPilot?include_prereleases&label=release&color=7c5cff" alt="Release"></a>
+  <a href="https://github.com/Fly-Noz/ComfyPilot/releases"><img src="https://img.shields.io/github/v/release/Fly-Noz/ComfyPilot?label=release&color=7c5cff" alt="Release"></a>
   <a href="https://github.com/Fly-Noz/ComfyPilot/releases"><img src="https://img.shields.io/github/downloads/Fly-Noz/ComfyPilot/total?label=downloads&color=7c5cff" alt="Downloads"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-3da639" alt="License"></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-3ddc84?logo=android&logoColor=white" alt="Android">
