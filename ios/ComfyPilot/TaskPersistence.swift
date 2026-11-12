@@ -27,9 +27,16 @@ final class TaskPersistence {
     /// 只在本进程生命周期内有效——任务 id 是 shared 的 `draft-N`，进程内单调
     /// 递增不复用（重启后 `restoreTasks` 会按恢复任务重算 nextDraftId，此时本
     /// 集合已随进程销毁），所以永不清空是安全的，量级也只是本会话的删除数。
+    /// （外部约束：ComfyUI 的 promptId 正常也不复用；即使极端复用，removed
+    /// 命中的旧 id 只会让该任务本进程内不落盘，不影响其他数据。）
     private var removed: Set<String> = []
     private var lastFlush: TimeInterval = 0
     private var loaded = false
+    /// 每个任务上次落盘时的 state。Submitting→Queued→Running→Completed 这类
+    /// 状态跳变必须立即写盘——只按 0.8s 节流的话，"运行中"重启时可能还在
+    /// 文件里留着 Submitting，恢复后会被误标成「结果未知」。
+    /// 进度更新时 state 不变，仍然走节流，不会 4Hz 写盘。
+    private var flushedState: [String: String] = [:]
     /// `-uiResetTasks` 只消费一次：重连时再次 start() 不能把刚存的又清掉。
     private var didReset = false
 
@@ -59,6 +66,9 @@ final class TaskPersistence {
         if let legacy = UserDefaults.standard.string(forKey: legacyDefaultsKey) {
             if writeSnapshot(text: legacy) {
                 UserDefaults.standard.removeObject(forKey: legacyDefaultsKey)
+            } else {
+                // 本次仍用旧数据启动；旧 key 保留，下次启动会重试迁移。
+                NSLog("[ComfyPilot] 任务快照迁移写盘失败，保留 UserDefaults 旧数据待重试")
             }
             return legacy
         }
@@ -73,11 +83,11 @@ final class TaskPersistence {
             // 迟到的旧快照：不覆盖更新的状态。
             return
         }
-        tasks[id] = task
-        // 终结态立即落盘：完成/失败结果不能因为节流窗口丢掉。
         let state = task["state"] as? String ?? ""
-        let terminal = state == "Completed" || state == "Failed" || state == "Cancelled"
-        flushIfNeeded(force: terminal)
+        let stateChanged = flushedState[id] != state
+        tasks[id] = task
+        // 状态跳变（含终结态）立即落盘；纯进度更新走节流。
+        flushIfNeeded(force: stateChanged)
     }
 
     func handleRemove(id: String) {
@@ -103,6 +113,7 @@ final class TaskPersistence {
         }
         guard writeSnapshot(text: text) else { return false }
         lastFlush = Date().timeIntervalSince1970
+        flushedState = tasks.mapValues { $0["state"] as? String ?? "" }
         return true
     }
 
@@ -130,7 +141,10 @@ final class TaskPersistence {
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let list = object["tasks"] as? [[String: Any]] else { return }
         for task in list {
-            if let id = task["id"] as? String { tasks[id] = task }
+            if let id = task["id"] as? String {
+                tasks[id] = task
+                flushedState[id] = task["state"] as? String ?? ""
+            }
         }
     }
 

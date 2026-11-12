@@ -70,12 +70,16 @@ final class BridgeHost {
         timer?.invalidate()
         timer = nil
         network.stop()
-        // 关桥前补一次 pump：任务若在最后一个 tick 之后完成，这条 persist
-        // 还躺在共享层的 outbox 里，直接 shutdown 会丢掉终结状态。
-        // 时间只推进 1ms（不是墙钟）：watchdog/超时判定不会因为这次补泵误伤
-        // 正在跑的任务；只处理持久化命令——网络已停，其他命令没有意义。
+        // 关桥前补一次 pump，覆盖两类边界：
+        // - outbox 里已经排队的 persist（任务刚完成/刚换状态）；
+        // - 正常断开（距上次 tick < 2s）时到期的定时器/对账，也会借真实
+        //   时间产出 persist。
+        // 长时间冻结后（gap ≥ 2s）只推进 1ms：避免 watchdog 把运行中任务
+        // 误判成超时。只处理持久化命令——网络已停，其他命令没有意义。
         if lastPumpMs > 0 {
-            let frame = host.pump(nowMs: lastPumpMs + 1)
+            let wallNow = Int64((Date().timeIntervalSince1970 * 1000.0).rounded())
+            let pumpAt = (wallNow - lastPumpMs) < 2_000 ? wallNow : lastPumpMs + 1
+            let frame = host.pump(nowMs: pumpAt)
             if let data = frame.data(using: .utf8),
                let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                let commands = object["commands"] as? [[String: Any]] {

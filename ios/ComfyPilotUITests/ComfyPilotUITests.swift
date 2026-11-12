@@ -190,6 +190,8 @@ final class ComfyPilotUITests: XCTestCase {
             running.waitForExistence(timeout: 30),
             "提交后任务没有进入执行中。界面树：\n\(app.debugDescription)"
         )
+        // 状态跳变由 TaskPersistence 即时写盘，留一点余量再杀进程。
+        Thread.sleep(forTimeInterval: 0.5)
 
         app.terminate()
         app.launchArguments = ["-uiBaseUrl", "http://127.0.0.1:8188", "-uiScreen", "tasks"]
