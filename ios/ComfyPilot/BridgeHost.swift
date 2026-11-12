@@ -68,12 +68,27 @@ final class BridgeHost {
         timer?.invalidate()
         timer = nil
         network.stop()
+        // 关桥前补一次 pump：任务若在最后一个 tick 之后完成，这条 persist
+        // 还躺在共享层的 outbox 里，直接 shutdown 会丢掉终结状态。
+        // 只处理持久化命令——网络已停，其他命令没有意义。
+        let nowMs = Int64((Date().timeIntervalSince1970 * 1000.0).rounded())
+        let frame = host.pump(nowMs: nowMs)
+        if let data = frame.data(using: .utf8),
+           let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+           let commands = object["commands"] as? [[String: Any]] {
+            for command in commands {
+                let type = command["t"] as? String ?? ""
+                if type == "persist" || type == "persist.remove" {
+                    handle(command)
+                }
+            }
+        }
         for (_, task) in sockets {
             task.cancel(with: .goingAway, reason: nil)
         }
         sockets.removeAll()
         host.shutdown()
-        // 最后一次落盘：被挂起前丢帧也只丢最后不到 1 秒的进度。
+        // 最后一次落盘。
         TaskPersistence.shared.flush()
     }
 

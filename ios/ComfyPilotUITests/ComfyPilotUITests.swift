@@ -140,8 +140,9 @@ final class ComfyPilotUITests: XCTestCase {
     }
 
     /// 任务历史持久化：提交完成 → 杀掉进程重开 → 任务仍在（本地快照恢复）。
+    /// -uiResetTasks 先清空本机快照，避免前面用例残留的任务造成假通过。
     func testTaskSurvivesRelaunch() throws {
-        let app = launch(["-uiOpenWorkflow", "demo_upload.json", "-uiAutoSubmit"])
+        let app = launch(["-uiResetTasks", "-uiOpenWorkflow", "demo_upload.json", "-uiAutoSubmit"])
 
         let done = app.staticTexts["已完成"].firstMatch
         XCTAssertTrue(
@@ -149,7 +150,10 @@ final class ComfyPilotUITests: XCTestCase {
             "首次提交没有完成。界面树：\n\(app.debugDescription)"
         )
 
-        // 杀掉进程重开：不带 autoSubmit / workflow，直接进任务页看恢复结果。
+        // 等终结态快照落盘（原子写 + 终结态立即 flush，留余量）。
+        Thread.sleep(forTimeInterval: 1.5)
+
+        // 杀掉进程重开：不带 reset（否则会把刚存的清掉），直接进任务页看恢复。
         app.terminate()
         app.launchArguments = [
             "-uiBaseUrl", "http://127.0.0.1:8188",
@@ -157,10 +161,18 @@ final class ComfyPilotUITests: XCTestCase {
         ]
         app.launch()
 
-        let restored = app.staticTexts["已完成"].firstMatch
+        // 断言恢复的是「本 mock 的产物任务」，而不是随便一条旧任务：
+        // 产物文件名形如 ComfyPilot_mock_xxxxxxxx.jpg。
+        let restoredArtifact = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "ComfyPilot_mock_")
+        ).firstMatch
         XCTAssertTrue(
-            restored.waitForExistence(timeout: 40),
+            restoredArtifact.waitForExistence(timeout: 40),
             "重开后任务历史没有恢复。界面树：\n\(app.debugDescription)"
+        )
+        XCTAssertTrue(
+            app.staticTexts["已完成"].firstMatch.exists,
+            "恢复的任务不是完成态。界面树：\n\(app.debugDescription)"
         )
     }
 

@@ -56,4 +56,7 @@ enum LaunchOptions {
 
     /// 任务页出现「完成且有产物」的任务时自动打开产物查看器，CI 截图用。
     static var openArtifact: Bool { flag("-uiOpenArtifact") }
+
+    /// 启动时清空本机任务快照（XCUITest 用例间隔离用，只消费一次）。
+    static var resetTasks: Bool { flag("-uiResetTasks") }
 }
