@@ -6,7 +6,7 @@
 
 <h1>ComfyPilot</h1>
 
-<p><b>ComfyUI 的移动客户端：Android + HarmonyOS NEXT，共享一套 Kotlin 核心。</b></p>
+<p><b>ComfyUI 的移动客户端：Android + HarmonyOS NEXT + iOS，共享一套 Kotlin 核心。</b></p>
 
 <p>连上你自己的 ComfyUI，就能在手机上看进度、调参数、收结果。</p>
 
@@ -16,6 +16,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-3da639" alt="License"></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-3ddc84?logo=android&logoColor=white" alt="Android">
   <img src="https://img.shields.io/badge/HarmonyOS-NEXT-0a59f7" alt="HarmonyOS">
+  <img src="https://img.shields.io/badge/iOS-17.0%2B-000000?logo=apple&logoColor=white" alt="iOS">
   <a href="https://afdian.com/a/Fly-Noz"><img src="https://img.shields.io/badge/%E7%88%B1%E5%8F%91%E7%94%B5-%E8%B5%9E%E5%8A%A9%E6%94%AF%E6%8C%81-946ce6" alt="爱发电"></a>
   <a href="https://github.com/Fly-Noz/ComfyPilot/stargazers"><img src="https://img.shields.io/github/stars/Fly-Noz/ComfyPilot?style=social" alt="Stars"></a>
 </p>
@@ -38,8 +39,8 @@
 - 读取服务器上的工作流列表，节点按图分组，参数、开关、节点图选择都能在手机上改
 - 改过的参数按「主机 + 工作流」存在本机，退出重进自动恢复，不写回主机
 - 关闭关键节点前会做构建试算并弹确认，避免把工作流改坏
-- 种子字段支持「随机 / 使用上次 / 每次随机」，模式只存本机
-- 支持从本机导入 ComfyUI UI 工作流，仅存本机、可标记来源与删除，不写入主机
+- 种子字段支持「随机 / 使用上次 / 每次随机」，模式只存本机（Android / 鸿蒙）
+- Android / 鸿蒙支持从本机导入 ComfyUI UI 工作流，仅存本机、可标记来源与删除，不写入主机
 - 连线提供的字段会标出来源节点（如 `#330 Seed (rgthree)`）
 - 提交前按字段定义转换类型，避免 `"8"` 这类字符串数字被服务端拒绝
 
@@ -61,7 +62,7 @@
 
 ### 主题
 
-- 深色 / 浅色 / 跟随系统，双端同一套视觉规范
+- 深色 / 浅色 / 跟随系统，三端同一套视觉规范
 
 <p align="center"><img src="docs/assets/themes.jpg" width="520" alt="深色与浅色主题"></p>
 
@@ -101,20 +102,35 @@
 |---|---|---|
 | Android | 8.0+（minSdk 26），APK 直接安装 | `com.fly.comfypilot.app` |
 | HarmonyOS NEXT | 5.0.0(12)+，HAP 需签名后安装 | `com.fly.comfypilot` |
+| iOS | 17.0+，未签名 IPA，安装前需自行签名 | `com.fly.comfypilot` |
 
-两端功能对齐，但**包名不同**（鸿蒙上的安卓兼容层按包名识别，不能相同）。
+Android 与鸿蒙功能基本对齐，但**包名不同**（鸿蒙上的安卓兼容层按包名识别，不能相同）。
+
+iOS 目前是基础客户端：连接、工作流参数、任务、产物预览、采样预览、主机状态、诊断、关于页与更新提醒已经可用；本地工作流导入、AI 助手、网络测速、释放显存和种子快捷操作尚未接入。
+
+## iOS 客户端
+
+<p align="center"><img src="docs/assets/readme/ios-running.webp" width="100%" alt="iOS：任务完成与采样预览"></p>
+
+<p align="center"><img src="docs/assets/readme/ios-native.webp" width="100%" alt="iOS：SwiftUI 原生界面，逻辑走 Kotlin 共享核心"></p>
+
+- SwiftUI 原生界面，连接与状态机由 `ComfyCore.framework`（Kotlin/Native）驱动；
+- 支持连接、工作流参数、节点图、任务队列、产物查看、采样预览、主机状态、诊断、关于页与更新提醒；
+- 发布形式为**未签名 IPA**，需要自行签名安装；最低 iOS 17.0；
+- 当前缺口：本地工作流导入、AI 助手、网络测速、释放显存、种子快捷操作。
 
 ## 架构
 
 <p align="center"><img src="docs/assets/readme/architecture.webp" width="100%" alt="Android 与 HarmonyOS 共用 Kotlin Multiplatform 核心"></p>
 
-Android 直接依赖 `shared`；鸿蒙通过 `ohos/` 把共享层编译成 `.so`，ArkTS 用 C ABI 调用，网络与文件系统仍由 ArkTS 宿主执行。
+Android 直接依赖 `shared`；鸿蒙通过 `ohos/` 把共享层编译成 `.so`，ArkTS 用 C ABI 调用，网络与文件系统仍由 ArkTS 宿主执行；iOS 把共享层编译成 `ComfyCore.framework`，SwiftUI 通过 Swift 宿主调用，网络与界面由 iOS 原生层负责。
 
 ## 仓库结构
 
 ```
 shared/     KMP 核心：状态机、API、工作流/提示词、预览解码
 app/        Android 客户端（Jetpack Compose）
+ios/        iOS 客户端（SwiftUI + ComfyCore.framework）
 ohos/       Kotlin/Native 工程，产出鸿蒙用的 .so
 harmony/    HarmonyOS 客户端（ArkTS + ArkUI）
 tools/
@@ -148,6 +164,7 @@ Windows 便携版可以直接用仓库里的脚本（放到 ComfyUI 便携版根
 
 - **Android**：从 Releases 下载 `ComfyPilot-*.apk` 安装（项目密钥签名）
 - **HarmonyOS**：Releases 里的 HAP 是**未签名**的，需要自己用发布证书签名；调试可直接用 DevEco 构建并安装
+- **iOS**：Releases 里的 IPA 是**未签名**测试包，需要自行签名安装；手机直接点 IPA 不会安装
 
 ### 3. 连接
 
@@ -186,6 +203,17 @@ App 里填 `http://<主机IP>:8188`，主机 IP 用启动脚本打印的那个�
 
 首次在 DevEco Studio 打开 `harmony/` 时需要配置签名（自动签名即可）；`harmony/build-profile.json5` 已被 gitignore，模板见 `harmony/build-profile.example.json5`。
 
+### iOS
+
+需要 macOS + Xcode 与 XcodeGen：
+
+```bash
+bash ios/package.sh
+# 产物：ios/build/ComfyPilot-unsigned.ipa（未签名）
+```
+
+也可以在 GitHub Actions 里运行 **iOS Unsigned IPA**，或推送 `v*-ios*` 测试 tag 生成 pre-release 附件。
+
 ### 测试
 
 ```bash
@@ -218,6 +246,7 @@ App 里填 `http://<主机IP>:8188`，主机 IP 用启动脚本打印的那个�
 - `PrimitiveNode` 作为“值节点”参与连线仍不支持；
 - 子图展开后的合成节点 id 可能变化，按节点 id 存的本地状态（如“上次种子”）可能对不上；
 - HarmonyOS 发布包需要 AGC 签名；Releases 里的 HAP 是未签名包，仅供调试或自行签名；
+- iOS 发布包是未签名 IPA，需要自行签名；目前未上架 App Store，也未接入本地工作流导入、AI 助手、网络测速与释放显存；
 - 鸿蒙端保存到相册的图片会转成 8-bit RGB PNG（绕过系统相册对 RGBA PNG 的预览色块问题），动图会保存为静态图。
 
 <p align="center"><img src="docs/assets/readme/banner.webp" width="100%" alt="ComfyPilot：ComfyUI 的移动客户端，连上你自己的主机"></p>

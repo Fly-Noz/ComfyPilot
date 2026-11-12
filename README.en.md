@@ -6,7 +6,7 @@
 
 <h1>ComfyPilot</h1>
 
-<p><b>A mobile client for ComfyUI: Android + HarmonyOS NEXT, sharing one Kotlin core.</b></p>
+<p><b>A mobile client for ComfyUI: Android + HarmonyOS NEXT + iOS, sharing one Kotlin core.</b></p>
 
 <p>Connect to your own ComfyUI and watch progress, tune parameters and collect results from your phone.</p>
 
@@ -16,6 +16,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-3da639" alt="License"></a>
   <img src="https://img.shields.io/badge/Android-8.0%2B-3ddc84?logo=android&logoColor=white" alt="Android">
   <img src="https://img.shields.io/badge/HarmonyOS-NEXT-0a59f7" alt="HarmonyOS">
+  <img src="https://img.shields.io/badge/iOS-17.0%2B-000000?logo=apple&logoColor=white" alt="iOS">
   <a href="https://afdian.com/a/Fly-Noz"><img src="https://img.shields.io/badge/Afdian-support-946ce6" alt="Afdian"></a>
   <a href="https://github.com/Fly-Noz/ComfyPilot/stargazers"><img src="https://img.shields.io/github/stars/Fly-Noz/ComfyPilot?style=social" alt="Stars"></a>
 </p>
@@ -40,8 +41,8 @@
 - Lists workflows stored on the server; nodes are grouped by graph, and parameters, bypass switches and graph selection are all editable from the phone
 - Edits are stored on-device per host + workflow, restored on next launch, and never written back to the server
 - Disabling a critical node triggers a dry-run build and a confirmation prompt, so a workflow is not silently broken
-- Seed fields support random / reuse last / randomize each run; the mode is stored locally only
-- Import ComfyUI UI workflows from local storage; they stay on-device, are marked as local, and can be deleted without touching the host
+- Seed fields support random / reuse last / randomize each run; the mode is stored locally only (Android / HarmonyOS)
+- Android / HarmonyOS can import ComfyUI UI workflows from local storage; they stay on-device, are marked as local, and can be deleted without touching the host
 - Fields supplied by a link show their source node (e.g. `#330 Seed (rgthree)`)
 - Values are coerced to their declared types before submit, so string numbers like `"8"` are not rejected by the server
 
@@ -63,7 +64,7 @@
 
 ### Themes
 
-- Dark / light / follow system, with one visual spec across both platforms
+- Dark / light / follow system, with one visual spec across all three clients
 
 <p align="center"><img src="docs/assets/themes.jpg" width="520" alt="Dark and light themes"></p>
 
@@ -103,20 +104,35 @@
 |---|---|---|
 | Android | 8.0+ (minSdk 26), install the APK directly | `com.fly.comfypilot.app` |
 | HarmonyOS NEXT | 5.0.0(12)+, the HAP must be signed before installing | `com.fly.comfypilot` |
+| iOS | 17.0+, install the unsigned IPA after signing it yourself | `com.fly.comfypilot` |
 
-Both platforms aim for feature parity, but the **package names differ**: the Android compatibility layer on HarmonyOS identifies apps by package name, so they cannot be identical.
+Android and HarmonyOS are close to feature parity, but the **package names differ**: the Android compatibility layer on HarmonyOS identifies apps by package name, so they cannot be identical.
+
+iOS is currently a basic client: connection, workflow parameters, tasks, output previews, sampling previews, host status, diagnostics, About page and update reminders are available. Local workflow import, the AI assistant, network speed tests, VRAM release and seed quick actions are not implemented yet.
+
+## iOS client
+
+<p align="center"><img src="docs/assets/readme/ios-running.webp" width="100%" alt="iOS: completed task and sampling preview"></p>
+
+<p align="center"><img src="docs/assets/readme/ios-native.webp" width="100%" alt="iOS: native SwiftUI interface backed by the Kotlin core"></p>
+
+- Native SwiftUI interface; connection and state machine are driven by `ComfyCore.framework` (Kotlin/Native)
+- Supports connection, workflow parameters, node graph, task queue, output viewer, sampling previews, host status, diagnostics, About page and update reminders
+- Distributed as an **unsigned IPA** that you sign yourself; requires iOS 17.0+
+- Missing for now: local workflow import, AI assistant, network speed test, VRAM release and seed quick actions
 
 ## Architecture
 
 <p align="center"><img src="docs/assets/readme/architecture.webp" width="100%" alt="Android and HarmonyOS sharing a Kotlin Multiplatform core"></p>
 
-Android depends on `shared` directly. On HarmonyOS, `ohos/` compiles the shared layer into a `.so`; ArkTS calls it through a C ABI, while networking and file access stay in the ArkTS host.
+Android depends on `shared` directly. On HarmonyOS, `ohos/` compiles the shared layer into a `.so`; ArkTS calls it through a C ABI, while networking and file access stay in the ArkTS host. On iOS, the shared layer is built as `ComfyCore.framework`; SwiftUI talks to it through a Swift host, with networking and UI implemented natively.
 
 ## Repository layout
 
 ```
 shared/     KMP core: state machine, API, workflow/prompt building, preview decoding
 app/        Android client (Jetpack Compose)
+ios/        iOS client (SwiftUI + ComfyCore.framework)
 ohos/       Kotlin/Native project that produces the .so used by HarmonyOS
 harmony/    HarmonyOS client (ArkTS + ArkUI)
 tools/
@@ -150,6 +166,7 @@ See [tools/comfyui/README.md](tools/comfyui/README.md) (Chinese).
 
 - **Android**: download `ComfyPilot-*.apk` from Releases (signed with the project key)
 - **HarmonyOS**: the HAP in Releases is **unsigned**; sign it with your own release certificate. For debugging, build and install from DevEco Studio
+- **iOS**: the IPA in Releases is an **unsigned** test build; sign it yourself before installing. Tapping the IPA directly on the phone does nothing
 
 ### 3. Connect
 
@@ -187,6 +204,17 @@ Output: `harmony/entry/build/default/outputs/default/entry-default-unsigned.hap`
 
 The first time you open `harmony/` in DevEco Studio you need to configure signing (automatic signing is fine). `harmony/build-profile.json5` is gitignored; a template lives in `harmony/build-profile.example.json5`.
 
+### iOS
+
+Requires macOS with Xcode and XcodeGen:
+
+```bash
+bash ios/package.sh
+# output: ios/build/ComfyPilot-unsigned.ipa (unsigned)
+```
+
+You can also run **iOS Unsigned IPA** from GitHub Actions, or push a `v*-ios*` test tag to produce a pre-release asset.
+
 ### Tests
 
 ```bash
@@ -219,6 +247,7 @@ Sponsorship pays for test devices, servers and maintenance. It does not affect f
 - `PrimitiveNode` used as a value node in links is still unsupported
 - Node IDs can change after subgraph expansion, so local state keyed by node ID (such as "last seed") may not match
 - HarmonyOS release packages require AGC signing; the HAP published in Releases is unsigned and intended for debugging or self-signing
+- iOS builds are unsigned IPAs that you sign yourself; there is no App Store release yet, and local workflow import, the AI assistant, network speed test and VRAM release are not implemented
 - Images saved to the gallery on HarmonyOS are converted to 8-bit RGB PNG (a workaround for a colour artifact with RGBA PNGs in the system gallery preview); animated images are saved as stills
 
 <p align="center"><img src="docs/assets/readme/banner.webp" width="100%" alt="ComfyPilot: a mobile client for ComfyUI, connected to your own host"></p>
