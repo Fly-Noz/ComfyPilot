@@ -18,9 +18,6 @@ struct WorkflowListScreen: View {
         ScreenScaffold(palette: palette) {
             VStack(spacing: 0) {
                 SpectrumTopBar(palette: palette, title: "工作流", onBack: onBack) {
-                    TopBarAction(text: "导入", palette: palette) {
-                        importOpen = true
-                    }
                     TopBarAction(text: "刷新", palette: palette) {
                         store.refreshWorkflows()
                     }
@@ -29,6 +26,8 @@ struct WorkflowListScreen: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 9) {
+                        statusRow
+
                         localSection
 
                         Text(store.snapshot.catalog.isEmpty
@@ -102,6 +101,47 @@ struct WorkflowListScreen: View {
         } message: { item in
             Text("只删除本机副本「\(item.name)」，不影响主机。")
         }
+    }
+
+    private var connected: Bool { store.snapshot.phase == "Connected" }
+
+    /// 连接状态行 + 「导入」入口：与安卓 / 鸿蒙同一位置（列表上方那行，
+    /// 不是顶栏）。导入需要连上主机——导入后立刻要打开它。
+    private var statusRow: some View {
+        HStack(spacing: 7) {
+            Circle()
+                .fill(connected ? palette.ok : palette.textDim)
+                .frame(width: 6, height: 6)
+            Text(store.snapshot.label)
+                .font(.system(size: 11.5))
+                .foregroundStyle(palette.textMuted)
+                .lineLimit(1)
+            if !store.snapshot.network.isEmpty {
+                Text("· \(store.snapshot.network) · 第 \(store.snapshot.generation) 代")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(palette.textDim)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Button {
+                importOpen = true
+            } label: {
+                Text("导入")
+                    .font(.system(size: 11))
+                    .foregroundStyle(connected ? palette.accent : palette.textDim)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(connected ? palette.accentSoft : palette.card)
+                    )
+            }
+            .buttonStyle(.plain)
+            .disabled(!connected)
+            .accessibilityIdentifier("btnImportWorkflow")
+            .accessibilityLabel("导入工作流")
+        }
+        .padding(.bottom, 2)
     }
 
     /// 本地导入分区：在服务器目录之前，路径 local:// 与主机隔离。
