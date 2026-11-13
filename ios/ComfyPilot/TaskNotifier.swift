@@ -30,9 +30,10 @@ enum TaskNotifier {
             content.body = task.name.isEmpty ? "产物已生成" : "「\(task.name)」已生成产物"
         case "Failed":
             content.title = "任务失败"
-            content.body = task.error.isEmpty
+            let detail = (task.error ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            content.body = detail.isEmpty
                 ? (task.name.isEmpty ? "任务执行失败" : "「\(task.name)」执行失败")
-                : task.error
+                : detail
         case "Cancelled":
             content.title = "任务已取消"
             content.body = task.name.isEmpty ? "任务已取消" : "「\(task.name)」已取消"
