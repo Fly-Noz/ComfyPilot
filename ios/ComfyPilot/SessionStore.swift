@@ -435,6 +435,7 @@ final class SessionStore: ObservableObject {
         }
         // 250ms 一帧不等于 250ms 一改：只有内容真的变了才发布，避免整页 4Hz 重绘。
         if next != snapshot {
+            notifyFinishedTasks(from: snapshot, to: next)
             snapshot = next
         }
         refreshPreviewIfNeeded(next)
@@ -542,6 +543,22 @@ final class SessionStore: ObservableObject {
         if notices.first == text { return }
         notices.insert(text, at: 0)
         if notices.count > 40 { notices.removeLast(notices.count - 40) }
+    }
+
+    /// 对比前后两帧的任务状态：进入终结态（完成/失败/取消）时发本地通知。
+    /// 恢复出来的历史任务不会误报——它们在首帧里就存在且状态没变化。
+    private func notifyFinishedTasks(from old: SessionSnapshot, to next: SessionSnapshot) {
+        guard TaskNotifier.enabled else { return }
+        let oldStates = Dictionary(uniqueKeysWithValues: old.tasks.map { ($0.id, $0.state) })
+        for task in next.tasks {
+            guard let previous = oldStates[task.id], previous != task.state else { continue }
+            switch task.state {
+            case "Completed", "Failed", "Cancelled":
+                TaskNotifier.notifyTaskFinished(task)
+            default:
+                break
+            }
+        }
     }
 
     // MARK: - 工作流

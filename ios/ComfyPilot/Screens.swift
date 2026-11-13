@@ -899,6 +899,33 @@ struct SettingsScreen: View {
                             .buttonStyle(.plain)
                         }
 
+                        section("通知")
+                        GlassCard(palette: palette) {
+                            HStack(spacing: 10) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("任务完成 / 失败")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(palette.text)
+                                    Text("前台或刚退到后台时提醒；长时间后台受 iOS 限制收不到")
+                                        .font(.system(size: 10.5))
+                                        .foregroundStyle(palette.textDim)
+                                        .lineLimit(2)
+                                }
+                                Spacer(minLength: 0)
+                                Toggle("", isOn: Binding(
+                                    get: { TaskNotifier.enabled },
+                                    set: { value in
+                                        TaskNotifier.enabled = value
+                                        if value { TaskNotifier.requestAuthorizationIfNeeded() }
+                                    }
+                                ))
+                                .labelsHidden()
+                                .tint(palette.accent)
+                            }
+                            .padding(.vertical, 8)
+                        }
+                        .padding(.top, 4)
+
                         section("关于")
                         GlassCard(palette: palette) {
                             VStack(spacing: 0) {
