@@ -143,6 +143,8 @@ final class SessionStore: ObservableObject {
 
     /// 置顶的节点。跟着草稿存本机，重开工作流还在。
     @Published private(set) var pinnedNodeIds: Set<Int> = []
+    /// 工作流置顶的版本号：只用来触发列表重排（真值在 UserDefaults）。
+    @Published private(set) var pinnedRevision: Int = 0
 
     /// 节点备注，键是节点 id。只在本机，和草稿一起存。
     @Published private(set) var nodeNotes: [String: String] = [:]
@@ -874,6 +876,17 @@ final class SessionStore: ObservableObject {
     // MARK: - 草稿
 
     /// 草稿按「主机 + 路径」隔离；没连上时退回输入框里的地址。
+    /// 当前主机的稳定标识（草稿、置顶都按它隔离）。
+    var hostKey: String { draftHost }
+
+    /// 置顶工作流路径；改变后 pinnedRevision 自增，列表据此重排。
+    var pinnedWorkflowPaths: [String] { PinnedWorkflows.list(host: draftHost) }
+
+    func togglePinnedWorkflow(path: String) {
+        PinnedWorkflows.toggle(host: draftHost, path: path)
+        pinnedRevision &+= 1
+    }
+
     private var draftHost: String {
         let raw = snapshot.baseUrl.isEmpty ? address : snapshot.baseUrl
         return raw.isEmpty ? "unconnected" : raw
@@ -949,6 +962,8 @@ final class SessionStore: ObservableObject {
 
     /// 动画帧变了才取：几十帧、每帧几十 KB，追着取会明显吃内存和带宽。
     private func refreshAnimationIfNeeded(_ next: SessionSnapshot) {
+        // 弱网不拉多帧动画：一帧采样预览就够看，动画帧要几十倍带宽。
+        guard !Prefs.weakNetwork else { return }
         guard let bridge, next.animationCount > 0, next.animationSeq > 0 else { return }
         guard next.animationSeq != lastAnimationSeq else { return }
         lastAnimationSeq = next.animationSeq

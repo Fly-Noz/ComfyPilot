@@ -44,7 +44,8 @@ struct PreviewPane: View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(palette.cardStrong)
 
-                if !store.animationFrames.isEmpty {
+                // 弱网只显示单帧：动画是多帧解码，弱网下既费带宽又费电。
+                if !store.animationFrames.isEmpty && !Prefs.weakNetwork {
                     AnimatedPreview(frames: store.animationFrames, fps: store.animationRate)
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 } else if let image = store.previewImage {

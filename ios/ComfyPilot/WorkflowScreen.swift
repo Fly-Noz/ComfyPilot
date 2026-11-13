@@ -45,13 +45,8 @@ struct WorkflowListScreen: View {
                         if store.snapshot.catalog.isEmpty {
                             emptyState
                         } else {
-                            ForEach(store.snapshot.catalog) { entry in
-                                Button {
-                                    onOpen(entry.path)
-                                } label: {
-                                    row(entry)
-                                }
-                                .buttonStyle(.plain)
+                            ForEach(sortedCatalog) { entry in
+                                serverRow(entry)
                             }
                         }
                     }
@@ -61,7 +56,13 @@ struct WorkflowListScreen: View {
                 }
             }
         }
-        .onAppear { localItems = LocalWorkflowStore.shared.list() }
+        .onAppear {
+            localItems = LocalWorkflowStore.shared.list()
+            let existing = Set(store.snapshot.catalog.map { $0.path })
+            if !existing.isEmpty {
+                PinnedWorkflows.prune(host: store.hostKey, existing: existing)
+            }
+        }
         .fileImporter(
             isPresented: $importOpen,
             allowedContentTypes: [.json],
@@ -153,6 +154,47 @@ struct WorkflowListScreen: View {
         }
     }
 
+    /// 置顶优先，其余保持服务端顺序（用 offset 保证稳定排序）。
+    private var sortedCatalog: [CatalogRow] {
+        _ = store.pinnedRevision
+        let pinned = Set(store.pinnedWorkflowPaths)
+        return store.snapshot.catalog.enumerated()
+            .sorted { a, b in
+                let pa = pinned.contains(a.element.path)
+                let pb = pinned.contains(b.element.path)
+                if pa != pb { return pa }
+                return a.offset < b.offset
+            }
+            .map { $0.element }
+    }
+
+    /// 服务器工作流行：点打开 + 右侧置顶按钮（本地行同款双按钮结构）。
+    private func serverRow(_ entry: CatalogRow) -> some View {
+        HStack(spacing: 8) {
+            Button {
+                onOpen(entry.path)
+            } label: {
+                row(entry)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            let isPinned = store.pinnedWorkflowPaths.contains(entry.path)
+            Button {
+                store.togglePinnedWorkflow(path: entry.path)
+            } label: {
+                Image(systemName: isPinned ? "pin.fill" : "pin")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(isPinned ? palette.accent : palette.textDim)
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(isPinned ? "取消置顶 \(entry.name)" : "置顶 \(entry.name)")
+        }
+        .glassCard(palette)
+    }
+
     private func row(_ entry: CatalogRow) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
@@ -177,7 +219,6 @@ struct WorkflowListScreen: View {
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(palette.textDim)
         }
-        .glassCard(palette)
     }
 
     private func sizeText(_ bytes: Int64) -> String {

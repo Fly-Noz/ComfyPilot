@@ -553,10 +553,17 @@ struct TaskCard: View {
 
                     Spacer(minLength: 4)
 
-                    if !elapsedText.isEmpty {
-                        Text(elapsedText)
+                    if task.createdAtMs > 0 {
+                        // 耗时每秒自己走，不依赖任务快照变化：模型加载时可能几十秒
+                        // 没有进度事件，等快照重算的话耗时会停住（Android
+                        // TaskList.kt 也是独立计时刷新）。
+                        TimelineView(.periodic(from: .now, by: 1)) { context in
+                            Text(task.elapsedText(
+                                nowMs: Int64(context.date.timeIntervalSince1970 * 1000)
+                            ))
                             .font(.system(size: 9.5, design: .monospaced))
                             .foregroundStyle(palette.textDim)
+                        }
                     }
 
                     SpectrumPill(text: stateLabel, palette: palette, tone: tone)
@@ -618,11 +625,6 @@ struct TaskCard: View {
         if !task.name.isEmpty { return task.name }
         if !task.promptId.isEmpty { return task.promptId }
         return task.id
-    }
-
-    private var elapsedText: String {
-        guard task.createdAtMs > 0 else { return "" }
-        return task.elapsedText(nowMs: Int64(Date().timeIntervalSince1970 * 1000))
     }
 
     private var stateLabel: String {
