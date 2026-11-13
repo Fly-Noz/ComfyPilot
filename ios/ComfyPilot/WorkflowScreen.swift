@@ -1073,6 +1073,9 @@ struct FieldRow: View {
                 }
             }
             control
+            if SeedModes.isSeedField(field) {
+                seedChips
+            }
             if store.uploadErrorFieldId == field.id, !store.uploadError.isEmpty {
                 Text(store.uploadError)
                     .font(.system(size: 10.5))
@@ -1104,6 +1107,33 @@ struct FieldRow: View {
     }
 
     @ViewBuilder
+    /// 种子字段的快捷操作：随机 / 使用上次 / 每次随机（对齐安卓 SeedChip 组）。
+    private var seedChips: some View {
+        HStack(spacing: 8) {
+            _ = store.seedRevision
+            GhostButton(title: "随机", palette: palette, height: 28) {
+                onCommit(Int64.random(in: 1...2_147_483_647))
+            }
+            if let last = store.seedLast(nodeId: field.nodeId) {
+                GhostButton(title: "使用上次", palette: palette, height: 28) {
+                    onCommit(last)
+                }
+            }
+            Spacer(minLength: 0)
+            Text("每次随机")
+                .font(.system(size: 10))
+                .foregroundStyle(palette.textMuted)
+            Toggle("", isOn: Binding(
+                get: { store.seedEveryRandom(nodeId: field.nodeId) },
+                set: { store.setSeedEveryRandom(nodeId: field.nodeId, $0) }
+            ))
+            .labelsHidden()
+            .tint(palette.accent)
+            .scaleEffect(0.85)
+        }
+        .padding(.top, 2)
+    }
+
     private var control: some View {
         if !field.editable {
             Text(field.valueText.isEmpty ? "—" : field.valueText)

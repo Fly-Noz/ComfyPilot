@@ -145,6 +145,8 @@ final class SessionStore: ObservableObject {
     @Published private(set) var pinnedNodeIds: Set<Int> = []
     /// 工作流置顶的版本号：只用来触发列表重排（真值在 UserDefaults）。
     @Published private(set) var pinnedRevision: Int = 0
+    /// 种子模式的版本号：开关变化后让字段行重绘。
+    @Published private(set) var seedRevision: Int = 0
 
     /// 节点备注，键是节点 id。只在本机，和草稿一起存。
     @Published private(set) var nodeNotes: [String: String] = [:]
@@ -794,8 +796,19 @@ final class SessionStore: ObservableObject {
 
     func submitWorkflow() {
         guard let bridge, let view = workflowView, view.canSubmit else { return }
+        // 种子快捷：每次随机的节点换成新随机数（对齐 Android prepareForSubmit）。
+        let seededOverrides = SeedModes.prepareForSubmit(
+            host: hostKey,
+            path: seedScopePath,
+            overrides: overrides,
+            nodes: view.nodes,
+        )
         let raw = bridge.workflowView(
-            requestJson: requestJson(op: "prompt", runToken: Self.runToken())
+            requestJson: requestJson(
+                op: "prompt",
+                runToken: Self.runToken(),
+                overridesOverride: seededOverrides,
+            )
         )
         guard let data = raw.data(using: .utf8),
               let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
@@ -852,9 +865,15 @@ final class SessionStore: ObservableObject {
         showToast("已提交 \(workflowName.isEmpty ? "任务" : workflowName)")
     }
 
-    private func requestJson(op: String, runToken: String? = nil, nodeId: Int? = nil) -> String {
+    private func requestJson(
+        op: String,
+        runToken: String? = nil,
+        nodeId: Int? = nil,
+        overridesOverride: [String: [String: Any]]? = nil,
+    ) -> String {
         var payload: [String: Any] = ["op": op]
-        if !overrides.isEmpty { payload["overrides"] = overrides }
+        let usedOverrides = overridesOverride ?? overrides
+        if !usedOverrides.isEmpty { payload["overrides"] = usedOverrides }
         if let enabledGraphIds { payload["graphs"] = enabledGraphIds.sorted() }
         if let nodeId { payload["nodeId"] = nodeId }
         // 和安卓一样：开关打开时，本地问题只告警，prompt 照样构建。
@@ -885,6 +904,23 @@ final class SessionStore: ObservableObject {
     func togglePinnedWorkflow(path: String) {
         PinnedWorkflows.toggle(host: draftHost, path: path)
         pinnedRevision &+= 1
+    }
+
+    // MARK: - 种子快捷（对齐 Android SeedModeStore）
+
+    private var seedScopePath: String { openedPath ?? "" }
+
+    func seedEveryRandom(nodeId: Int) -> Bool {
+        SeedModes.isEveryRandom(host: hostKey, path: seedScopePath, nodeId: nodeId)
+    }
+
+    func setSeedEveryRandom(nodeId: Int, _ value: Bool) {
+        SeedModes.setEveryRandom(host: hostKey, path: seedScopePath, nodeId: nodeId, value: value)
+        seedRevision &+= 1
+    }
+
+    func seedLast(nodeId: Int) -> Int64? {
+        SeedModes.lastSeed(host: hostKey, path: seedScopePath, nodeId: nodeId)
     }
 
     private var draftHost: String {

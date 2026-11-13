@@ -100,7 +100,7 @@ struct ArtifactViewer: View {
 
                 Spacer(minLength: 0)
 
-                if artifact.isImage {
+                if artifact.isImage || artifact.isVideo {
                     if let note = saveNotes[artifact.id] {
                         Text(note)
                             .font(.system(size: 9.5))
@@ -145,27 +145,16 @@ struct ArtifactViewer: View {
                 }
                 return
             }
-            let rawName = artifact.filename.isEmpty ? "artifact" : artifact.filename
-            // 服务器给的文件名只取最后一段，防止 ../ 或子目录把文件写出临时目录；
-            // 每次放进独立子目录，避免不同产物同名互相覆盖。
-            let normalized = rawName.replacingOccurrences(of: "\\", with: "/")
-            let last = (normalized as NSString).lastPathComponent
-            let name = (last.isEmpty || last == "." || last == "..") ? "artifact" : last
-            let folder = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            let tmp = folder.appendingPathComponent(name)
-            do {
-                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                try data.write(to: tmp, options: .atomic)
-                DispatchQueue.main.async {
-                    saving = nil
-                    shareItem = ShareItem(url: tmp)
-                }
-            } catch {
+            guard let tmp = writeTemp(data: data, name: artifact.filename) else {
                 DispatchQueue.main.async {
                     saving = nil
                     saveNotes[artifact.id] = "写入临时文件失败"
                 }
+                return
+            }
+            DispatchQueue.main.async {
+                saving = nil
+                shareItem = ShareItem(url: tmp)
             }
         }.resume()
     }
@@ -180,7 +169,41 @@ struct ArtifactViewer: View {
         saving = artifact.id
         saveNotes[artifact.id] = nil
         URLSession.shared.dataTask(with: url) { data, _, error in
-            guard let data, let image = UIImage(data: data) else {
+            guard let data, !data.isEmpty else {
+                DispatchQueue.main.async {
+                    saving = nil
+                    saveNotes[artifact.id] = error == nil ? "文件为空" : "下载失败"
+                }
+                return
+            }
+            if artifact.isVideo {
+                // 视频按 video 资源写入，保留音轨与编码。
+                guard let tmp = writeTemp(data: data, name: artifact.filename) else {
+                    DispatchQueue.main.async {
+                        saving = nil
+                        saveNotes[artifact.id] = "写入临时文件失败"
+                    }
+                    return
+                }
+                PhotoSaver.saveVideo(fileURL: tmp) { note in
+                    DispatchQueue.main.async {
+                        saving = nil
+                        saveNotes[artifact.id] = note
+                    }
+                }
+                return
+            }
+            if artifact.mime == "image/gif" || artifact.filename.lowercased().hasSuffix(".gif") {
+                // GIF 用原始字节保存，保动图。
+                PhotoSaver.saveGIF(data: data) { note in
+                    DispatchQueue.main.async {
+                        saving = nil
+                        saveNotes[artifact.id] = note
+                    }
+                }
+                return
+            }
+            guard let image = UIImage(data: data) else {
                 DispatchQueue.main.async {
                     saving = nil
                     saveNotes[artifact.id] = error == nil ? "图片解码失败" : "下载失败"
@@ -194,6 +217,25 @@ struct ArtifactViewer: View {
                 }
             }
         }.resume()
+    }
+
+    /// 把一个产物落进独立临时子目录：服务器文件名只取最后一段，
+    /// 防止 ../ 或子目录把文件写出临时目录；每个产物独立目录避免同名覆盖。
+    private func writeTemp(data: Data, name: String) -> URL? {
+        let normalized = (name.isEmpty ? "artifact" : name)
+            .replacingOccurrences(of: "\\", with: "/")
+        let last = (normalized as NSString).lastPathComponent
+        let safeName = (last.isEmpty || last == "." || last == "..") ? "artifact" : last
+        let folder = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let target = folder.appendingPathComponent(safeName)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try data.write(to: target, options: .atomic)
+            return target
+        } catch {
+            return nil
+        }
     }
 
     private func placeholder(_ text: String, icon: String) -> some View {
