@@ -97,7 +97,12 @@ struct RootView: View {
                 palette: palette,
                 onBack: { route = .connect },
                 onOpen: { path in route = .detail(path) },
-                onTasks: { route = .tasks }
+                onTasks: { route = .tasks },
+                onSettings: {
+                    // 从工作流列表进设置，返回还回列表（不是连接页）。
+                    settingsReturn = .catalog
+                    route = .settings
+                }
             )
         case .detail(let path):
             WorkflowDetailScreen(

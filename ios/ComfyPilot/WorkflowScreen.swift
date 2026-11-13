@@ -9,6 +9,8 @@ struct WorkflowListScreen: View {
     let onBack: () -> Void
     let onOpen: (String) -> Void
     let onTasks: () -> Void
+    /// 顶栏「设置」：与安卓 / 鸿蒙同位置（设置排在刷新、任务之前）。
+    let onSettings: () -> Void
     @EnvironmentObject private var store: SessionStore
     @State private var importOpen = false
     @State private var localItems: [LocalWorkflowStore.Item] = []
@@ -18,6 +20,7 @@ struct WorkflowListScreen: View {
         ScreenScaffold(palette: palette) {
             VStack(spacing: 0) {
                 SpectrumTopBar(palette: palette, title: "工作流", onBack: onBack) {
+                    TopBarAction(text: "设置", palette: palette, action: onSettings)
                     TopBarAction(text: "刷新", palette: palette) {
                         store.refreshWorkflows()
                     }
