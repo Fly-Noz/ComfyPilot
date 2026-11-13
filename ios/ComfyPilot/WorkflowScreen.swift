@@ -170,7 +170,8 @@ struct WorkflowListScreen: View {
 
     /// 服务器工作流行：点打开 + 右侧置顶按钮（本地行同款双按钮结构）。
     private func serverRow(_ entry: CatalogRow) -> some View {
-        HStack(spacing: 8) {
+        let isPinned = store.pinnedWorkflowPaths.contains(entry.path)
+        return HStack(spacing: 8) {
             Button {
                 onOpen(entry.path)
             } label: {
@@ -179,7 +180,6 @@ struct WorkflowListScreen: View {
             }
             .buttonStyle(.plain)
 
-            let isPinned = store.pinnedWorkflowPaths.contains(entry.path)
             Button {
                 store.togglePinnedWorkflow(path: entry.path)
             } label: {
@@ -1110,7 +1110,6 @@ struct FieldRow: View {
     /// 种子字段的快捷操作：随机 / 使用上次 / 每次随机（对齐安卓 SeedChip 组）。
     private var seedChips: some View {
         HStack(spacing: 8) {
-            _ = store.seedRevision
             GhostButton(title: "随机", palette: palette, height: 28) {
                 onCommit(Int64.random(in: 1...2_147_483_647))
             }
