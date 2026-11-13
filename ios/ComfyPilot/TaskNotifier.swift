@@ -1,3 +1,4 @@
+import Foundation
 import UserNotifications
 
 /// 任务完成 / 失败 / 取消的本地通知。

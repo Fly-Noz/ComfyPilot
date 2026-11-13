@@ -549,7 +549,8 @@ final class SessionStore: ObservableObject {
     /// 恢复出来的历史任务不会误报——它们在首帧里就存在且状态没变化。
     private func notifyFinishedTasks(from old: SessionSnapshot, to next: SessionSnapshot) {
         guard TaskNotifier.enabled else { return }
-        let oldStates = Dictionary(uniqueKeysWithValues: old.tasks.map { ($0.id, $0.state) })
+        var oldStates: [String: String] = [:]
+        for item in old.tasks { oldStates[item.id] = item.state }
         for task in next.tasks {
             guard let previous = oldStates[task.id], previous != task.state else { continue }
             switch task.state {

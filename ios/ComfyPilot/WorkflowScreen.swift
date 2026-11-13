@@ -1106,7 +1106,6 @@ struct FieldRow: View {
         }
     }
 
-    @ViewBuilder
     /// 种子字段的快捷操作：随机 / 使用上次 / 每次随机（对齐安卓 SeedChip 组）。
     private var seedChips: some View {
         HStack(spacing: 8) {
@@ -1133,6 +1132,7 @@ struct FieldRow: View {
         .padding(.top, 2)
     }
 
+    @ViewBuilder
     private var control: some View {
         if !field.editable {
             Text(field.valueText.isEmpty ? "—" : field.valueText)
