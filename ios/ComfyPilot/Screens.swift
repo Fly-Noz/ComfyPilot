@@ -795,10 +795,6 @@ struct SettingsScreen: View {
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityIdentifier("btnNetworkProbe")
-                                        .padding(.horizontal, 9)
-                                        .padding(.vertical, 4)
-                                        .background(Capsule().fill(palette.cardStrong))
-                                }
                             }
                         }
 
