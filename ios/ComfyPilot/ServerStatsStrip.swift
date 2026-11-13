@@ -7,7 +7,7 @@ import SwiftUI
 /// 2. `/system_stats` 轮询（官方路由，一定有内存/显存/版本）。
 ///
 /// 轮询放在界面层而不是共享层：它只影响这一块展示，失败了也不该污染连接状态。
-/// 「释放显存」按钮没做——那是有副作用的 POST，等真机验证过再加。
+/// 「释放显存」对齐安卓：确认弹窗 + 队列忙/刚提交时禁用 + 30 秒冷却。
 struct ServerStatsStrip: View {
     let palette: SpectrumPalette
     let snapshot: SessionSnapshot
@@ -15,6 +15,10 @@ struct ServerStatsStrip: View {
     @State private var expanded = false
     @State private var stats: SystemStatsLite?
     @State private var errorText = ""
+    @State private var freeConfirm = false
+    @State private var freeing = false
+    @State private var cooldownUntil: Date?
+    @State private var freeNote = ""
 
     var body: some View {
         if !statCells.isEmpty {
@@ -75,6 +79,33 @@ struct ServerStatsStrip: View {
                             .padding(.trailing, 12)
                             .padding(.bottom, 8)
                     }
+
+                    HStack(spacing: 8) {
+                        GhostButton(
+                            title: freeing ? "释放中…" : "释放显存",
+                            palette: palette,
+                            height: 30
+                        ) {
+                            if let reason = freeBlockReason {
+                                freeNote = reason
+                            } else {
+                                freeConfirm = true
+                            }
+                        }
+                        .disabled(freeing)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 6)
+
+                    if !freeNote.isEmpty {
+                        Text(freeNote)
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(palette.textDim)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 12)
+                            .padding(.bottom, 8)
+                    }
                 }
             }
             .background(
@@ -88,7 +119,66 @@ struct ServerStatsStrip: View {
             .task(id: snapshot.baseUrl) {
                 await poll()
             }
+            .alert("释放主机显存", isPresented: $freeConfirm) {
+                Button("取消", role: .cancel) {}
+                Button("释放", role: .destructive) { requestFreeMemory() }
+            } message: {
+                Text(
+                    "会卸载当前加载的模型、LoRA、VAE 等，释放显存和内存。\n\n" +
+                    "不会影响已保存的工作流、参数和产物。下次生成需要重新加载模型，第一轮会明显变慢。"
+                )
+            }
         }
+    }
+
+    /// 释放显存的不可用原因；nil 表示可以释放（对齐安卓 blockReason 的优先级）。
+    private var freeBlockReason: String? {
+        if snapshot.baseUrl.trimmingCharacters(in: .whitespaces).isEmpty { return "连接主机后才能释放" }
+        if freeing { return "正在请求释放…" }
+        if let until = cooldownUntil, Date() < until { return "刚释放过，请 30 秒后再试" }
+        if snapshot.queueRunning + snapshot.queuePending > 0 { return "主机队列还有任务，空闲后可释放" }
+        let localBusy = snapshot.tasks.contains {
+            $0.state == "Running" || $0.state == "Queued" || $0.state == "Submitting"
+        }
+        if localBusy { return "任务刚提交，等结果出来后再释放" }
+        return nil
+    }
+
+    /// POST /free：卸载模型并释放显存。服务端只回 200/空 body，
+    /// 不知道实际释放了多少，所以成功后加 30 秒冷却防连点。
+    private func requestFreeMemory() {
+        let base = snapshot.baseUrl.trimmingCharacters(in: .whitespaces)
+        let trimmed = base.hasSuffix("/") ? String(base.dropLast()) : base
+        guard let url = URL(string: trimmed + "/free") else {
+            freeNote = "地址无效"
+            return
+        }
+        freeing = true
+        freeNote = ""
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = #"{"unload_models":true,"free_memory":true}"#.data(using: .utf8)
+        request.timeoutInterval = 10
+        URLSession.shared.dataTask(with: request) { _, response, error in
+            DispatchQueue.main.async {
+                freeing = false
+                if let http = response as? HTTPURLResponse {
+                    if http.statusCode == 404 {
+                        freeNote = "当前 ComfyUI 不支持远程释放显存"
+                    } else if !(200...299).contains(http.statusCode) {
+                        freeNote = "释放失败（HTTP \(http.statusCode)）"
+                    } else {
+                        freeNote = "已请求释放，显存可能稍后下降"
+                        cooldownUntil = Date().addingTimeInterval(30)
+                    }
+                } else if let error {
+                    freeNote = "释放失败：\(error.localizedDescription)"
+                } else {
+                    freeNote = "释放失败，请检查连接"
+                }
+            }
+        }.resume()
     }
 
     private struct StatValue: Identifiable {

@@ -898,6 +898,11 @@ final class SessionStore: ObservableObject {
     /// 当前主机的稳定标识（草稿、置顶都按它隔离）。
     var hostKey: String { draftHost }
 
+    /// 最后一次收到采样预览的时间（网络测速用它判断长连接是否静默）。
+    var lastPreviewFrameAtMs: Int64? {
+        lastPreviewAtMs > 0 ? lastPreviewAtMs : nil
+    }
+
     /// 置顶工作流路径；改变后 pinnedRevision 自增，列表据此重排。
     var pinnedWorkflowPaths: [String] { PinnedWorkflows.list(host: draftHost) }
 

@@ -674,7 +674,16 @@ struct SettingsScreen: View {
     @State private var diagnostics = false
     @State private var updateModeChooser = false
     /// CI 截图用：-uiScreen about 直接弹关于页（模拟器点不了设置入口）。
-    @State private var aboutOpen = LaunchOptions.screen == "about"
+    /// 设置页的全屏子页：about 与 probe 共用一个 fullScreenCover
+    /// （SwiftUI 同一视图叠两个 fullScreenCover 只有最后一个稳定生效）。
+    enum SettingsSheet: String, Identifiable {
+        case about
+        case probe
+        var id: String { rawValue }
+    }
+
+    @State private var settingsSheet: SettingsSheet? =
+        LaunchOptions.screen == "about" ? .about : nil
 
     var body: some View {
         ScreenScaffold(palette: palette) {
@@ -764,19 +773,28 @@ struct SettingsScreen: View {
                                 Divider().overlay(palette.border)
 
                                 // 入口先摆出来，功能后补：安卓那边是独立页面（延迟/带宽 + 建议）。
-                                HStack(spacing: 10) {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("网络测速")
-                                            .font(.system(size: 13))
-                                            .foregroundStyle(palette.textDim)
-                                        Text("测到主机的延迟与带宽；还在开发中")
-                                            .font(.system(size: 10.5))
+                                Button {
+                                    settingsSheet = .probe
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("网络测速")
+                                                .font(.system(size: 13))
+                                                .foregroundStyle(palette.text)
+                                            Text("测延迟、稳定性、下载速度，区分「网络慢」和「显卡忙」")
+                                                .font(.system(size: 10.5))
+                                                .foregroundStyle(palette.textDim)
+                                                .lineLimit(2)
+                                        }
+                                        Spacer(minLength: 0)
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 11, weight: .semibold))
                                             .foregroundStyle(palette.textDim)
                                     }
-                                    Spacer(minLength: 0)
-                                    Text("暂未开放")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(palette.textDim)
+                                    .padding(.vertical, 2)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityIdentifier("btnNetworkProbe")
                                         .padding(.horizontal, 9)
                                         .padding(.vertical, 4)
                                         .background(Capsule().fill(palette.cardStrong))
@@ -885,7 +903,7 @@ struct SettingsScreen: View {
                         GlassCard(palette: palette) {
                             VStack(spacing: 0) {
                                 Button {
-                                    aboutOpen = true
+                                    settingsSheet = .about
                                 } label: {
                                     HStack(spacing: 10) {
                                         Text("关于 ComfyPilot")
@@ -926,8 +944,17 @@ struct SettingsScreen: View {
         .sheet(isPresented: $diagnostics) {
             DiagnosticsSheet(palette: palette)
         }
-        .fullScreenCover(isPresented: $aboutOpen) {
-            AboutScreen(palette: palette)
+        .fullScreenCover(item: $settingsSheet) { item in
+            switch item {
+            case .about:
+                AboutScreen(palette: palette)
+            case .probe:
+                NetworkProbeSheet(
+                    palette: palette,
+                    baseUrl: store.snapshot.baseUrl,
+                    lastFrameAtMs: store.lastPreviewFrameAtMs,
+                )
+            }
         }
         .confirmationDialog(
             "更新提醒",
