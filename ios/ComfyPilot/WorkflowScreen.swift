@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 工作流列表。导航由 RootView 的页面栈负责，这里只发事件——
 /// 和安卓的 WorkflowCatalogScreen 一样，顶栏是「返回 / 工作流 / 任务」。
@@ -9,11 +10,17 @@ struct WorkflowListScreen: View {
     let onOpen: (String) -> Void
     let onTasks: () -> Void
     @EnvironmentObject private var store: SessionStore
+    @State private var importOpen = false
+    @State private var localItems: [LocalWorkflowStore.Item] = []
+    @State private var pendingDelete: LocalWorkflowStore.Item?
 
     var body: some View {
         ScreenScaffold(palette: palette) {
             VStack(spacing: 0) {
                 SpectrumTopBar(palette: palette, title: "工作流", onBack: onBack) {
+                    TopBarAction(text: "导入", palette: palette) {
+                        importOpen = true
+                    }
                     TopBarAction(text: "刷新", palette: palette) {
                         store.refreshWorkflows()
                     }
@@ -22,6 +29,8 @@ struct WorkflowListScreen: View {
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 9) {
+                        localSection
+
                         Text(store.snapshot.catalog.isEmpty
                              ? "服务器上的工作流"
                              : "共 \(store.snapshot.catalog.count) 个，点一个打开。")
@@ -50,6 +59,96 @@ struct WorkflowListScreen: View {
                     .padding(.top, 8)
                     .padding(.bottom, 24)
                 }
+            }
+        }
+        .onAppear { localItems = LocalWorkflowStore.shared.list() }
+        .fileImporter(
+            isPresented: $importOpen,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false,
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                guard let data = try? Data(contentsOf: url),
+                      let raw = String(data: data, encoding: .utf8) else {
+                    store.showToast("读取文件失败")
+                    return
+                }
+                let name = url.deletingPathExtension().lastPathComponent
+                if store.importLocalWorkflow(name: name, raw: raw) {
+                    localItems = LocalWorkflowStore.shared.list()
+                }
+            case .failure:
+                store.showToast("选择文件失败")
+            }
+        }
+        .alert(
+            "删除本地工作流",
+            isPresented: Binding(
+                get: { pendingDelete != nil },
+                set: { if !$0 { pendingDelete = nil } }
+            ),
+            presenting: pendingDelete,
+        ) { item in
+            Button("删除", role: .destructive) {
+                LocalWorkflowStore.shared.delete(path: item.path)
+                localItems = LocalWorkflowStore.shared.list()
+            }
+            Button("取消", role: .cancel) {}
+        } message: { item in
+            Text("只删除本机副本「\(item.name)」，不影响主机。")
+        }
+    }
+
+    /// 本地导入分区：在服务器目录之前，路径 local:// 与主机隔离。
+    @ViewBuilder
+    private var localSection: some View {
+        if !localItems.isEmpty {
+            Text("本地导入")
+                .font(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(palette.textDim)
+                .padding(.bottom, 1)
+            ForEach(localItems) { item in
+                HStack(spacing: 8) {
+                    Button {
+                        onOpen(item.path)
+                    } label: {
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(item.name)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(palette.text)
+                                    .lineLimit(1)
+                                Text("本机 · local://")
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(palette.textDim)
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 6)
+                            Image(systemName: "chevron.right")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(palette.textDim)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        pendingDelete = item
+                    } label: {
+                        Image(systemName: "trash")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(palette.err)
+                            .frame(width: 30, height: 30)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("删除 \(item.name)")
+                }
+                .glassCard(palette)
             }
         }
     }

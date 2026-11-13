@@ -576,8 +576,43 @@ final class SessionStore: ObservableObject {
               let bridge,
               let path = openedPath,
               openSentFor != path else { return }
-        bridge.send(["t": "workflow.open", "path": path])
+        if path.hasPrefix("local://") {
+            // 本地导入：原文来自沙盒，走 open_local（shared 不碰文件系统）。
+            guard let raw = LocalWorkflowStore.shared.read(path: path) else {
+                showToast("本地工作流读取失败")
+                return
+            }
+            bridge.send([
+                "t": "workflow.open_local",
+                "path": path,
+                "name": LocalWorkflowStore.shared.name(for: path) ?? "本地工作流",
+                "raw": raw,
+            ])
+        } else {
+            bridge.send(["t": "workflow.open", "path": path])
+        }
         openSentFor = path
+    }
+
+    /// 导入本地工作流：2 MB 上限 + JSON 对象校验（对齐 Android 的导入约束）。
+    /// 通过后存沙盒，路径 local://<uuid>。
+    @discardableResult
+    func importLocalWorkflow(name: String, raw: String) -> Bool {
+        if raw.utf8.count > LocalWorkflowStore.maxBytes {
+            showToast("文件太大（上限 2 MB）")
+            return false
+        }
+        guard let data = raw.data(using: .utf8),
+              (try? JSONSerialization.jsonObject(with: data)) is [String: Any] else {
+            showToast("不是有效的 ComfyUI 工作流 JSON")
+            return false
+        }
+        guard let item = LocalWorkflowStore.shared.save(name: name, raw: raw) else {
+            showToast("保存失败")
+            return false
+        }
+        showToast("已导入 \(item.name)")
+        return true
     }
 
     /// 重新向共享层要一份视图。改过参数后调用，让它按字段类型重算并回报问题。
