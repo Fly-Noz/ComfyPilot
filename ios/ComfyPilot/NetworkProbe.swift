@@ -70,7 +70,8 @@ enum NetworkProbe {
                 request.timeoutInterval = 15
                 let started = Date()
                 if let (data, response) = try? await URLSession.shared.data(for: request),
-                   (response as? HTTPURLResponse).map({ (200...299).contains($0.statusCode) }) ?? false,
+                   let http = response as? HTTPURLResponse,
+                   (200...299).contains(http.statusCode),
                    !data.isEmpty {
                     let seconds = max(0.001, Date().timeIntervalSince(started))
                     let bytes = min(data.count, 4 * 1024 * 1024)
