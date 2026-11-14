@@ -212,8 +212,31 @@ final class ComfyPilotUITests: XCTestCase {
         )
     }
 
-    // MARK: - 辅助
 
+    /// 设置页「数据」分区：导出 / 导入两个备份入口存在且可点
+    /// （与安卓、鸿蒙同位置；入口被误删时这条会红）。
+    func testSettingsBackupEntries() throws {
+        let app = launch(["-uiScreen", "settings"])
+
+        let exportButton = app.buttons["btnBackupExport"].firstMatch
+        XCTAssertTrue(
+            exportButton.waitForExistence(timeout: 20),
+            "设置页没有「导出本地备份」入口。界面树：\n\(app.debugDescription)"
+        )
+        scrollToHittable(exportButton, in: app)
+        XCTAssertTrue(
+            exportButton.isHittable,
+            "「导出本地备份」滚到可见后仍不可点。界面树：\n\(app.debugDescription)"
+        )
+
+        let importButton = app.buttons["btnBackupImport"].firstMatch
+        XCTAssertTrue(
+            importButton.exists,
+            "设置页没有「导入本地备份」入口。界面树：\n\(app.debugDescription)"
+        )
+    }
+
+    // MARK: - 辅助
     /// 切 mock 场景（XCUITest 进程与宿主共享网络栈，直接打 127.0.0.1:8188）。
     private func setMockScenario(_ name: String) {
         guard let url = URL(string: "http://127.0.0.1:8188/mock/scenario") else { return }
