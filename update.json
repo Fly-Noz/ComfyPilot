@@ -1,8 +1,8 @@
 {
-  "versionCode": 9,
-  "versionName": "0.3.5",
-  "publishedAt": "2026-11-08",
-  "notes": "• 主机状态展开后新增释放主机显存按钮\n• 诊断日志改为独立页面（双端）\n• 设置新增更新提醒自定义\n• 修复主机状态与诊断页的若干交互问题。",
+  "versionCode": 10,
+  "versionName": "0.3.6",
+  "publishedAt": "2026-11-14",
+  "notes": "• 三端统一 0.3.6：新增本地备份导出/导入\n• 本地工作流可从手机导入、标记与删除\n• iOS 补齐任务历史、通知、测速、显存释放等功能\n• 修复若干交互与稳定性问题。",
   "android": {
     "github": "https://github.com/Fly-Noz/ComfyPilot/releases/latest",
     "gitee": "https://gitee.com/Fly-Noz/ComfyPilot/releases"
