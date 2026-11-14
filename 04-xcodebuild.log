@@ -1,0 +1,370 @@
+Command line invocation:
+    /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/xcodebuild -project ComfyPilot.xcodeproj -scheme ComfyPilot -configuration Debug -destination id=4A57FB15-6E7C-49CC-BE93-450B18BD286E -derivedDataPath build CODE_SIGNING_ALLOWED=NO ENABLE_DEBUG_DYLIB=NO build
+
+Build settings from command line:
+    CODE_SIGNING_ALLOWED = NO
+    ENABLE_DEBUG_DYLIB = NO
+
+--- xcodebuild: WARNING: Using the first of multiple matching destinations:
+{ platform:iOS Simulator, arch:arm64, id:4A57FB15-6E7C-49CC-BE93-450B18BD286E, OS:18.5, name:iPhone 16 Pro }
+{ platform:iOS Simulator, arch:x86_64, id:4A57FB15-6E7C-49CC-BE93-450B18BD286E, OS:18.5, name:iPhone 16 Pro }
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (1 target)
+    Target 'ComfyPilot' in project 'ComfyPilot' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/actool --print-asset-tag-combinations --output-format xml1 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Assets.xcassets
+
+ExecuteExternalTool /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/actool --version --output-format xml1
+
+ExecuteExternalTool /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc --version
+
+ExecuteExternalTool /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+Build description signature: 5ea03586fb17fbcba98f8dffdda999bb
+Build description path: /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/XCBuildData/5ea03586fb17fbcba98f8dffdda999bb.xcbuilddata
+ClangStatCache /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/SDKStatCaches.noindex/iphonesimulator18.5-22F76-96ae0914227b19deccb34b33ba7b5dea.sdkstatcache
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot.xcodeproj
+    /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -o /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/SDKStatCaches.noindex/iphonesimulator18.5-22F76-96ae0914227b19deccb34b33ba7b5dea.sdkstatcache
+
+CreateBuildDirectory /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot.xcodeproj
+    builtin-create-build-directory /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products
+
+CreateBuildDirectory /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot.xcodeproj
+    builtin-create-build-directory /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot-4cf72a37eadd0cfa127e0d47b144dc93-VFS-iphonesimulator/all-product-headers.yaml
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot.xcodeproj
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot-4cf72a37eadd0cfa127e0d47b144dc93-VFS-iphonesimulator/all-product-headers.yaml
+
+CreateBuildDirectory /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot.xcodeproj
+    builtin-create-build-directory /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator
+
+CreateBuildDirectory /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot.xcodeproj
+    builtin-create-build-directory /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot_const_extract_protocols.json (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot_const_extract_protocols.json
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.SwiftFileList (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.SwiftFileList
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.SwiftConstValuesFileList (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.SwiftConstValuesFileList
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.LinkFileList (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.LinkFileList
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot-OutputFileMap.json (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot-OutputFileMap.json
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot.hmap (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot.hmap
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot.DependencyStaticMetadataFileList (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot.DependencyStaticMetadataFileList
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot.DependencyMetadataFileList (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot.DependencyMetadataFileList
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-project-headers.hmap (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-project-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-own-target-headers.hmap (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-own-target-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-generated-files.hmap (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-generated-files.hmap
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-all-target-headers.hmap (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-all-target-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-all-non-framework-target-headers.hmap (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-all-non-framework-target-headers.hmap
+
+MkDir /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /bin/mkdir -p /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app
+
+MkDir /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_output/thinned (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /bin/mkdir -p /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_output/thinned
+
+MkDir /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_output/unthinned (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /bin/mkdir -p /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_output/unthinned
+
+GenerateAssetSymbols /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Assets.xcassets (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/actool /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Assets.xcassets --compile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app --output-format human-readable-text --notices --warnings --export-dependency-info /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_dependencies --output-partial-info-plist /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_generated_info.plist --app-icon AppIcon --compress-pngs --enable-on-demand-resources YES --development-region en --target-device iphone --minimum-deployment-target 17.0 --platform iphonesimulator --bundle-identifier com.fly.comfypilot --generate-swift-asset-symbol-extensions NO --generate-swift-asset-symbols /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources/GeneratedAssetSymbols.swift --generate-objc-asset-symbols /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources/GeneratedAssetSymbols.h --generate-asset-symbol-index /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+/* com.apple.actool.compilation-results */
+/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources/GeneratedAssetSymbols.h
+/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources/GeneratedAssetSymbols.swift
+
+
+CopyPNGFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/preview.png /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Fixtures/preview.png (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/copypng -compress -strip-PNG-text /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Fixtures/preview.png /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/preview.png
+
+CompileAssetCatalogVariant thinned /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Assets.xcassets (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/actool /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Assets.xcassets --compile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_output/thinned --output-format human-readable-text --notices --warnings --export-dependency-info /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_dependencies_thinned --output-partial-info-plist /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_generated_info.plist_thinned --app-icon AppIcon --compress-pngs --enable-on-demand-resources YES --filter-for-thinning-device-configuration iPhone17,1 --filter-for-device-os-version 18.5 --development-region en --target-device iphone --minimum-deployment-target 17.0 --platform iphonesimulator
+/* com.apple.actool.compilation-results */
+/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_generated_info.plist_thinned
+/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_output/thinned/AppIcon60x60@2x.png
+/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_output/thinned/AppIcon76x76@2x~ipad.png
+/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_output/thinned/Assets.car
+
+
+SwiftDriver ComfyPilot normal arm64 com.apple.xcode.tools.swift.compiler (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-SwiftDriver -- /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name ComfyPilot -Onone -enforce-exclusivity\=checked @/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Index.noindex/DataStore -swift-version 5 -I /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F /Users/runner/work/ComfyPilot/ComfyPilot/shared/build/bin/iosSimulatorArm64/debugFramework -c -j3 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/SDKStatCaches.noindex/iphonesimulator18.5-22F76-96ae0914227b19deccb34b33ba7b5dea.sdkstatcache -output-file-map /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-generated-files.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-own-target-headers.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-project-headers.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources-normal/arm64 -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources/arm64 -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot-Swift.h -working-directory /Users/runner/work/ComfyPilot/ComfyPilot/ios -experimental-emit-module-separately -disable-cmo
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ ComfyPilot (in target 'ComfyPilot' from project 'ComfyPilot')
+EmitSwiftModule normal arm64 (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 Compiling\ AboutScreen.swift,\ App.swift,\ ArtifactViewer.swift,\ BackupManager.swift,\ BridgeHost.swift,\ DiagnosticsSheet.swift,\ ImageUploadPrep.swift,\ LaunchOptions.swift,\ LocalWorkflowStore.swift,\ NetworkProbe.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/AboutScreen.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/App.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/ArtifactViewer.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/BackupManager.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/BridgeHost.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/DiagnosticsSheet.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/ImageUploadPrep.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/LaunchOptions.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/LocalWorkflowStore.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/NetworkProbe.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/AboutScreen.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/App.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/ArtifactViewer.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/BackupManager.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/BridgeHost.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/DiagnosticsSheet.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/ImageUploadPrep.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/LaunchOptions.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/LocalWorkflowStore.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/NetworkProbe.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 Compiling\ TaskNotifier.swift,\ TaskPersistence.swift,\ Theme.swift,\ UpdateSheet.swift,\ UpdateStore.swift,\ WorkflowDraft.swift,\ WorkflowModels.swift,\ WorkflowScreen.swift,\ GeneratedAssetSymbols.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/TaskNotifier.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/TaskPersistence.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Theme.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/UpdateSheet.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/UpdateStore.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/WorkflowDraft.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/WorkflowModels.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/WorkflowScreen.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources/GeneratedAssetSymbols.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/TaskNotifier.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/TaskPersistence.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Theme.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/UpdateSheet.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/UpdateStore.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/WorkflowDraft.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/WorkflowModels.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/WorkflowScreen.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources/GeneratedAssetSymbols.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+LinkAssetCatalog /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Assets.xcassets (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-linkAssetCatalog --thinned /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_output/thinned --thinned-dependencies /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_dependencies_thinned --thinned-info-plist-content /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_generated_info.plist_thinned --unthinned /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_output/unthinned --unthinned-dependencies /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_dependencies_unthinned --unthinned-info-plist-content /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_generated_info.plist_unthinned --output /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app --plist-output /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_generated_info.plist
+note: Emplaced /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/Assets.car (in target 'ComfyPilot' from project 'ComfyPilot')
+note: Emplaced /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/AppIcon60x60@2x.png (in target 'ComfyPilot' from project 'ComfyPilot')
+note: Emplaced /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/AppIcon76x76@2x~ipad.png (in target 'ComfyPilot' from project 'ComfyPilot')
+
+SwiftDriverJobDiscovery normal arm64 Emitting module for ComfyPilot (in target 'ComfyPilot' from project 'ComfyPilot')
+
+SwiftDriver\ Compilation\ Requirements ComfyPilot normal arm64 com.apple.xcode.tools.swift.compiler (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name ComfyPilot -Onone -enforce-exclusivity\=checked @/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Index.noindex/DataStore -swift-version 5 -I /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F /Users/runner/work/ComfyPilot/ComfyPilot/shared/build/bin/iosSimulatorArm64/debugFramework -c -j3 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/SDKStatCaches.noindex/iphonesimulator18.5-22F76-96ae0914227b19deccb34b33ba7b5dea.sdkstatcache -output-file-map /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-generated-files.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-own-target-headers.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-project-headers.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources-normal/arm64 -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources/arm64 -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot-Swift.h -working-directory /Users/runner/work/ComfyPilot/ComfyPilot/ios -experimental-emit-module-separately -disable-cmo
+
+ProcessInfoPlistFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/Info.plist /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Info.plist (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-infoPlistUtility /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Info.plist -producttype com.apple.product-type.application -genpkginfo /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/PkgInfo -expandbuildsettings -format binary -platform iphonesimulator -additionalcontentfile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_generated_info.plist -o /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/Info.plist
+
+SwiftMergeGeneratedHeaders /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources/ComfyPilot-Swift.h /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot-Swift.h (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-swiftHeaderTool -arch arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot-Swift.h -o /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources/ComfyPilot-Swift.h
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.swiftmodule/arm64-apple-ios-simulator.swiftmodule /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.swiftmodule (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.swiftmodule /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.swiftmodule/arm64-apple-ios-simulator.swiftmodule
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.swiftmodule/arm64-apple-ios-simulator.swiftdoc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.swiftdoc (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.swiftdoc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.swiftmodule/arm64-apple-ios-simulator.swiftdoc
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.swiftmodule/arm64-apple-ios-simulator.abi.json /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.abi.json (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.abi.json /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.swiftmodule/arm64-apple-ios-simulator.abi.json
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.swiftsourceinfo (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.swiftsourceinfo /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo
+
+SwiftCompile normal arm64 Compiling\ NodeGraphSheet.swift,\ PhotoSaver.swift,\ PinnedWorkflows.swift,\ Prefs.swift,\ PreviewPane.swift,\ Screens.swift,\ SeedModes.swift,\ ServerStatsStrip.swift,\ SessionStore.swift,\ ShareSheet.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/NodeGraphSheet.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/PhotoSaver.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/PinnedWorkflows.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Prefs.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/PreviewPane.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Screens.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/SeedModes.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/ServerStatsStrip.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/SessionStore.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/ShareSheet.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/NodeGraphSheet.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/PhotoSaver.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/PinnedWorkflows.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Prefs.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/PreviewPane.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Screens.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/SeedModes.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/ServerStatsStrip.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/SessionStore.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+/Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/SessionStore.swift:751:69: warning: capture of 'bridge' with non-sendable type 'BridgeHost' in a '@Sendable' closure
+                guard self.openedPath == startPath, self.bridge === bridge else { return }
+                                                                    ^
+/Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/BridgeHost.swift:10:13: note: class 'BridgeHost' does not conform to the 'Sendable' protocol
+final class BridgeHost {
+            ^
+
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/ShareSheet.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftDriverJobDiscovery normal arm64 Compiling TaskNotifier.swift, TaskPersistence.swift, Theme.swift, UpdateSheet.swift, UpdateStore.swift, WorkflowDraft.swift, WorkflowModels.swift, WorkflowScreen.swift, GeneratedAssetSymbols.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+
+SwiftDriverJobDiscovery normal arm64 Compiling NodeGraphSheet.swift, PhotoSaver.swift, PinnedWorkflows.swift, Prefs.swift, PreviewPane.swift, Screens.swift, SeedModes.swift, ServerStatsStrip.swift, SessionStore.swift, ShareSheet.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+
+SwiftDriverJobDiscovery normal arm64 Compiling AboutScreen.swift, App.swift, ArtifactViewer.swift, BackupManager.swift, BridgeHost.swift, DiagnosticsSheet.swift, ImageUploadPrep.swift, LaunchOptions.swift, LocalWorkflowStore.swift, NetworkProbe.swift (in target 'ComfyPilot' from project 'ComfyPilot')
+
+SwiftDriver\ Compilation ComfyPilot normal arm64 com.apple.xcode.tools.swift.compiler (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-Swift-Compilation -- /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name ComfyPilot -Onone -enforce-exclusivity\=checked @/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.SwiftFileList -DDEBUG -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Index.noindex/DataStore -swift-version 5 -I /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F /Users/runner/work/ComfyPilot/ComfyPilot/shared/build/bin/iosSimulatorArm64/debugFramework -c -j3 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/SDKStatCaches.noindex/iphonesimulator18.5-22F76-96ae0914227b19deccb34b33ba7b5dea.sdkstatcache -output-file-map /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-generated-files.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-own-target-headers.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-project-headers.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources-normal/arm64 -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources/arm64 -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot-Swift.h -working-directory /Users/runner/work/ComfyPilot/ComfyPilot/ios -experimental-emit-module-separately -disable-cmo
+
+Ld /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/ComfyPilot normal (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -isysroot /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -O0 -L/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -L/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -F/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F/Users/runner/work/ComfyPilot/ComfyPilot/shared/build/bin/iosSimulatorArm64/debugFramework -filelist /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.LinkFileList -Xlinker -rpath -Xlinker @executable_path/Frameworks -dead_strip -Xlinker -object_path_lto -Xlinker /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.swiftmodule -framework ComfyCore -o /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/ComfyPilot
+
+CopySwiftLibs /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/ComfyPilot --scan-folder /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/Frameworks --scan-folder /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/PlugIns --scan-folder /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/SystemExtensions --scan-folder /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/Extensions --platform iphonesimulator --toolchain /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/Frameworks --strip-bitcode --strip-bitcode-tool /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+Ignoring --strip-bitcode because --sign was not passed
+
+ExtractAppIntentsMetadata (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name ComfyPilot --sdk-root /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk --xcode-version 16F6 --platform-family iOS --deployment-target 17.0 --bundle-identifier com.fly.comfypilot --output /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app --target-triple arm64-apple-ios17.0-simulator --binary-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/ComfyPilot --dependency-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot_dependency_info.dat --stringsdata-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.SwiftFileList --metadata-file-list /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot.DependencyMetadataFileList --static-metadata-file-list /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot.DependencyStaticMetadataFileList --swift-const-vals-list /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-11-14 03:51:24.938 appintentsmetadataprocessor[9002:29007] Starting appintentsmetadataprocessor export
+2026-11-14 03:51:24.948 appintentsmetadataprocessor[9002:29007] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+AppIntentsSSUTraining (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsnltrainingprocessor --infoplist-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/Info.plist --temp-dir-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ssu --bundle-id com.fly.comfypilot --product-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app --extracted-metadata-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/Metadata.appintents --metadata-file-list /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot.DependencyMetadataFileList --archive-ssu-assets
+2026-11-14 03:51:24.985 appintentsnltrainingprocessor[9003:29016] Parsing options for appintentsnltrainingprocessor
+2026-11-14 03:51:24.988 appintentsnltrainingprocessor[9003:29016] No AppShortcuts found - Skipping.
+
+RegisterExecutionPolicyException /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-RegisterExecutionPolicyException /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app
+
+Validate /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-validationUtility /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app -infoplist-subpath Info.plist
+
+Touch /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /usr/bin/touch -c /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app
+
+** BUILD SUCCEEDED **
+

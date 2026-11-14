@@ -1,0 +1,2 @@
+mock ComfyUI listening on http://0.0.0.0:8188 (ws://0.0.0.0:8188/ws?clientId=demo)
+scenario=normal; POST /mock/scenario {"scenario":"normal|error|silent|lost|slow"}

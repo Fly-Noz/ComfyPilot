@@ -1,0 +1,595 @@
+Command line invocation:
+    /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/xcodebuild test -project ComfyPilot.xcodeproj -scheme ComfyPilot -destination id=4A57FB15-6E7C-49CC-BE93-450B18BD286E -derivedDataPath build CODE_SIGNING_ALLOWED=NO "-only-testing:ComfyPilotUITests"
+
+Build settings from command line:
+    CODE_SIGNING_ALLOWED = NO
+
+--- xcodebuild: WARNING: Using the first of multiple matching destinations:
+{ platform:iOS Simulator, arch:arm64, id:4A57FB15-6E7C-49CC-BE93-450B18BD286E, OS:18.5, name:iPhone 16 Pro }
+{ platform:iOS Simulator, arch:x86_64, id:4A57FB15-6E7C-49CC-BE93-450B18BD286E, OS:18.5, name:iPhone 16 Pro }
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (2 targets)
+    Target 'ComfyPilotUITests' in project 'ComfyPilot'
+        ➜ Explicit dependency on target 'ComfyPilot' in project 'ComfyPilot'
+    Target 'ComfyPilot' in project 'ComfyPilot' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/actool --print-asset-tag-combinations --output-format xml1 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Assets.xcassets
+
+ExecuteExternalTool /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc --version
+
+ExecuteExternalTool /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+ExecuteExternalTool /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/actool --version --output-format xml1
+
+Build description signature: 3b17e110a5cd3595405b436e8aa6315f
+Build description path: /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/XCBuildData/3b17e110a5cd3595405b436e8aa6315f.xcbuilddata
+ClangStatCache /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/SDKStatCaches.noindex/iphonesimulator18.5-22F76-96ae0914227b19deccb34b33ba7b5dea.sdkstatcache
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot.xcodeproj
+    /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -o /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/SDKStatCaches.noindex/iphonesimulator18.5-22F76-96ae0914227b19deccb34b33ba7b5dea.sdkstatcache
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-DebugDylibPath-normal-arm64.txt (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-DebugDylibPath-normal-arm64.txt
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-DebugDylibInstallName-normal-arm64.txt (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-DebugDylibInstallName-normal-arm64.txt
+
+Ld /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/__preview.dylib normal (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -dynamiclib -isysroot /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -O0 -L/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F/Users/runner/work/ComfyPilot/ComfyPilot/shared/build/bin/iosSimulatorArm64/debugFramework -install_name @rpath/ComfyPilot.debug.dylib -dead_strip -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot_dependency_info.dat -o /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/__preview.dylib
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/empty-ComfyPilotUITests.plist (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/empty-ComfyPilotUITests.plist
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ProductTypeInfoPlistAdditions.plist (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ProductTypeInfoPlistAdditions.plist
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests_const_extract_protocols.json (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests_const_extract_protocols.json
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.SwiftFileList (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.SwiftFileList
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.SwiftConstValuesFileList (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.SwiftConstValuesFileList
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.LinkFileList (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.LinkFileList
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests-OutputFileMap.json (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests-OutputFileMap.json
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests.hmap (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests.hmap
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests.DependencyStaticMetadataFileList (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests.DependencyStaticMetadataFileList
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests.DependencyMetadataFileList (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests.DependencyMetadataFileList
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-project-headers.hmap (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-project-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-own-target-headers.hmap (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-own-target-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-generated-files.hmap (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-generated-files.hmap
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-all-target-headers.hmap (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-all-target-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-all-non-framework-target-headers.hmap (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    write-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-all-non-framework-target-headers.hmap
+
+MkDir /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /bin/mkdir -p /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest
+
+ProcessInfoPlistFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/Info.plist /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Info.plist (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-infoPlistUtility /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilot/Info.plist -producttype com.apple.product-type.application -genpkginfo /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/PkgInfo -expandbuildsettings -format binary -platform iphonesimulator -additionalcontentfile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/assetcatalog_generated_info.plist -o /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/Info.plist
+
+Ld /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/ComfyPilot.debug.dylib normal (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -dynamiclib -isysroot /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -O0 -L/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -L/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -F/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F/Users/runner/work/ComfyPilot/ComfyPilot/shared/build/bin/iosSimulatorArm64/debugFramework -filelist /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.LinkFileList -install_name @rpath/ComfyPilot.debug.dylib -Xlinker -rpath -Xlinker @executable_path/Frameworks -dead_strip -Xlinker -object_path_lto -Xlinker /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.swiftmodule -framework ComfyCore -Xlinker -alias -Xlinker _main -Xlinker ___debug_main_executable_dylib_entry_point -o /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/ComfyPilot.debug.dylib
+
+SwiftDriver ComfyPilotUITests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-SwiftDriver -- /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name ComfyPilotUITests -Onone -enforce-exclusivity\=checked @/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.SwiftFileList -DDEBUG -module-alias Testing\=_Testing_Unavailable -plugin-path /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Index.noindex/DataStore -swift-version 5 -I /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -I /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -F /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk/Developer/Library/Frameworks -parse-as-library -c -j3 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/SDKStatCaches.noindex/iphonesimulator18.5-22F76-96ae0914227b19deccb34b33ba7b5dea.sdkstatcache -output-file-map /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-generated-files.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-own-target-headers.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-project-headers.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/DerivedSources-normal/arm64 -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/DerivedSources/arm64 -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests-Swift.h -working-directory /Users/runner/work/ComfyPilot/ComfyPilot/ios -experimental-emit-module-separately -disable-cmo
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ ComfyPilotUITests (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilotUITests/ComfyPilotUITests.swift (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+SwiftCompile normal arm64 Compiling\ ComfyPilotUITests.swift /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilotUITests/ComfyPilotUITests.swift (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+SwiftCompile normal arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/ComfyPilotUITests/ComfyPilotUITests.swift (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    
+
+ConstructStubExecutorLinkFileList /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-ExecutorLinkFileList-normal-arm64.txt (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    construct-stub-executor-link-file-list /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/ComfyPilot.debug.dylib /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libPreviewsJITStubExecutor_no_swift_entry_point.a /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libPreviewsJITStubExecutor.a --output /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-ExecutorLinkFileList-normal-arm64.txt
+note: Using stub executor library with Swift entry point. (in target 'ComfyPilot' from project 'ComfyPilot')
+
+Ld /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/ComfyPilot normal (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -isysroot /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -O0 -L/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F/Users/runner/work/ComfyPilot/ComfyPilot/shared/build/bin/iosSimulatorArm64/debugFramework -Xlinker -rpath -Xlinker @executable_path -Xlinker -rpath -Xlinker @executable_path/Frameworks -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -e ___debug_blank_executor_main -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_dylib -Xlinker /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-DebugDylibPath-normal-arm64.txt -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __debug_instlnm -Xlinker /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-DebugDylibInstallName-normal-arm64.txt -Xlinker -filelist -Xlinker /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot-ExecutorLinkFileList-normal-arm64.txt /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/ComfyPilot.debug.dylib -o /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/ComfyPilot
+
+ExtractAppIntentsMetadata (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name ComfyPilot --sdk-root /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk --xcode-version 16F6 --platform-family iOS --deployment-target 17.0 --bundle-identifier com.fly.comfypilot --output /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app --target-triple arm64-apple-ios17.0-simulator --binary-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/ComfyPilot --dependency-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot_dependency_info.dat --stringsdata-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.SwiftFileList --metadata-file-list /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot.DependencyMetadataFileList --static-metadata-file-list /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/ComfyPilot.DependencyStaticMetadataFileList --swift-const-vals-list /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/Objects-normal/arm64/ComfyPilot.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-11-14 04:00:33.536 appintentsmetadataprocessor[30394:83657] Starting appintentsmetadataprocessor export
+2026-11-14 04:00:33.565 appintentsmetadataprocessor[30394:83657] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+CopySwiftLibs /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app (in target 'ComfyPilot' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/ComfyPilot.debug.dylib --scan-folder /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/Frameworks --scan-folder /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/PlugIns --scan-folder /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/SystemExtensions --scan-folder /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/Extensions --platform iphonesimulator --toolchain /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilot.app/Frameworks --strip-bitcode --strip-bitcode-tool /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilot.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+Ignoring --strip-bitcode because --sign was not passed
+
+ProcessInfoPlistFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest/Info.plist /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/empty-ComfyPilotUITests.plist (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-infoPlistUtility /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/empty-ComfyPilotUITests.plist -producttype com.apple.product-type.bundle.ui-testing -expandbuildsettings -format binary -platform iphonesimulator -additionalcontentfile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ProductTypeInfoPlistAdditions.plist -o /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest/Info.plist
+
+SwiftDriverJobDiscovery normal arm64 Emitting module for ComfyPilotUITests (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+
+SwiftDriver\ Compilation\ Requirements ComfyPilotUITests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name ComfyPilotUITests -Onone -enforce-exclusivity\=checked @/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.SwiftFileList -DDEBUG -module-alias Testing\=_Testing_Unavailable -plugin-path /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Index.noindex/DataStore -swift-version 5 -I /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -I /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -F /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk/Developer/Library/Frameworks -parse-as-library -c -j3 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/SDKStatCaches.noindex/iphonesimulator18.5-22F76-96ae0914227b19deccb34b33ba7b5dea.sdkstatcache -output-file-map /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-generated-files.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-own-target-headers.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-project-headers.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/DerivedSources-normal/arm64 -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/DerivedSources/arm64 -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests-Swift.h -working-directory /Users/runner/work/ComfyPilot/ComfyPilot/ios -experimental-emit-module-separately -disable-cmo
+
+SwiftMergeGeneratedHeaders /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/DerivedSources/ComfyPilotUITests-Swift.h /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests-Swift.h (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-swiftHeaderTool -arch arm64 /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests-Swift.h -o /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/DerivedSources/ComfyPilotUITests-Swift.h
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests.swiftmodule/arm64-apple-ios-simulator.swiftmodule /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.swiftmodule (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.swiftmodule /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests.swiftmodule/arm64-apple-ios-simulator.swiftmodule
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests.swiftmodule/arm64-apple-ios-simulator.swiftdoc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.swiftdoc (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.swiftdoc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests.swiftmodule/arm64-apple-ios-simulator.swiftdoc
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests.swiftmodule/arm64-apple-ios-simulator.abi.json /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.abi.json (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.abi.json /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests.swiftmodule/arm64-apple-ios-simulator.abi.json
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.swiftsourceinfo (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.swiftsourceinfo /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests.swiftmodule/Project/arm64-apple-ios-simulator.swiftsourceinfo
+
+SwiftDriverJobDiscovery normal arm64 Compiling ComfyPilotUITests.swift (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+
+SwiftDriver\ Compilation ComfyPilotUITests normal arm64 com.apple.xcode.tools.swift.compiler (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-Swift-Compilation -- /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name ComfyPilotUITests -Onone -enforce-exclusivity\=checked @/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.SwiftFileList -DDEBUG -module-alias Testing\=_Testing_Unavailable -plugin-path /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -target arm64-apple-ios17.0-simulator -g -module-cache-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -enable-testing -index-store-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Index.noindex/DataStore -swift-version 5 -I /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -I /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -F /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -F /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk/Developer/Library/Frameworks -parse-as-library -c -j3 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/SDKStatCaches.noindex/iphonesimulator18.5-22F76-96ae0914227b19deccb34b33ba7b5dea.sdkstatcache -output-file-map /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-generated-files.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-own-target-headers.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests-project-headers.hmap -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/include -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/DerivedSources-normal/arm64 -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/DerivedSources/arm64 -Xcc -I/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/DerivedSources -Xcc -DDEBUG\=1 -emit-objc-header -emit-objc-header-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests-Swift.h -working-directory /Users/runner/work/ComfyPilot/ComfyPilot/ios -experimental-emit-module-separately -disable-cmo
+
+Ld /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest/ComfyPilotUITests normal (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios17.0-simulator -bundle -isysroot /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk -O0 -L/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -L/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -L/Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib -F/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Debug-iphonesimulator -F/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator -iframework /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks -iframework /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk/Developer/Library/Frameworks -filelist /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.LinkFileList -Xlinker -rpath -Xlinker @loader_path/Frameworks -Xlinker -rpath -Xlinker @executable_path/Frameworks -dead_strip -Xlinker -object_path_lto -Xlinker /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests_lto.o -rdynamic -Xlinker -no_deduplicate -Xlinker -objc_abi_version -Xlinker 2 -Xlinker -dependency_info -Xlinker /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphonesimulator -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.swiftmodule -framework XCTest -lXCTestSwiftSupport -o /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest/ComfyPilotUITests
+
+CopySwiftLibs /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-swiftStdLibTool --copy --verbose --scan-executable /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest/ComfyPilotUITests --scan-folder /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest/Frameworks --scan-folder /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest/PlugIns --scan-folder /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest/SystemExtensions --scan-folder /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest/Extensions --platform iphonesimulator --toolchain /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest/Frameworks --strip-bitcode --scan-executable /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib --strip-bitcode-tool /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os
+Ignoring --strip-bitcode because --sign was not passed
+
+ExtractAppIntentsMetadata (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name ComfyPilotUITests --sdk-root /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator18.5.sdk --xcode-version 16F6 --platform-family iOS --deployment-target 17.0 --bundle-identifier com.fly.comfypilot.uitests --output /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest --target-triple arm64-apple-ios17.0-simulator --binary-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest/ComfyPilotUITests --dependency-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests_dependency_info.dat --stringsdata-file /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.SwiftFileList --metadata-file-list /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests.DependencyMetadataFileList --static-metadata-file-list /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests.DependencyStaticMetadataFileList --swift-const-vals-list /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/Objects-normal/arm64/ComfyPilotUITests.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --validate-assistant-intents --no-app-shortcuts-localization
+2026-11-14 04:00:47.927 appintentsmetadataprocessor[31115:85567] Starting appintentsmetadataprocessor export
+2026-11-14 04:00:47.931 appintentsmetadataprocessor[31115:85567] warning: Metadata extraction skipped. No AppIntents.framework dependency found.
+
+AppIntentsSSUTraining (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsnltrainingprocessor --infoplist-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest/Info.plist --temp-dir-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ssu --bundle-id com.fly.comfypilot.uitests --product-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest --extracted-metadata-path /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest/Metadata.appintents --metadata-file-list /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Intermediates.noindex/ComfyPilot.build/Debug-iphonesimulator/ComfyPilotUITests.build/ComfyPilotUITests.DependencyMetadataFileList --archive-ssu-assets
+2026-11-14 04:00:48.002 appintentsnltrainingprocessor[31116:85571] Parsing options for appintentsnltrainingprocessor
+2026-11-14 04:00:48.005 appintentsnltrainingprocessor[31116:85571] No AppShortcuts found - Skipping.
+
+MkDir /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /bin/mkdir -p /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app
+
+CopyAndPreserveArchs /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/ComfyPilotUITests-Runner (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/lipo /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/XCTRunner -output /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/ComfyPilotUITests-Runner -extract arm64
+
+CopyPlistFile /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Info.plist /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/Info.plist (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copyPlist --validate --convert xml1 --macro-expansion WRAPPEDPRODUCTNAME ComfyPilotUITests-Runner --macro-expansion WRAPPEDPRODUCTBUNDLEIDENTIFIER com.fly.comfypilot.uitests.xctrunner --macro-expansion TESTPRODUCTNAME ComfyPilotUITests --macro-expansion TESTPRODUCTBUNDLEIDENTIFIER com.fly.comfypilot.uitests --copy-value UIDeviceFamily /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest/Info.plist --outdir /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app -- /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/Info.plist
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PkgInfo /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/PkgInfo (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Xcode/Agents/XCTRunner.app/PkgInfo /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks/libXCTestSwiftSupport.dylib /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/usr/lib/libXCTestSwiftSupport.dylib /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks/XCUnit.framework /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCUnit.framework /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks/XCUIAutomation.framework /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCUIAutomation.framework (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCUIAutomation.framework /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks/XCTestSupport.framework /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestSupport.framework /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks/XCTestCore.framework /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTestCore.framework /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks/XCTest.framework /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCTest.framework (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/XCTest.framework /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks/XCTAutomationSupport.framework /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/PrivateFrameworks/XCTAutomationSupport.framework /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks
+
+Copy /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks/Testing.framework /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/Testing.framework (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -exclude Headers -exclude PrivateHeaders -exclude Modules -exclude \*.tbd -resolve-src-symlinks /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/Library/Frameworks/Testing.framework /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/Frameworks
+
+RegisterExecutionPolicyException /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    builtin-RegisterExecutionPolicyException /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest
+
+Touch /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest (in target 'ComfyPilotUITests' from project 'ComfyPilot')
+    cd /Users/runner/work/ComfyPilot/ComfyPilot/ios
+    /usr/bin/touch -c /Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Build/Products/Debug-iphonesimulator/ComfyPilotUITests-Runner.app/PlugIns/ComfyPilotUITests.xctest
+
+2026-11-14 04:01:06.004846+0000 ComfyPilotUITests-Runner[31649:87150] [Default] Running tests...
+    t =      nans Interface orientation changed to Portrait
+Test Suite 'All tests' started at 2026-11-14 04:01:15.527.
+Test Suite 'ComfyPilotUITests.xctest' started at 2026-11-14 04:01:15.528.
+Test Suite 'ComfyPilotUITests' started at 2026-11-14 04:01:15.528.
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testAboutPage]' started.
+    t =     0.00s Start Test at 2026-11-14 04:01:15.529
+    t =     1.36s Set Up
+    t =     1.38s Open com.fly.comfypilot
+    t =     1.38s     Launch com.fly.comfypilot
+    t =     1.38s         Terminate com.fly.comfypilot:29064
+    t =     5.83s         Setting up automation session
+    t =     6.88s         Wait for com.fly.comfypilot to idle
+    t =    10.02s Waiting 20.0s for StaticText (First Match) to exist
+    t =    11.07s     Checking `Expect predicate `existsNoRetry == 1` for object StaticText (First Match)`
+    t =    11.07s         Checking existence of `StaticText (First Match)`
+    t =    11.27s Waiting 10.0s for Button (First Match) to exist
+    t =    12.29s     Checking `Expect predicate `existsNoRetry == 1` for object Button (First Match)`
+    t =    12.29s         Checking existence of `Button (First Match)`
+    t =    12.41s Tap Button (First Match)
+    t =    12.41s     Wait for com.fly.comfypilot to idle
+    t =    12.42s     Find the Button (First Match)
+    t =    12.56s     Check for interrupting elements affecting "开源许可证、GPL-3.0" Button
+    t =    12.63s     Synthesize event
+    t =    13.06s     Wait for com.fly.comfypilot to idle
+    t =    13.47s Waiting 10.0s for "开源许可证" StaticText to exist
+    t =    14.49s     Checking `Expect predicate `existsNoRetry == 1` for object "开源许可证" StaticText`
+    t =    14.49s         Checking existence of `"开源许可证" StaticText`
+    t =    14.58s Waiting 8.0s for "关闭" Button to exist
+    t =    15.63s     Checking `Expect predicate `existsNoRetry == 1` for object "关闭" Button`
+    t =    15.63s         Checking existence of `"关闭" Button`
+    t =    15.70s Tap "关闭" Button
+    t =    15.70s     Wait for com.fly.comfypilot to idle
+    t =    15.71s     Find the "关闭" Button
+    t =    15.78s     Check for interrupting elements affecting "关闭" Button
+    t =    15.83s     Synthesize event
+    t =    16.13s     Wait for com.fly.comfypilot to idle
+    t =    16.47s Waiting 10.0s for "返回" Button to exist
+    t =    17.52s     Checking `Expect predicate `existsNoRetry == 1` for object "返回" Button`
+    t =    17.52s         Checking existence of `"返回" Button`
+    t =    17.55s Tap "返回" Button[0.50, 0.50]
+    t =    17.55s     Wait for com.fly.comfypilot to idle
+    t =    17.56s     Find the "返回" Button
+    t =    17.58s     Check for interrupting elements affecting "返回" Button
+    t =    17.63s     Synthesize event
+    t =    17.63s         Find the "返回" Button
+    t =    17.65s         Find the "返回" Button
+    t =    17.69s         Find the "返回" Button
+    t =    18.00s     Wait for com.fly.comfypilot to idle
+    t =    18.32s Tear Down
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testAboutPage]' passed (18.655 seconds).
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testConnectAndOpenWorkflow]' started.
+    t =     0.00s Start Test at 2026-11-14 04:01:34.184
+    t =     0.04s Set Up
+    t =     0.04s Open com.fly.comfypilot
+    t =     0.04s     Launch com.fly.comfypilot
+    t =     0.04s         Terminate com.fly.comfypilot:32162
+    t =     1.60s         Setting up automation session
+    t =     2.95s         Wait for com.fly.comfypilot to idle
+    t =     4.66s Waiting 30.0s for "选择工作流" Button to exist
+    t =     5.71s     Checking `Expect predicate `existsNoRetry == 1` for object "选择工作流" Button`
+    t =     5.71s         Checking existence of `"选择工作流" Button`
+    t =     5.78s Tap "选择工作流" Button
+    t =     5.78s     Wait for com.fly.comfypilot to idle
+    t =     5.82s     Find the "选择工作流" Button
+    t =     5.90s     Check for interrupting elements affecting "选择工作流" Button
+    t =     5.94s     Synthesize event
+    t =     6.28s     Wait for com.fly.comfypilot to idle
+    t =     6.32s Waiting 20.0s for "demo_ui.json" Button to exist
+    t =     7.32s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =     7.32s         Checking existence of `"demo_ui.json" Button`
+    t =     7.44s         Capturing element debug description
+    t =     8.37s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =     8.37s         Checking existence of `"demo_ui.json" Button`
+    t =     8.47s         Capturing element debug description
+    t =     9.39s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =     9.39s         Checking existence of `"demo_ui.json" Button`
+    t =     9.54s         Capturing element debug description
+    t =    10.35s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    10.36s         Checking existence of `"demo_ui.json" Button`
+    t =    10.50s         Capturing element debug description
+    t =    11.32s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    11.32s         Checking existence of `"demo_ui.json" Button`
+    t =    11.48s         Capturing element debug description
+    t =    12.32s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    12.32s         Checking existence of `"demo_ui.json" Button`
+    t =    12.50s         Capturing element debug description
+    t =    13.32s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    13.32s         Checking existence of `"demo_ui.json" Button`
+    t =    13.59s         Capturing element debug description
+    t =    14.32s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    14.32s         Checking existence of `"demo_ui.json" Button`
+    t =    14.49s         Capturing element debug description
+    t =    15.34s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    15.34s         Checking existence of `"demo_ui.json" Button`
+    t =    15.56s         Capturing element debug description
+    t =    16.37s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    16.37s         Checking existence of `"demo_ui.json" Button`
+    t =    16.51s         Capturing element debug description
+    t =    17.36s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    17.37s         Checking existence of `"demo_ui.json" Button`
+    t =    17.61s         Capturing element debug description
+    t =    18.35s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    18.36s         Checking existence of `"demo_ui.json" Button`
+    t =    18.54s         Capturing element debug description
+    t =    19.37s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    19.37s         Checking existence of `"demo_ui.json" Button`
+    t =    19.54s         Capturing element debug description
+    t =    20.37s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    20.38s         Checking existence of `"demo_ui.json" Button`
+    t =    20.63s         Capturing element debug description
+    t =    21.37s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    21.37s         Checking existence of `"demo_ui.json" Button`
+    t =    21.49s         Capturing element debug description
+    t =    22.32s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    22.32s         Checking existence of `"demo_ui.json" Button`
+    t =    22.43s         Capturing element debug description
+    t =    23.35s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    23.36s         Checking existence of `"demo_ui.json" Button`
+    t =    23.51s         Capturing element debug description
+    t =    24.32s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    24.32s         Checking existence of `"demo_ui.json" Button`
+    t =    24.43s         Capturing element debug description
+    t =    25.32s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    25.32s         Checking existence of `"demo_ui.json" Button`
+    t =    25.46s         Capturing element debug description
+    t =    26.32s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" Button`
+    t =    26.33s         Checking existence of `"demo_ui.json" Button`
+    t =    26.63s         Capturing element debug description
+    t =    26.63s     Checking existence of `"demo_ui.json" Button`
+    t =    26.87s Collecting debug information to assist test failure triage
+    t =    26.88s     Requesting snapshot of accessibility hierarchy for app with pid 33231
+    t =    27.02s Waiting 10.0s for "demo_ui.json" StaticText to exist
+    t =    28.02s     Checking `Expect predicate `existsNoRetry == 1` for object "demo_ui.json" StaticText`
+    t =    28.02s         Checking existence of `"demo_ui.json" StaticText`
+    t =    28.14s Tap "demo_ui.json" StaticText
+    t =    28.14s     Wait for com.fly.comfypilot to idle
+    t =    28.14s     Find the "demo_ui.json" StaticText
+    t =    28.24s     Check for interrupting elements affecting "demo_ui.json" StaticText
+    t =    28.31s     Synthesize event
+    t =    28.76s     Wait for com.fly.comfypilot to idle
+    t =    28.78s Waiting 30.0s for "提交任务" Button to exist
+    t =    29.82s     Checking `Expect predicate `existsNoRetry == 1` for object "提交任务" Button`
+    t =    29.83s         Checking existence of `"提交任务" Button`
+    t =    30.42s Tear Down
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testConnectAndOpenWorkflow]' passed (30.750 seconds).
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testNodeGraphFromBottomBar]' started.
+    t =     0.00s Start Test at 2026-11-14 04:02:04.934
+    t =     0.05s Set Up
+    t =     0.05s Open com.fly.comfypilot
+    t =     0.05s     Launch com.fly.comfypilot
+    t =     0.05s         Terminate com.fly.comfypilot:33231
+    t =     2.03s         Setting up automation session
+    t =     3.72s         Wait for com.fly.comfypilot to idle
+    t =     5.33s Waiting 40.0s for "btnNodeGraph" Button to exist
+    t =     6.37s     Checking `Expect predicate `existsNoRetry == 1` for object "btnNodeGraph" Button`
+    t =     6.37s         Checking existence of `"btnNodeGraph" Button`
+    t =     6.49s Tap "btnNodeGraph" Button
+    t =     6.49s     Wait for com.fly.comfypilot to idle
+    t =     6.53s     Find the "btnNodeGraph" Button
+    t =     6.76s     Check for interrupting elements affecting "btnNodeGraph" Button
+    t =     6.92s     Synthesize event
+    t =     7.44s     Wait for com.fly.comfypilot to idle
+    t =     7.95s Waiting 15.0s for "节点图" StaticText to exist
+    t =     9.01s     Checking `Expect predicate `existsNoRetry == 1` for object "节点图" StaticText`
+    t =     9.01s         Checking existence of `"节点图" StaticText`
+    t =     9.17s Tear Down
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testNodeGraphFromBottomBar]' passed (9.604 seconds).
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testRunningTaskSurvivesRelaunch]' started.
+    t =     0.00s Start Test at 2026-11-14 04:02:14.542
+    t =     0.08s Set Up
+    t =     0.46s Open com.fly.comfypilot
+    t =     0.46s     Launch com.fly.comfypilot
+    t =     0.46s         Terminate com.fly.comfypilot:34344
+    t =     2.17s         Setting up automation session
+    t =     3.94s         Wait for com.fly.comfypilot to idle
+    t =     5.58s Waiting 30.0s for "执行中" StaticText to exist
+2026-11-14 04:02:20.991902+0000 ComfyPilotUITests-Runner[31649:87571] [connection] nw_protocol_socket_set_no_wake_from_sleep [C1:2] setsockopt SO_NOWAKEFROMSLEEP failed [22: Invalid argument]
+2026-11-14 04:02:20.992100+0000 ComfyPilotUITests-Runner[31649:87571] [] nw_protocol_socket_set_no_wake_from_sleep setsockopt SO_NOWAKEFROMSLEEP failed [22: Invalid argument]
+    t =     6.61s     Checking `Expect predicate `existsNoRetry == 1` for object "执行中" StaticText`
+    t =     6.61s         Checking existence of `"执行中" StaticText`
+    t =     7.24s Terminate com.fly.comfypilot:34510
+    t =     8.26s Open com.fly.comfypilot
+    t =     8.26s     Launch com.fly.comfypilot
+    t =     9.06s         Setting up automation session
+    t =    10.54s         Wait for com.fly.comfypilot to idle
+    t =    12.04s Waiting 40.0s for StaticText (First Match) to exist
+    t =    13.08s     Checking `Expect predicate `existsNoRetry == 1` for object StaticText (First Match)`
+    t =    13.08s         Checking existence of `StaticText (First Match)`
+    t =    13.28s Checking existence of `"结果未知" StaticText`
+    t =    13.37s Tear Down
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testRunningTaskSurvivesRelaunch]' passed (13.596 seconds).
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testSettingsAboutEntryExists]' started.
+    t =     0.00s Start Test at 2026-11-14 04:02:28.138
+    t =     0.05s Set Up
+    t =     0.05s Open com.fly.comfypilot
+    t =     0.06s     Launch com.fly.comfypilot
+    t =     0.06s         Terminate com.fly.comfypilot:34553
+    t =     3.66s         Setting up automation session
+    t =     4.53s         Wait for com.fly.comfypilot to idle
+    t =     6.37s Waiting 30.0s for "设置" Button to exist
+    t =     7.42s     Checking `Expect predicate `existsNoRetry == 1` for object "设置" Button`
+    t =     7.42s         Checking existence of `"设置" Button`
+2026-11-14 04:02:35.833509+0000 ComfyPilotUITests-Runner[31649:87571] [connection] nw_protocol_socket_set_no_wake_from_sleep [C2:2] setsockopt SO_NOWAKEFROMSLEEP failed [22: Invalid argument]
+2026-11-14 04:02:35.833650+0000 ComfyPilotUITests-Runner[31649:87571] [] nw_protocol_socket_set_no_wake_from_sleep setsockopt SO_NOWAKEFROMSLEEP failed [22: Invalid argument]
+    t =     8.28s Tap "设置" Button
+    t =     8.28s     Wait for com.fly.comfypilot to idle
+    t =     8.37s     Find the "设置" Button
+    t =     8.54s     Check for interrupting elements affecting "设置" Button
+    t =     8.70s     Synthesize event
+    t =     9.03s     Wait for com.fly.comfypilot to idle
+    t =     9.41s Waiting 15.0s for Button (First Match) to exist
+    t =    10.46s     Checking `Expect predicate `existsNoRetry == 1` for object Button (First Match)`
+    t =    10.47s         Checking existence of `Button (First Match)`
+    t =    10.63s Tear Down
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testSettingsAboutEntryExists]' passed (10.872 seconds).
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testSettingsBackupEntries]' started.
+    t =     0.00s Start Test at 2026-11-14 04:02:39.010
+    t =     0.03s Set Up
+    t =     0.03s Open com.fly.comfypilot
+    t =     0.03s     Launch com.fly.comfypilot
+    t =     0.03s         Terminate com.fly.comfypilot:34658
+    t =     1.83s         Setting up automation session
+    t =     2.78s         Wait for com.fly.comfypilot to idle
+    t =     4.26s Waiting 20.0s for "btnBackupExport" Button to exist
+    t =     5.28s     Checking `Expect predicate `existsNoRetry == 1` for object "btnBackupExport" Button`
+    t =     5.28s         Checking existence of `"btnBackupExport" Button`
+    t =     5.70s Find the "btnBackupExport" Button
+    t =     6.28s Swipe up Target Application 'com.fly.comfypilot'
+    t =     6.28s     Wait for com.fly.comfypilot to idle
+    t =     6.32s     Find the Target Application 'com.fly.comfypilot'
+    t =     6.44s     Check for interrupting elements affecting "ComfyPilot" Application
+    t =     6.54s     Synthesize event
+    t =     7.01s     Wait for com.fly.comfypilot to idle
+    t =     9.39s Find the "btnBackupExport" Button
+    t =     9.57s Find the "btnBackupExport" Button
+    t =     9.71s Checking existence of `"btnBackupImport" Button`
+    t =     9.79s Tear Down
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testSettingsBackupEntries]' passed (10.030 seconds).
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testSubmitWorkflow]' started.
+    t =     0.00s Start Test at 2026-11-14 04:02:49.040
+    t =     0.04s Set Up
+    t =     0.04s Open com.fly.comfypilot
+    t =     0.04s     Launch com.fly.comfypilot
+    t =     0.04s         Terminate com.fly.comfypilot:35061
+    t =     1.70s         Setting up automation session
+    t =     2.98s         Wait for com.fly.comfypilot to idle
+    t =     4.41s Waiting 40.0s for "提交任务" Button to exist
+    t =     5.46s     Checking `Expect predicate `existsNoRetry == 1` for object "提交任务" Button`
+    t =     5.46s         Checking existence of `"提交任务" Button`
+    t =     5.57s Tap "提交任务" Button
+    t =     5.57s     Wait for com.fly.comfypilot to idle
+    t =     5.58s     Find the "提交任务" Button
+    t =     5.63s     Check for interrupting elements affecting "提交任务" Button
+    t =     5.68s     Synthesize event
+    t =     6.00s     Wait for com.fly.comfypilot to idle
+    t =     6.01s Waiting 10.0s for "任务" Button to exist
+    t =     7.06s     Checking `Expect predicate `existsNoRetry == 1` for object "任务" Button`
+    t =     7.06s         Checking existence of `"任务" Button`
+    t =     7.12s Tap "任务" Button
+    t =     7.12s     Wait for com.fly.comfypilot to idle
+    t =     7.13s     Find the "任务" Button
+    t =     7.15s     Check for interrupting elements affecting "任务" Button
+    t =     7.20s     Synthesize event
+    t =     7.52s     Wait for com.fly.comfypilot to idle
+    t =     7.53s Waiting 40.0s for "已完成" StaticText to exist
+    t =     8.57s     Checking `Expect predicate `existsNoRetry == 1` for object "已完成" StaticText`
+    t =     8.57s         Checking existence of `"已完成" StaticText`
+    t =     8.77s Checking existence of `"失败" StaticText`
+    t =     9.12s Tear Down
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testSubmitWorkflow]' passed (9.377 seconds).
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testTaskSurvivesRelaunch]' started.
+    t =     0.00s Start Test at 2026-11-14 04:02:58.417
+    t =     0.02s Set Up
+    t =     0.03s Open com.fly.comfypilot
+    t =     0.03s     Launch com.fly.comfypilot
+    t =     0.03s         Terminate com.fly.comfypilot:35442
+    t =     2.09s         Setting up automation session
+    t =     3.16s         Wait for com.fly.comfypilot to idle
+    t =     4.57s Waiting 45.0s for "已完成" StaticText to exist
+    t =     5.59s     Checking `Expect predicate `existsNoRetry == 1` for object "已完成" StaticText`
+    t =     5.59s         Checking existence of `"已完成" StaticText`
+    t =     5.72s         Capturing element debug description
+    t =     6.66s     Checking `Expect predicate `existsNoRetry == 1` for object "已完成" StaticText`
+    t =     6.66s         Checking existence of `"已完成" StaticText`
+    t =     6.77s         Capturing element debug description
+    t =     7.59s     Checking `Expect predicate `existsNoRetry == 1` for object "已完成" StaticText`
+    t =     7.59s         Checking existence of `"已完成" StaticText`
+    t =     7.62s         Capturing element debug description
+    t =     8.65s     Checking `Expect predicate `existsNoRetry == 1` for object "已完成" StaticText`
+    t =     8.65s         Checking existence of `"已完成" StaticText`
+    t =     9.00s Terminate com.fly.comfypilot:35766
+    t =    10.06s Open com.fly.comfypilot
+    t =    10.06s     Launch com.fly.comfypilot
+    t =    10.61s         Setting up automation session
+    t =    11.92s         Wait for com.fly.comfypilot to idle
+    t =    13.37s Waiting 40.0s for StaticText (First Match) to exist
+    t =    14.39s     Checking `Expect predicate `existsNoRetry == 1` for object StaticText (First Match)`
+    t =    14.39s         Checking existence of `StaticText (First Match)`
+    t =    14.48s Checking existence of `"已完成" StaticText`
+    t =    14.54s Tear Down
+Test Case '-[ComfyPilotUITests.ComfyPilotUITests testTaskSurvivesRelaunch]' passed (14.759 seconds).
+Test Suite 'ComfyPilotUITests' passed at 2026-11-14 04:03:13.176.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 117.642 (117.648) seconds
+Test Suite 'ComfyPilotUITests.xctest' passed at 2026-11-14 04:03:13.176.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 117.642 (117.648) seconds
+Test Suite 'All tests' passed at 2026-11-14 04:03:13.176.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 117.642 (117.650) seconds
+2026-11-14 04:03:14.184 xcodebuild[29509:81514] [MT] IDETestOperationsObserverDebug: 145.938 elapsed -- Testing started completed.
+2026-11-14 04:03:14.185 xcodebuild[29509:81514] [MT] IDETestOperationsObserverDebug: 0.000 sec, +0.000 sec -- start
+2026-11-14 04:03:14.186 xcodebuild[29509:81514] [MT] IDETestOperationsObserverDebug: 145.938 sec, +145.938 sec -- end
+
+Test session results, code coverage, and logs:
+	/Users/runner/work/ComfyPilot/ComfyPilot/ios/build/Logs/Test/Test-ComfyPilot-2026.11.14_04-00-20-+0000.xcresult
+
+** TEST SUCCEEDED **
+
+Testing started
