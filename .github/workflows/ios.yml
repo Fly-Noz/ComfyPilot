@@ -251,6 +251,29 @@ jobs:
           print("备份格式 OK：任务", len(doc["tasks"]), "条，本地工作流", len(doc["localWorkflows"]), "个")
           PY
 
+      - name: 校验备份往返（导出 → 导入 → 再导出）
+        run: |
+          set -e
+          UDID="${{ steps.sim.outputs.udid }}"
+          # -uiBackupRoundTrip：启动时导出→恢复→再导出，报告写进沙盒 Documents。
+          xcrun simctl terminate "$UDID" com.fly.comfypilot > /dev/null 2>&1 || true
+          sleep 1
+          xcrun simctl launch "$UDID" com.fly.comfypilot -uiBackupRoundTrip roundtrip.json -uiScreen settings > /dev/null
+          sleep 8
+          CONTAINER=$(xcrun simctl get_app_container "$UDID" com.fly.comfypilot data)
+          python3 - "$CONTAINER/Documents/roundtrip.json" <<'PY'
+          import json, sys
+          with open(sys.argv[1], encoding="utf-8") as handle:
+              report = json.load(handle)
+          if not report.get("ok"):
+              print("备份往返不一致（导入没把数据还原）：")
+              print("left :", str(report.get("left", report.get("error", "")))[:1500])
+              print("right:", str(report.get("right", ""))[:1500])
+              sys.exit(1)
+          print("备份往返 OK：", report["firstBytes"], "→", report["secondBytes"], "字节；",
+                "任务", report["taskCount"], "条，本地工作流", report["localCount"], "个")
+          PY
+
       - name: XCUITest 交互回归
         working-directory: ios
         run: |

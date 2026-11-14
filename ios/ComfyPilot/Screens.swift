@@ -944,8 +944,9 @@ struct SettingsScreen: View {
 
                                 Button {
                                     guard !backupBusy else { return }
-                                    // 任务状态机在跑时导入会互相打架（与安卓一致：先断开）。
-                                    if store.snapshot.phase == "Connected" {
+                                    // 状态机在跑（连接中/已连接/重连/恢复）时导入会互相打架：
+                                    // 与安卓「有 lease 就拦」一致，要求完全空闲。
+                                    if store.isSessionActive {
                                         store.showToast("请先断开当前连接")
                                         return
                                     }
@@ -1184,12 +1185,14 @@ struct SettingsScreen: View {
 
     // MARK: - 本地备份
 
-    /// 导出：在后台线程构建 JSON（任务/工作流多时可能几百 KB），再交给系统保存。
+    /// 导出：快照必须在主线程取（任务字典由主线程的 persist 命令维护，
+    /// 后台读会数据竞争），后台只做 JSON 编码与文件写入。
     private func startBackupExport() {
         guard !backupBusy else { return }
         backupBusy = true
+        let snapshot = BackupManager.makeSnapshot()
         DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result { try BackupManager.makeBackupText() }
+            let result = Result { try BackupManager.encode(snapshot) }
             DispatchQueue.main.async {
                 backupBusy = false
                 switch result {

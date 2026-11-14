@@ -916,6 +916,12 @@ final class SessionStore: ObservableObject {
     /// 当前主机的稳定标识（草稿、置顶都按它隔离）。
     var hostKey: String { draftHost }
 
+    /// 会话是否还在活动（连接中 / 已连接 / 重连 / 恢复）。
+    /// 导入备份要求完全空闲：状态机在跑时覆盖任务快照会互相打架。
+    var isSessionActive: Bool {
+        bridge != nil || snapshot.phase != "Idle"
+    }
+
     /// 最后一次收到采样预览的时间（网络测速用它判断长连接是否静默）。
     var lastPreviewFrameAtMs: Int64? {
         lastPreviewAtMs > 0 ? lastPreviewAtMs : nil

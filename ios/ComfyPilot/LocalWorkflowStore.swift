@@ -100,46 +100,90 @@ final class LocalWorkflowStore {
         let raw: String
     }
 
-    /// 备份恢复：整体替换本机导入的工作流（清空目录后按备份重建）。
-    func replaceAll(_ items: [RestoreItem]) {
-        if let files = try? FileManager.default.contentsOfDirectory(
-            at: dir,
-            includingPropertiesForKeys: nil,
-        ) {
-            for file in files where file.pathExtension == "json" {
-                try? FileManager.default.removeItem(at: file)
-            }
-        }
+    /// 备份恢复：整体替换本机导入的工作流。
+    ///
+    /// 两阶段提交：先把所有新文件写进临时目录（`.staging-*`），全部写成功
+    /// 才删旧文件并移入；任何一步失败都返回 false，旧数据原样保留——
+    /// 备份恢复不能出现「导入失败还把原有工作流清空了」。
+    @discardableResult
+    func replaceAll(_ items: [RestoreItem]) -> Bool {
         let valid = items.filter { $0.path.hasPrefix("local://") }
-        guard !valid.isEmpty else {
-            writeIndex([])
-            return
-        }
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let staging = dir.appendingPathComponent(".staging-\(UUID().uuidString)", isDirectory: true)
         var index: [Item] = []
-        for entry in valid {
-            if let data = entry.raw.data(using: .utf8) {
-                try? data.write(to: fileURL(for: entry.path), options: .atomic)
+
+        do {
+            try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+            for entry in valid {
+                guard let data = entry.raw.data(using: .utf8) else {
+                    throw CocoaError(.fileWriteInapplicableStringEncoding)
+                }
+                try data.write(
+                    to: staging.appendingPathComponent(fileName(for: entry.path), isDirectory: false),
+                    options: .atomic,
+                )
+                index.append(Item(path: entry.path, name: entry.name, importedAtMs: entry.importedAtMs))
             }
-            index.append(Item(path: entry.path, name: entry.name, importedAtMs: entry.importedAtMs))
+        } catch {
+            try? FileManager.default.removeItem(at: staging)
+            NSLog("[ComfyPilot] 备份工作流暂存失败: %@", error.localizedDescription)
+            return false
         }
-        writeIndex(index)
+
+        // 提交阶段：删旧文件 → 移入新文件 → 写索引。
+        do {
+            if FileManager.default.fileExists(atPath: dir.path) {
+                let files = try FileManager.default.contentsOfDirectory(
+                    at: dir,
+                    includingPropertiesForKeys: nil,
+                )
+                for file in files where file.pathExtension == "json" {
+                    try FileManager.default.removeItem(at: file)
+                }
+            }
+            if FileManager.default.fileExists(atPath: staging.path) {
+                let staged = try FileManager.default.contentsOfDirectory(
+                    at: staging,
+                    includingPropertiesForKeys: nil,
+                )
+                for file in staged where file.pathExtension == "json" {
+                    let target = dir.appendingPathComponent(file.lastPathComponent)
+                    try FileManager.default.moveItem(at: file, to: target)
+                }
+                try? FileManager.default.removeItem(at: staging)
+            }
+            return writeIndex(index)
+        } catch {
+            NSLog("[ComfyPilot] 提交本地工作流失败: %@", error.localizedDescription)
+            return false
+        }
     }
 
     private func fileExists(path: String) -> Bool {
         FileManager.default.fileExists(atPath: fileURL(for: path).path)
     }
 
-    private func fileURL(for path: String) -> URL {
+    /// 沙盒里的文件名：`local://<uuid>` → `<uuid>.json`（只取最后一段，防目录穿越）。
+    private func fileName(for path: String) -> String {
         let id = path.split(separator: "/").last.map(String.init) ?? path
-        return dir.appendingPathComponent("\(id).json")
+        return "\(id).json"
     }
 
-    private func writeIndex(_ items: [Item]) {
+    private func fileURL(for path: String) -> URL {
+        dir.appendingPathComponent(fileName(for: path))
+    }
+
+    @discardableResult
+    private func writeIndex(_ items: [Item]) -> Bool {
         let array: [[String: Any]] = items.map {
             ["path": $0.path, "name": $0.name, "importedAtMs": $0.importedAtMs]
         }
-        guard let data = try? JSONSerialization.data(withJSONObject: array) else { return }
-        try? data.write(to: indexURL, options: .atomic)
+        guard let data = try? JSONSerialization.data(withJSONObject: array) else { return false }
+        do {
+            try data.write(to: indexURL, options: .atomic)
+            return true
+        } catch {
+            NSLog("[ComfyPilot] 写本地工作流索引失败: %@", error.localizedDescription)
+            return false
+        }
     }
 }

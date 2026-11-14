@@ -19,6 +19,10 @@ final class TaskPersistence {
 
     /// 与 shared `DEFAULT_RESTORE_LIMIT` 对齐。
     private let limit = 50
+    /// 递归锁：`persist` 命令（主线程）与备份导出/恢复可能并发碰 `tasks`。
+    /// 字典不是线程安全的，同时读写会崩；递归是为了让 handlePersist
+    /// 内部调用 flushIfNeeded → flush 时不重复加锁死锁。
+    private let lock = NSRecursiveLock()
     private let flushInterval: TimeInterval = 0.8
     private let legacyDefaultsKey = "comfypilot.taskSnapshots.v1"
 
@@ -52,6 +56,8 @@ final class TaskPersistence {
     /// 启动时交给 BridgeHost 的 tasksJson。没有历史时给 "{}"
     /// （`restoredTasksFromJson` 对没有 tasks 键的对象返回空列表）。
     func loadTasksJson() -> String {
+        lock.lock()
+        defer { lock.unlock() }
         if LaunchOptions.resetTasks && !didReset {
             didReset = true
             try? FileManager.default.removeItem(at: fileURL)
@@ -77,6 +83,8 @@ final class TaskPersistence {
 
     func handlePersist(_ task: [String: Any]) {
         guard let id = task["id"] as? String else { return }
+        lock.lock()
+        defer { lock.unlock() }
         ensureLoaded()
         guard !removed.contains(id) else { return }
         if let old = tasks[id], updatedMs(old) > updatedMs(task) {
@@ -91,6 +99,8 @@ final class TaskPersistence {
     }
 
     func handleRemove(id: String) {
+        lock.lock()
+        defer { lock.unlock() }
         ensureLoaded()
         removed.insert(id)
         tasks.removeValue(forKey: id)
@@ -102,15 +112,24 @@ final class TaskPersistence {
 
     /// 当前任务快照（与安卓 `toPersistJson` 同一份 schema，原样交给备份）。
     func exportTasks() -> [[String: Any]] {
+        lock.lock()
+        defer { lock.unlock() }
         ensureLoaded()
         return tasks.values.sorted { updatedMs($0) > updatedMs($1) }
     }
 
     /// 备份恢复：整体替换任务快照。
     /// 导入前要求断开连接——此时没有在跑的状态机，覆盖内存与文件都安全。
+    /// 写盘失败会把内存还原成替换前的状态，避免「内存新、文件旧」。
     @discardableResult
     func replaceAll(_ list: [[String: Any]]) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
         ensureLoaded()
+        let previous = tasks
+        let previousRemoved = removed
+        let previousFlushed = flushedState
+
         var next: [String: [String: Any]] = [:]
         for task in list {
             guard let id = task["id"] as? String, !id.isEmpty else { continue }
@@ -123,9 +142,17 @@ final class TaskPersistence {
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let text = String(data: data, encoding: .utf8) else {
             NSLog("[ComfyPilot] 备份任务序列化失败")
+            tasks = previous
+            removed = previousRemoved
+            flushedState = previousFlushed
             return false
         }
-        guard writeSnapshot(text: text) else { return false }
+        guard writeSnapshot(text: text) else {
+            tasks = previous
+            removed = previousRemoved
+            flushedState = previousFlushed
+            return false
+        }
         lastFlush = Date().timeIntervalSince1970
         flushedState = tasks.mapValues { $0["state"] as? String ?? "" }
         return true
@@ -136,6 +163,8 @@ final class TaskPersistence {
     /// 让下一次 persist 立刻重试，而不是把失败静默吞掉。
     @discardableResult
     func flush() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
         ensureLoaded()
         let sorted = tasks.values.sorted { updatedMs($0) > updatedMs($1) }
         let payload: [String: Any] = ["tasks": Array(sorted.prefix(limit))]

@@ -9,10 +9,16 @@ import UniformTypeIdentifiers
 /// 所以一份备份可以在三端之间互相导入。
 ///
 /// 只含本机记录；不含 AI API Key、clientId、诊断日志。
+///
+/// 线程模型：`makeSnapshot()` 必须在主线程调用（任务字典与偏好都由主线程的
+/// 状态机维护，后台读会和 `persist` 命令撞车）；`encode(_:)` 是纯函数，
+/// 可以放后台线程。
 enum BackupManager {
     static let formatName = "comfypilot-backup"
     static let formatVersion = 1
     static let maxBytes = 30 * 1024 * 1024
+    /// 安卓 / 鸿蒙把节点图选择存在 `workflow_drafts` 的 `session|<host>|<path>`。
+    private static let sessionPrefix = "session|"
 
     /// 导入后的摘要：主题要立刻生效，数量用于提示。
     struct Summary {
@@ -32,8 +38,8 @@ enum BackupManager {
 
     // MARK: - 导出
 
-    /// 构建备份文本（pretty + 键排序，和安卓 `toString(2)` 对齐）。
-    static func makeBackupText() throws -> String {
+    /// 收集备份内容。**必须在主线程调用**：任务快照与偏好都由主线程写入。
+    static func makeSnapshot() -> [String: Any] {
         let drafts = WorkflowDrafts.allScoped()
         var workflowDrafts: [String: String] = [:]
         var nodeNotes: [String: String] = [:]
@@ -44,6 +50,11 @@ enum BackupManager {
             if !record.draft.overrides.isEmpty,
                let text = jsonText(record.draft.overrides) {
                 workflowDrafts[scoped] = text
+            }
+            // 节点图选择按安卓的 `session|host|path` 键单独存，导入时能还原。
+            if let graphs = record.draft.graphs, !graphs.isEmpty,
+               let text = jsonText(["graphs": graphs.sorted()]) {
+                workflowDrafts[sessionPrefix + scoped] = text
             }
             if !record.draft.notes.isEmpty {
                 // 与安卓 encodeNodeNotes 同格式：每行 `节点id\t备注`，按 id 升序。
@@ -88,7 +99,7 @@ enum BackupManager {
             "dismissedVersion": UserDefaults.standard.integer(forKey: updateDismissedKey),
         ]
 
-        let root: [String: Any] = [
+        return [
             "format": formatName,
             "version": formatVersion,
             "exportedAtMs": Int64(Date().timeIntervalSince1970 * 1000),
@@ -107,7 +118,11 @@ enum BackupManager {
             "localWorkflows": localItems,
             "settings": settings,
         ]
+    }
 
+    /// 把快照编码成备份文本（pretty + 键排序，和安卓 `toString(2)` 对齐）。
+    /// 纯函数，可以放后台线程。
+    static func encode(_ root: [String: Any]) throws -> String {
         guard let data = try? JSONSerialization.data(
             withJSONObject: root,
             options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes],
@@ -121,6 +136,11 @@ enum BackupManager {
             throw Failure.message("备份超过 30 MB，请先删除部分本地工作流或任务历史")
         }
         return text
+    }
+
+    /// 便捷入口：收集 + 立即编码（CI 探针与自检用）。
+    static func makeBackupText() throws -> String {
+        try encode(makeSnapshot())
     }
 
     /// 导出文件名：`ComfyPilot-backup-20261114-104500.json`（与两端同格式）。
@@ -160,15 +180,22 @@ enum BackupManager {
         let seedLast = (root["seedLast"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "{}"
         let settings = root["settings"] as? [String: Any] ?? [:]
 
-        // 覆盖写入（顺序与两端一致）。
+        // 先写文件类（最可能失败）：本地工作流是两阶段提交，失败时旧数据不动；
+        // 任务写失败会回滚内存。任一失败就报错，别连偏好也改掉。
+        guard LocalWorkflowStore.shared.replaceAll(localItems) else {
+            throw Failure.message("本地工作流写入失败，导入未完成")
+        }
+        guard TaskPersistence.shared.replaceAll(tasks) else {
+            throw Failure.message("任务历史写入失败，导入未完成")
+        }
+
+        // 再写偏好类（UserDefaults 写入失败极少见，且此时已无回滚价值）。
         WorkflowDrafts.replaceAll(records)
         SeedModes.restore(everyJSON: seedEvery, lastJSON: seedLast)
         // 置顶在 iOS 按主机隔离；导入的扁平路径挂到备份里的最近地址上。
         let host = addresses.last.isEmpty ? "unconnected" : addresses.last
         PinnedWorkflows.replaceAll(host: host, paths: pinnedPaths)
         SavedAddress.replace(last: addresses.last, history: addresses.history)
-        LocalWorkflowStore.shared.replaceAll(localItems)
-        TaskPersistence.shared.replaceAll(tasks)
 
         let theme = normalizedTheme(settings["theme"] as? String)
         Prefs.themeMode = theme
@@ -189,7 +216,8 @@ enum BackupManager {
     // MARK: - 解析
 
     /// 把三个 map 合并成 iOS 的草稿记录。
-    /// key 兼容三种形态：`host|workflow:path`（备注/置顶）、`host|path`（草稿）、legacy `path`。
+    /// key 兼容：`session|<host>|<path>`（安卓的节点图选择）、
+    /// `host|workflow:path`（备注/置顶）、`host|path`（草稿）、legacy `path`。
     private static func parseDrafts(_ root: [String: Any]) -> [(host: String, path: String, draft: WorkflowDraft)] {
         let drafts = root["workflowDrafts"] as? [String: Any] ?? [:]
         let notes = root["nodeNotes"] as? [String: Any] ?? [:]
@@ -212,7 +240,26 @@ enum BackupManager {
             return ("", key, key)
         }
 
-        for (key, value) in drafts {
+        // 1) 节点图选择（安卓 session 键）先解析，后面合并草稿时会保留。
+        for (key, value) in drafts where key.hasPrefix(sessionPrefix) {
+            guard let text = value as? String, !text.isEmpty,
+                  let data = text.data(using: .utf8),
+                  let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let graphs = object["graphs"] as? [String] else { continue }
+            let rest = String(key.dropFirst(sessionPrefix.count))
+            guard let cut = rest.firstIndex(of: "|") else { continue }
+            let host = String(rest[rest.startIndex..<cut])
+            let path = String(rest[rest.index(after: cut)...])
+            guard !path.isEmpty else { continue }
+            let id = "\(host)|\(path)"
+            var draft = merged[id] ?? WorkflowDraft()
+            draft.graphs = Set(graphs)
+            merged[id] = draft
+            paths[id] = (host, path)
+        }
+
+        // 2) 参数草稿（跳过 session 键，上面已处理）。
+        for (key, value) in drafts where !key.hasPrefix(sessionPrefix) {
             guard let text = value as? String, !text.isEmpty else { continue }
             let scoped = scope(key)
             guard !scoped.path.isEmpty else { continue }
@@ -309,6 +356,49 @@ enum BackupManager {
             return url.isEmpty ? nil : url
         }
         return (last, history)
+    }
+
+    // MARK: - 自检（CI）
+
+    /// 往返自检：导出 → 恢复 → 再导出，两份内容必须等价（忽略导出时间）。
+    /// 返回可直接写文件的字典，CI 用 python 断言 `ok == true`。
+    static func roundTripReport() -> [String: Any] {
+        do {
+            let first = try makeBackupText()
+            let summary = try restore(text: first)
+            let second = try makeBackupText()
+            let left = canonicalJSON(first)
+            let right = canonicalJSON(second)
+            let same = left == right
+            return [
+                "ok": same,
+                "theme": summary.theme,
+                "localCount": summary.localCount,
+                "taskCount": summary.taskCount,
+                "firstBytes": first.utf8.count,
+                "secondBytes": second.utf8.count,
+                "left": same ? "" : String(left.prefix(4000)),
+                "right": same ? "" : String(right.prefix(4000)),
+            ]
+        } catch {
+            return ["ok": false, "error": error.localizedDescription]
+        }
+    }
+
+    /// 去掉易变字段后按排序键重新序列化，用于比较两份备份是否等价。
+    private static func canonicalJSON(_ text: String) -> String {
+        guard let data = text.data(using: .utf8),
+              var object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return text
+        }
+        object.removeValue(forKey: "exportedAtMs")
+        guard let normalized = try? JSONSerialization.data(
+            withJSONObject: object,
+            options: [.sortedKeys],
+        ), let result = String(data: normalized, encoding: .utf8) else {
+            return text
+        }
+        return result
     }
 
     // MARK: - 工具

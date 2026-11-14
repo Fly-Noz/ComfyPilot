@@ -62,4 +62,7 @@ enum LaunchOptions {
 
     /// 启动时把本地备份 JSON 写到这个路径（CI 校验导出格式用，不做任何 UI 操作）。
     static var backupDumpPath: String? { value("-uiBackupDump") }
+
+    /// 启动时做一次备份往返自检（导出 → 恢复 → 再导出），报告写到这个路径。
+    static var backupRoundTripPath: String? { value("-uiBackupRoundTrip") }
 }
