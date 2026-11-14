@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// 导航模型照抄 ComfyPilotApp.kt：没有常驻底栏，全靠页面栈 + 顶栏返回。
 /// Connect(0) → Catalog(1) → Detail(2)；Tasks / Settings 是同级覆盖页。
@@ -690,6 +691,16 @@ struct SettingsScreen: View {
     @State private var settingsSheet: SettingsSheet? =
         LaunchOptions.screen == "about" ? .about : nil
 
+    /// 备份导出 / 导入的确认（同一个 alert 按枚举切文案，避免多个 alert 互相顶掉）。
+    enum BackupConfirm: Equatable { case export, import }
+
+    @State private var backupConfirm: BackupConfirm?
+    @State private var backupBusy = false
+    @State private var backupExportDoc: BackupFileDocument?
+    @State private var backupExportOpen = false
+    @State private var backupImportOpen = false
+    @State private var backupExportName = "ComfyPilot-backup.json"
+
     var body: some View {
         ScreenScaffold(palette: palette) {
             VStack(spacing: 0) {
@@ -900,6 +911,74 @@ struct SettingsScreen: View {
                             .buttonStyle(.plain)
                         }
 
+                        section("数据")
+                        GlassCard(palette: palette, padding: 12) {
+                            VStack(spacing: 0) {
+                                Button {
+                                    guard !backupBusy else { return }
+                                    backupConfirm = .export
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("导出本地备份")
+                                                .font(.system(size: 13))
+                                                .foregroundStyle(palette.text)
+                                            Text(backupBusy ? "处理中…" : "保存为 JSON 文件，可跨设备迁移")
+                                                .font(.system(size: 10.5))
+                                                .foregroundStyle(palette.textDim)
+                                                .lineLimit(2)
+                                        }
+                                        Spacer(minLength: 0)
+                                        Image(systemName: "square.and.arrow.up")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(palette.textDim)
+                                    }
+                                    .padding(.vertical, 8)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(backupBusy)
+                                .accessibilityIdentifier("btnBackupExport")
+
+                                Divider().overlay(palette.border)
+
+                                Button {
+                                    guard !backupBusy else { return }
+                                    // 任务状态机在跑时导入会互相打架（与安卓一致：先断开）。
+                                    if store.snapshot.phase == "Connected" {
+                                        store.showToast("请先断开当前连接")
+                                        return
+                                    }
+                                    backupConfirm = .import
+                                } label: {
+                                    HStack(spacing: 10) {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text("导入本地备份")
+                                                .font(.system(size: 13))
+                                                .foregroundStyle(palette.text)
+                                            Text(backupBusy ? "处理中…" : "覆盖本机记录，不可撤回")
+                                                .font(.system(size: 10.5))
+                                                .foregroundStyle(palette.textDim)
+                                                .lineLimit(2)
+                                        }
+                                        Spacer(minLength: 0)
+                                        Image(systemName: "square.and.arrow.down")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(palette.textDim)
+                                    }
+                                    .padding(.vertical, 8)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(backupBusy)
+                                .accessibilityIdentifier("btnBackupImport")
+                            }
+                        }
+                        Text("备份只包含本机记录，不含 AI API Key、密码或诊断日志。")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(palette.textDim)
+                            .padding(.horizontal, 2)
+
                         section("通知")
                         GlassCard(palette: palette) {
                             HStack(spacing: 10) {
@@ -984,6 +1063,58 @@ struct SettingsScreen: View {
                 )
             }
         }
+        // 备份：导出 / 导入共用一个 alert（同一视图叠多个 alert 只有最后一个生效）。
+        .alert(
+            backupConfirm == .export ? "导出本地备份？" : "导入本地备份？",
+            isPresented: Binding(
+                get: { backupConfirm != nil },
+                set: { if !$0 { backupConfirm = nil } }
+            ),
+        ) {
+            Button("取消", role: .cancel) { backupConfirm = nil }
+            if backupConfirm == .export {
+                Button("导出") {
+                    backupConfirm = nil
+                    startBackupExport()
+                }
+            } else {
+                Button("继续导入", role: .destructive) {
+                    backupConfirm = nil
+                    backupImportOpen = true
+                }
+            }
+        } message: {
+            Text(backupConfirm == .export
+                 ? "生成 JSON 文件，可保存到「文件」或发给其他设备。"
+                 : "本地记录将被覆盖，该操作不可撤回。是否确认继续？")
+        }
+        .fileExporter(
+            isPresented: $backupExportOpen,
+            document: backupExportDoc,
+            contentType: .json,
+            defaultFilename: backupExportName,
+        ) { result in
+            backupExportDoc = nil
+            switch result {
+            case .success:
+                store.showToast("已导出本地备份")
+            case .failure(let error):
+                store.showToast("导出失败：\(error.localizedDescription)")
+            }
+        }
+        .fileImporter(
+            isPresented: $backupImportOpen,
+            allowedContentTypes: [.json],
+            allowsMultipleSelection: false,
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                readBackupFile(url)
+            case .failure:
+                store.showToast("选择文件失败")
+            }
+        }
         .confirmationDialog(
             "更新提醒",
             isPresented: $updateModeChooser,
@@ -1048,6 +1179,59 @@ struct SettingsScreen: View {
         case "dark": return "深色"
         case "light": return "浅色"
         default: return "跟随系统"
+        }
+    }
+
+    // MARK: - 本地备份
+
+    /// 导出：在后台线程构建 JSON（任务/工作流多时可能几百 KB），再交给系统保存。
+    private func startBackupExport() {
+        guard !backupBusy else { return }
+        backupBusy = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try BackupManager.makeBackupText() }
+            DispatchQueue.main.async {
+                backupBusy = false
+                switch result {
+                case .success(let text):
+                    backupExportName = BackupManager.defaultFileName()
+                    backupExportDoc = BackupFileDocument(text: text)
+                    backupExportOpen = true
+                case .failure(let error):
+                    store.showToast("导出失败：\(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    /// 读文件 → 后台解析并覆盖本机记录 → 回到主线程把设置同步进界面。
+    private func readBackupFile(_ url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let data = try? Data(contentsOf: url),
+              let text = String(data: data, encoding: .utf8) else {
+            store.showToast("读取备份文件失败")
+            return
+        }
+        backupBusy = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = Result { try BackupManager.restore(text: text) }
+            DispatchQueue.main.async {
+                backupBusy = false
+                switch result {
+                case .success(let summary):
+                    // 设置项是 @AppStorage，重新赋值即可让界面与存储同步。
+                    themeMode = summary.theme
+                    forceSubmit = Prefs.forceSubmit
+                    weakNetwork = Prefs.weakNetwork
+                    updatePromptMode = UserDefaults.standard.string(forKey: "updatePromptMode") ?? "always"
+                    store.showToast(
+                        "已导入备份（本地工作流 \(summary.localCount) 个、任务 \(summary.taskCount) 条）；任务历史重连后生效"
+                    )
+                case .failure(let error):
+                    store.showToast("导入失败：\(error.localizedDescription)")
+                }
+            }
         }
     }
 

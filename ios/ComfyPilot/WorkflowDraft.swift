@@ -47,6 +47,12 @@ enum WorkflowDrafts {
     }
 
     static func save(_ draft: WorkflowDraft, host: String, path: String) {
+        write(draft, host: host, path: path)
+        prune()
+    }
+
+    /// 实际写入（不裁剪）：恢复备份要完整，不能被 40 份上限裁掉。
+    private static func write(_ draft: WorkflowDraft, host: String, path: String) {
         var root: [String: Any] = [
             "updatedAtMs": Int64(Date().timeIntervalSince1970 * 1000),
         ]
@@ -57,7 +63,33 @@ enum WorkflowDrafts {
 
         guard let data = try? JSONSerialization.data(withJSONObject: root) else { return }
         UserDefaults.standard.set(data, forKey: key(host: host, path: path))
-        prune()
+    }
+
+    // MARK: - 备份（三端共用 schema，见 BackupManager）
+
+    /// 所有本机草稿的「主机 + 路径 + 内容」，导出备份用。
+    static func allScoped() -> [(host: String, path: String, draft: WorkflowDraft)] {
+        let keys = UserDefaults.standard.dictionaryRepresentation().keys.filter { $0.hasPrefix(prefix) }
+        var result: [(host: String, path: String, draft: WorkflowDraft)] = []
+        for key in keys {
+            let rest = String(key.dropFirst(prefix.count))
+            guard let cut = rest.firstIndex(of: "|") else { continue }
+            let host = String(rest[rest.startIndex..<cut])
+            let path = String(rest[rest.index(after: cut)...])
+            guard !path.isEmpty, let draft = load(host: host, path: path) else { continue }
+            result.append((host: host, path: path, draft: draft))
+        }
+        return result
+    }
+
+    /// 备份恢复：整体替换本机草稿。
+    static func replaceAll(_ records: [(host: String, path: String, draft: WorkflowDraft)]) {
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        for record in records {
+            write(record.draft, host: record.host, path: record.path)
+        }
     }
 
     static func clear(host: String, path: String) {

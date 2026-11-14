@@ -35,6 +35,38 @@ enum SeedModes {
         UserDefaults.standard.set(map, forKey: lastKey)
     }
 
+    // MARK: - 备份（三端共用 schema，见 BackupManager）
+
+    /// 两个映射的 JSON 文本（与安卓 / 鸿蒙的 `every` / `last` 同结构）。
+    static func exportJSON() -> (every: String, last: String) {
+        let every = UserDefaults.standard.dictionary(forKey: everyKey) ?? [:]
+        let last = UserDefaults.standard.dictionary(forKey: lastKey) ?? [:]
+        return (jsonText(every), jsonText(last))
+    }
+
+    /// 备份恢复：整体替换两个映射（空/坏 JSON 按空处理）。
+    static func restore(everyJSON: String, lastJSON: String) {
+        UserDefaults.standard.set(parseMap(everyJSON), forKey: everyKey)
+        UserDefaults.standard.set(parseMap(lastJSON), forKey: lastKey)
+    }
+
+    private static func jsonText(_ map: [String: Any]) -> String {
+        guard JSONSerialization.isValidJSONObject(map),
+              let data = try? JSONSerialization.data(withJSONObject: map, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else {
+            return "{}"
+        }
+        return text
+    }
+
+    private static func parseMap(_ raw: String) -> [String: Any] {
+        guard let data = raw.data(using: .utf8),
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            return [:]
+        }
+        return object
+    }
+
     /// 种子字段判定：可调的 INT 控件，名字含 seed（对齐 Android `isSeedField`）。
     static func isSeedField(_ field: WorkflowField) -> Bool {
         field.widget && !field.linked && field.type == "INT" &&

@@ -1195,4 +1195,23 @@ enum SavedAddress {
         if items.count > historyLimit { items.removeLast(items.count - historyLimit) }
         UserDefaults.standard.set(items, forKey: historyKey)
     }
+
+    /// 备份恢复：整体替换最近地址与历史（空串表示没有记录）。
+    static func replace(last: String, history: [String]) {
+        let trimmedLast = last.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedLast.isEmpty {
+            UserDefaults.standard.removeObject(forKey: key)
+        } else {
+            UserDefaults.standard.set(trimmedLast, forKey: key)
+        }
+        var seen = Set<String>()
+        var items: [String] = []
+        for raw in history {
+            let url = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !url.isEmpty, seen.insert(url).inserted else { continue }
+            items.append(url)
+        }
+        if items.count > historyLimit { items.removeLast(items.count - historyLimit) }
+        UserDefaults.standard.set(items, forKey: historyKey)
+    }
 }

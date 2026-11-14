@@ -59,4 +59,7 @@ enum LaunchOptions {
 
     /// 启动时清空本机任务快照（XCUITest 用例间隔离用，只消费一次）。
     static var resetTasks: Bool { flag("-uiResetTasks") }
+
+    /// 启动时把本地备份 JSON 写到这个路径（CI 校验导出格式用，不做任何 UI 操作）。
+    static var backupDumpPath: String? { value("-uiBackupDump") }
 }

@@ -41,9 +41,9 @@
 - Lists workflows stored on the server; nodes are grouped by graph, and parameters, bypass switches and graph selection are all editable from the phone
 - Edits are stored on-device per host + workflow, restored on next launch, and never written back to the server
 - Disabling a critical node triggers a dry-run build and a confirmation prompt, so a workflow is not silently broken
-- Seed fields support random / reuse last / randomize each run; the mode is stored locally only (Android / HarmonyOS)
-- Android / HarmonyOS can import ComfyUI UI workflows from local storage; they stay on-device, are marked as local, and can be deleted without touching the host
-- Android / HarmonyOS can export local records as a JSON backup and restore them with full overwrite; AI keys and diagnostics are excluded
+- Seed fields support random / reuse last / randomize each run; the mode is stored locally only
+- Import ComfyUI UI workflows from local storage; they stay on-device, are marked as local, and can be deleted without touching the host
+- Export local records as a JSON backup and restore them with full overwrite; AI keys and diagnostics are excluded
 - Fields supplied by a link show their source node (e.g. `#330 Seed (rgthree)`)
 - Values are coerced to their declared types before submit, so string numbers like `"8"` are not rejected by the server
 
@@ -109,7 +109,7 @@
 
 Android and HarmonyOS are close to feature parity, but the **package names differ**: the Android compatibility layer on HarmonyOS identifies apps by package name, so they cannot be identical.
 
-iOS is currently a basic client: connection, workflow parameters, tasks, output previews, sampling previews, host status, diagnostics, About page and update reminders are available. Local workflow import, the AI assistant, network speed tests, VRAM release and seed quick actions are not implemented yet.
+iOS now matches the main Android / HarmonyOS features: connection, workflow parameters, tasks and task history, output previews (including video), sampling previews, host status with VRAM release, diagnostics, About page, update reminders, task notifications, local workflow import, network speed test, seed quick actions, pinned workflows and local backup export/import. Only the AI assistant is not implemented yet.
 
 ## iOS client
 
@@ -120,7 +120,7 @@ iOS is currently a basic client: connection, workflow parameters, tasks, output 
 - Native SwiftUI interface; connection and state machine are driven by `ComfyCore.framework` (Kotlin/Native)
 - Supports connection, workflow parameters, node graph, task queue, output viewer, sampling previews, host status, diagnostics, About page and update reminders
 - Distributed as an **unsigned IPA** that you sign yourself; requires iOS 17.0+
-- Missing for now: local workflow import, AI assistant, network speed test, VRAM release and seed quick actions
+- Missing for now: the AI assistant
 
 ## Architecture
 
@@ -207,7 +207,7 @@ Sponsorship pays for test devices, servers and maintenance. It does not affect f
 - `PrimitiveNode` used as a value node in links is still unsupported
 - Node IDs can change after subgraph expansion, so local state keyed by node ID (such as "last seed") may not match
 - HarmonyOS release packages require AGC signing; the HAP published in Releases is unsigned and intended for debugging or self-signing
-- iOS builds are unsigned IPAs that you sign yourself; there is no App Store release yet, and local workflow import, the AI assistant, network speed test and VRAM release are not implemented
+- iOS builds are unsigned IPAs that you sign yourself; there is no App Store release yet, and only the AI assistant is not implemented
 - Images saved to the gallery on HarmonyOS are converted to 8-bit RGB PNG (a workaround for a colour artifact with RGBA PNGs in the system gallery preview); animated images are saved as stills
 
 <p align="center"><img src="docs/assets/readme/banner.webp" width="100%" alt="ComfyPilot: a mobile client for ComfyUI, connected to your own host"></p>

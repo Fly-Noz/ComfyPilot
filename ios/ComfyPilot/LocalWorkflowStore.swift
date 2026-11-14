@@ -90,6 +90,42 @@ final class LocalWorkflowStore {
         writeIndex(list().filter { $0.path != path })
     }
 
+    // MARK: - 备份（三端共用 schema，见 BackupManager）
+
+    /// 备份恢复条目：原文随条目一起带，避免二次读盘。
+    struct RestoreItem {
+        let path: String
+        let name: String
+        let importedAtMs: Int64
+        let raw: String
+    }
+
+    /// 备份恢复：整体替换本机导入的工作流（清空目录后按备份重建）。
+    func replaceAll(_ items: [RestoreItem]) {
+        if let files = try? FileManager.default.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: nil,
+        ) {
+            for file in files where file.pathExtension == "json" {
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
+        let valid = items.filter { $0.path.hasPrefix("local://") }
+        guard !valid.isEmpty else {
+            writeIndex([])
+            return
+        }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var index: [Item] = []
+        for entry in valid {
+            if let data = entry.raw.data(using: .utf8) {
+                try? data.write(to: fileURL(for: entry.path), options: .atomic)
+            }
+            index.append(Item(path: entry.path, name: entry.name, importedAtMs: entry.importedAtMs))
+        }
+        writeIndex(index)
+    }
+
     private func fileExists(path: String) -> Bool {
         FileManager.default.fileExists(atPath: fileURL(for: path).path)
     }

@@ -98,6 +98,39 @@ final class TaskPersistence {
         flushIfNeeded(force: true)
     }
 
+    // MARK: - 备份（三端共用 schema，见 BackupManager）
+
+    /// 当前任务快照（与安卓 `toPersistJson` 同一份 schema，原样交给备份）。
+    func exportTasks() -> [[String: Any]] {
+        ensureLoaded()
+        return tasks.values.sorted { updatedMs($0) > updatedMs($1) }
+    }
+
+    /// 备份恢复：整体替换任务快照。
+    /// 导入前要求断开连接——此时没有在跑的状态机，覆盖内存与文件都安全。
+    @discardableResult
+    func replaceAll(_ list: [[String: Any]]) -> Bool {
+        ensureLoaded()
+        var next: [String: [String: Any]] = [:]
+        for task in list {
+            guard let id = task["id"] as? String, !id.isEmpty else { continue }
+            next[id] = task
+        }
+        tasks = next
+        removed.removeAll()
+        let sorted = tasks.values.sorted { updatedMs($0) > updatedMs($1) }
+        let payload: [String: Any] = ["tasks": Array(sorted.prefix(limit))]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let text = String(data: data, encoding: .utf8) else {
+            NSLog("[ComfyPilot] 备份任务序列化失败")
+            return false
+        }
+        guard writeSnapshot(text: text) else { return false }
+        lastFlush = Date().timeIntervalSince1970
+        flushedState = tasks.mapValues { $0["state"] as? String ?? "" }
+        return true
+    }
+
     /// 强制落盘：桥停止、退到后台、退出时调用。
     /// 返回是否写成功——写失败会进 NSLog（Console 可见），且不推进节流时间，
     /// 让下一次 persist 立刻重试，而不是把失败静默吞掉。

@@ -31,4 +31,26 @@ enum PinnedWorkflows {
             UserDefaults.standard.set(kept, forKey: prefix + host)
         }
     }
+
+    // MARK: - 备份（三端共用 schema，见 BackupManager）
+
+    /// 所有主机的置顶并集：安卓 / 鸿蒙是扁平集合，导出时对齐。
+    static func allPaths() -> [String] {
+        let keys = UserDefaults.standard.dictionaryRepresentation().keys.filter { $0.hasPrefix(prefix) }
+        var set = Set<String>()
+        for key in keys {
+            set.formUnion(UserDefaults.standard.stringArray(forKey: key) ?? [])
+        }
+        return set.sorted()
+    }
+
+    /// 备份恢复：清掉所有主机的置顶，再把备份里的路径挂到指定主机。
+    static func replaceAll(host: String, paths: [String]) {
+        for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        if !paths.isEmpty {
+            UserDefaults.standard.set(paths, forKey: prefix + host)
+        }
+    }
 }
