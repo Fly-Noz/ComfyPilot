@@ -692,7 +692,7 @@ struct SettingsScreen: View {
         LaunchOptions.screen == "about" ? .about : nil
 
     /// 备份导出 / 导入的确认（同一个 alert 按枚举切文案，避免多个 alert 互相顶掉）。
-    enum BackupConfirm: Equatable { case export, import }
+    enum BackupConfirm: Equatable { case export, restore }
 
     @State private var backupConfirm: BackupConfirm?
     @State private var backupBusy = false
@@ -949,7 +949,7 @@ struct SettingsScreen: View {
                                         store.showToast("请先断开当前连接")
                                         return
                                     }
-                                    backupConfirm = .import
+                                    backupConfirm = .restore
                                 } label: {
                                     HStack(spacing: 10) {
                                         VStack(alignment: .leading, spacing: 2) {
