@@ -65,6 +65,29 @@ class LocalWorkflowStore(context: Context) {
         writeIndex(remaining)
     }
 
+    data class RestoreItem(
+        val path: String,
+        val name: String,
+        val importedAtMs: Long,
+        val raw: String,
+    )
+
+    /** 备份恢复：整体替换本地工作流，path 必须是之前导出的 local:// id。 */
+    fun replaceAll(items: List<RestoreItem>) {
+        dir.mkdirs()
+        dir.listFiles()?.forEach { file ->
+            if (file.name != indexFile.name) file.delete()
+        }
+        val restored = mutableListOf<Item>()
+        items.forEach { item ->
+            val id = item.path.removePrefix("local://")
+            if (!id.matches(Regex("[A-Za-z0-9_-]+"))) return@forEach
+            fileFor("local://$id").writeText(item.raw)
+            restored += Item("local://$id", item.name.ifBlank { "本地工作流" }, item.importedAtMs)
+        }
+        writeIndex(restored)
+    }
+
     private fun fileFor(path: String): File {
         val id = path.substringAfterLast('/').substringAfterLast(':')
         return File(dir, "$id.json")

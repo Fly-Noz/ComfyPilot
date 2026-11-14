@@ -292,6 +292,24 @@ export class ComfyBridge {
     return { storage: true, restored: this.taskCache.size, error: '' };
   }
 
+  /** 导入本地备份后重新读任务缓存；下一次连接会用新快照。 */
+  async reloadTasks(): Promise<number> {
+    this.taskCache.clear();
+    this.loggedStates.clear();
+    if (!this.storage.available) {
+      return 0;
+    }
+    const rows: StoredTask[] = await this.storage.load();
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.id.length === 0 || row.payload.length === 0 || !isJsonObject(row.payload)) {
+        continue;
+      }
+      this.taskCache.set(row.id, row.payload);
+    }
+    return this.taskCache.size;
+  }
+
   /**
    * 不连接，只按任务缓存建一个会话并推进一帧，让恢复出来的历史先显示。
    * 用户点"连接"时会重建会话（配置里仍带着这些快照），所以这里不订阅网络、不起循环。

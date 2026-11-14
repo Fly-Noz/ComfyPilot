@@ -1,6 +1,11 @@
 package com.comfypilot.app.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +27,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,8 +38,10 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.comfypilot.app.ai.AiFeature
 import com.comfypilot.app.ai.AiRuntime
+import com.comfypilot.app.backup.BackupManager
 import com.comfypilot.app.ui.theme.GlassCard
 import com.comfypilot.app.ui.theme.SpectrumDialog
 import com.comfypilot.app.ui.theme.Spectrum
@@ -51,6 +59,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class SettingsPage { Main, Ai, Advanced }
 
@@ -62,6 +73,7 @@ fun SettingsScreen(
     onDiagnostics: () -> Unit,
     onBack: () -> Unit,
     state: com.comfypilot.core.net.SessionState,
+    onBackupImported: () -> Unit,
 ) {
     var page by remember { mutableStateOf(SettingsPage.Main) }
     when (page) {
@@ -73,6 +85,7 @@ fun SettingsScreen(
             onAdvanced = { page = SettingsPage.Advanced },
             onBack = onBack,
             state = state,
+            onBackupImported = onBackupImported,
         )
 
         SettingsPage.Ai -> AiSettingsPage(onBack = { page = SettingsPage.Main })
@@ -92,11 +105,75 @@ private fun SettingsMain(
     onAdvanced: () -> Unit,
     onBack: () -> Unit,
     state: com.comfypilot.core.net.SessionState,
+    onBackupImported: () -> Unit,
 ) {
     val c = Spectrum.colors
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var updateDialog by remember { mutableStateOf(false) }
     var updateMode by remember { mutableStateOf(UpdatePrefs.mode(context)) }
+    var exportDialog by remember { mutableStateOf(false) }
+    var importDialog by remember { mutableStateOf(false) }
+    var backupBusy by remember { mutableStateOf(false) }
+
+    fun startExport() {
+        if (backupBusy) return
+        backupBusy = true
+        scope.launch {
+            when (val result = withContext(Dispatchers.IO) { BackupManager.export(context) }) {
+                is BackupManager.ExportResult.Saved ->
+                    Toast.makeText(context, "已导出到 Download：${result.displayName}", Toast.LENGTH_LONG).show()
+                is BackupManager.ExportResult.Failed ->
+                    Toast.makeText(context, "导出失败：${result.message}", Toast.LENGTH_LONG).show()
+            }
+            backupBusy = false
+        }
+    }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) {
+            startExport()
+        } else {
+            Toast.makeText(context, "没有存储权限，无法写入 Download", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    fun requestExport() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            startExport()
+        }
+    }
+
+    fun handleImport(uri: android.net.Uri) {
+        if (backupBusy) return
+        backupBusy = true
+        scope.launch {
+            when (val result = withContext(Dispatchers.IO) { BackupManager.import(context, uri) }) {
+                is BackupManager.ImportResult.Imported -> {
+                    updateMode = UpdatePrefs.mode(context)
+                    onModeChange(ThemeMode.fromStorage(result.theme))
+                    onBackupImported()
+                    Toast.makeText(context, "已导入本地备份；任务历史重新连接后生效", Toast.LENGTH_LONG).show()
+                }
+                is BackupManager.ImportResult.Failed ->
+                    Toast.makeText(context, "导入失败：${result.message}", Toast.LENGTH_LONG).show()
+            }
+            backupBusy = false
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri != null) handleImport(uri)
+    }
     SpectrumScaffold(
         topBar = { SpectrumTopBar(title = "设置", onBack = onBack) },
     ) { padding ->
@@ -164,6 +241,35 @@ private fun SettingsMain(
             }
 
             Spacer(modifier = Modifier.height(4.dp))
+            SectionLabel("数据")
+            GlassCard(padding = PaddingValues(6.dp)) {
+                SpectrumLinkRow(
+                    label = "导出本地备份",
+                    value = if (backupBusy) "处理中…" else "保存到手机 Download",
+                    onClick = { if (!backupBusy) exportDialog = true },
+                )
+                SpectrumLinkRow(
+                    label = "导入本地备份",
+                    value = if (backupBusy) "处理中…" else "覆盖本机记录，不可撤回",
+                    onClick = {
+                        if (backupBusy) return@SpectrumLinkRow
+                        if (state.lease != null) {
+                            Toast.makeText(context, "请先断开当前连接", Toast.LENGTH_LONG).show()
+                        } else {
+                            importDialog = true
+                        }
+                    },
+                )
+            }
+            Text(
+                text = "备份只包含本机记录，不含 AI API Key、密码或诊断日志。",
+                color = c.textDim,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                modifier = Modifier.padding(horizontal = 2.dp),
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
             SectionLabel("关于")
             GlassCard(padding = PaddingValues(6.dp)) {
                 SpectrumLinkRow(
@@ -220,6 +326,48 @@ private fun SettingsMain(
                     )
                 }
             }
+        }
+    }
+
+    if (exportDialog) {
+        SpectrumDialog(
+            title = "导出本地备份？",
+            onDismiss = { exportDialog = false },
+            confirmText = "导出",
+            dismissText = "取消",
+            onConfirm = {
+                exportDialog = false
+                requestExport()
+            },
+        ) {
+            Text(
+                text = "文件将保存到手机 Download 目录。",
+                color = c.textMuted,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+            )
+        }
+    }
+
+    if (importDialog) {
+        SpectrumDialog(
+            title = "导入本地备份？",
+            onDismiss = { importDialog = false },
+            confirmText = "继续导入",
+            dismissText = "取消",
+            onConfirm = {
+                importDialog = false
+                importLauncher.launch(
+                    arrayOf("application/json", "text/json", "text/plain", "*/*"),
+                )
+            },
+        ) {
+            Text(
+                text = "本地记录将被覆盖，该操作不可撤回。是否确认继续？",
+                color = c.textMuted,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+            )
         }
     }
 }

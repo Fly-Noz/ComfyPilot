@@ -35,6 +35,7 @@ import { SubmitPrefs } from '../bridge/SubmitPrefs';
 import { WeakNetworkPrefs } from '../bridge/WeakNetworkPrefs';
 import { UpdatePrefs, UPDATE_MODE_ONCE } from '../bridge/UpdatePrefs';
 import { LocalWorkflowItem, LocalWorkflowStore } from '../bridge/LocalWorkflowStore';
+import { BackupManager, BackupRestoreSummary } from '../backup/BackupManager';
 import { SeedPrefs } from '../bridge/SeedPrefs';
 import { ClientIdStore } from '../bridge/ClientIdStore';
 import { TaskNotifier } from '../notify/TaskNotifier';
@@ -493,6 +494,7 @@ struct Index {
   private weakPrefs: WeakNetworkPrefs = new WeakNetworkPrefs();
   private updatePrefs: UpdatePrefs = new UpdatePrefs();
   private localWorkflowStore: LocalWorkflowStore = new LocalWorkflowStore();
+  private backupManager: BackupManager = new BackupManager();
   private seedPrefs: SeedPrefs = new SeedPrefs();
   /** 忽略本地校验，强制提交：请求里带给共享层。 */
   @State forceSubmit: boolean = false;
@@ -502,6 +504,9 @@ struct Index {
   @State updateMode: string = 'always';
   @State updateModeOpen: boolean = false;
   @State updateModeDraft: string = 'always';
+  @State backupExportOpen: boolean = false;
+  @State backupImportOpen: boolean = false;
+  @State backupBusy: boolean = false;
   @State seedTick: number = 0;
   private clientIdStore: ClientIdStore = new ClientIdStore();
   private notifier: TaskNotifier = new TaskNotifier();
@@ -8828,6 +8833,69 @@ struct Index {
     // 立即落盘，重启后仍是这个模式
     this.appearanceStore.save(getContext(this) as common.Context, mode);
   }
+
+  private hasActiveTasks(): boolean {
+    return this.tasks.some((task: BridgeTask) =>
+      task.state === 'Submitting' || task.state === 'Queued' || task.state === 'Running');
+  }
+
+  private async exportBackup(): Promise<void> {
+    if (this.backupBusy) {
+      return;
+    }
+    this.backupBusy = true;
+    try {
+      const result = await this.backupManager.export((this.uiContext ?? getContext(this)) as common.Context);
+      if (result.ok) {
+        promptAction.showToast({ message: result.message, duration: 2200 });
+      } else if (result.cancelled !== true) {
+        promptAction.showToast({ message: `导出失败：${result.message}`, duration: 2400 });
+      }
+    } catch (err) {
+      promptAction.showToast({ message: `导出失败：${this.errorText(err)}`, duration: 2400 });
+    } finally {
+      this.backupBusy = false;
+    }
+  }
+
+  private async importBackup(): Promise<void> {
+    if (this.backupBusy) {
+      return;
+    }
+    if (this.running || this.hasActiveTasks()) {
+      promptAction.showToast({ message: '请先断开连接并等任务结束', duration: 2200 });
+      return;
+    }
+    this.backupBusy = true;
+    try {
+      const summary: BackupRestoreSummary =
+        await this.backupManager.import((this.uiContext ?? getContext(this)) as common.Context);
+      const context = (this.uiContext ?? getContext(this)) as common.Context;
+      this.appearanceMode = summary.theme;
+      this.applyAppearance();
+      this.forceSubmit = summary.forceSubmit;
+      this.weakNetwork = summary.weakNetwork;
+      this.imageUploader.weakNetwork = summary.weakNetwork;
+      this.bridge.weakNetwork = summary.weakNetwork;
+      this.ai.forceMechanical = summary.weakNetwork;
+      this.updateMode = summary.updateMode;
+      await this.addressStore.load(context);
+      this.localWorkflows = await this.localWorkflowStore.list();
+      await this.bridge.reloadTasks();
+      promptAction.showToast({
+        message: '已导入本地备份；任务历史在下次连接后生效',
+        duration: 2600,
+      });
+    } catch (err) {
+      const message = this.errorText(err);
+      promptAction.showToast({
+        message: message === '已取消选择' ? '已取消' : `导入失败：${message}`,
+        duration: 2400,
+      });
+    } finally {
+      this.backupBusy = false;
+    }
+  }
   @Builder
   GradientAction(label: string, enabled: boolean, action: () => void, pressKey: string = '') {
     Button(label)
@@ -10186,6 +10254,112 @@ struct Index {
   }
 
   @Builder
+  BackupExportDialog() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#99000000')
+        .onClick(() => { this.backupExportOpen = false; })
+      Column({ space: 10 }) {
+        Text('导出本地备份？')
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.c().text)
+        Text('文件将保存到手机 Download 目录。')
+          .fontSize(12)
+          .lineHeight(18)
+          .fontColor(this.c().textMuted)
+          .width('100%')
+        Row({ space: 10 }) {
+          Text('取消')
+            .fontSize(12.5)
+            .fontColor(this.c().textMuted)
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .backgroundColor(this.c().card)
+            .borderRadius(10)
+            .onClick(() => { this.backupExportOpen = false; })
+          Text('导出')
+            .fontSize(12.5)
+            .fontColor('#FFFFFF')
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+            .borderRadius(10)
+            .onClick(() => {
+              this.backupExportOpen = false;
+              this.exportBackup();
+            })
+        }
+        .width('100%')
+        .margin({ top: 4 })
+        .justifyContent(FlexAlign.End)
+      }
+      .width('84%')
+      .padding(18)
+      .backgroundColor(this.c().dialog)
+      .borderRadius(20)
+      .border({ width: 1, color: this.c().border })
+      .alignItems(HorizontalAlign.Start)
+    }
+    .width('100%')
+    .height('100%')
+    .position({ x: 0, y: 0 })
+  }
+
+  @Builder
+  BackupImportDialog() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#99000000')
+        .onClick(() => { this.backupImportOpen = false; })
+      Column({ space: 10 }) {
+        Text('导入本地备份？')
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.c().text)
+        Text('本地记录将被覆盖，该操作不可撤回。是否确认继续？')
+          .fontSize(12)
+          .lineHeight(18)
+          .fontColor(this.c().textMuted)
+          .width('100%')
+        Row({ space: 10 }) {
+          Text('取消')
+            .fontSize(12.5)
+            .fontColor(this.c().textMuted)
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .backgroundColor(this.c().card)
+            .borderRadius(10)
+            .onClick(() => { this.backupImportOpen = false; })
+          Text('继续导入')
+            .fontSize(12.5)
+            .fontColor('#FFFFFF')
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+            .borderRadius(10)
+            .onClick(() => {
+              this.backupImportOpen = false;
+              this.importBackup();
+            })
+        }
+        .width('100%')
+        .margin({ top: 4 })
+        .justifyContent(FlexAlign.End)
+      }
+      .width('84%')
+      .padding(18)
+      .backgroundColor(this.c().dialog)
+      .borderRadius(20)
+      .border({ width: 1, color: this.c().border })
+      .alignItems(HorizontalAlign.Start)
+    }
+    .width('100%')
+    .height('100%')
+    .position({ x: 0, y: 0 })
+  }
+
+  @Builder
   LocalWorkflowDeleteDialog() {
     Stack() {
       Column()
@@ -10680,6 +10854,60 @@ struct Index {
       this.updateModeOpen = true;
     })
 
+    Text('数据').fontSize(11).fontColor(this.c().textDim).width('100%').textAlign(TextAlign.Start)
+
+    Row({ space: 8 }) {
+      Column({ space: 3 }) {
+        Text('导出本地备份').fontSize(14).fontColor(this.c().text)
+        Text('保存到手机 Download').fontSize(10.5).fontColor(this.c().textDim)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      Text(this.backupBusy ? '…' : '›').fontSize(16).fontColor(this.c().textDim)
+    }
+    .width('100%')
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .alignItems(VerticalAlign.Center)
+    .backgroundColor(this.c().card)
+    .borderRadius(16)
+    .border({ width: 1, color: this.c().border })
+    .onClick(() => {
+      if (!this.backupBusy) {
+        this.backupExportOpen = true;
+      }
+    })
+
+    Row({ space: 8 }) {
+      Column({ space: 3 }) {
+        Text('导入本地备份').fontSize(14).fontColor(this.c().text)
+        Text('覆盖本机记录，不可撤回').fontSize(10.5).fontColor(this.c().textDim)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      Text(this.backupBusy ? '…' : '›').fontSize(16).fontColor(this.c().textDim)
+    }
+    .width('100%')
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .alignItems(VerticalAlign.Center)
+    .backgroundColor(this.c().card)
+    .borderRadius(16)
+    .border({ width: 1, color: this.c().border })
+    .onClick(() => {
+      if (this.backupBusy) {
+        return;
+      }
+      if (this.running || this.hasActiveTasks()) {
+        promptAction.showToast({ message: '请先断开连接并等任务结束', duration: 2200 });
+      } else {
+        this.backupImportOpen = true;
+      }
+    })
+
+    Text('备份只包含本机记录，不含 AI API Key、密码或诊断日志。')
+      .fontSize(10.5)
+      .fontColor(this.c().textDim)
+      .width('100%')
+
     // 设置页底部的「关于」入口；点进去后 aboutOpen 打开关于页，返回仍回到设置。 
     Row({ space: 8 }) {
       Text('关于')
@@ -11103,6 +11331,12 @@ struct Index {
       }
       if (this.updateModeOpen) {
         this.UpdateModeDialog()
+      }
+      if (this.backupExportOpen) {
+        this.BackupExportDialog()
+      }
+      if (this.backupImportOpen) {
+        this.BackupImportDialog()
       }
       if (this.localDeletePath.length > 0) {
         this.LocalWorkflowDeleteDialog()

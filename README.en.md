@@ -43,6 +43,7 @@
 - Disabling a critical node triggers a dry-run build and a confirmation prompt, so a workflow is not silently broken
 - Seed fields support random / reuse last / randomize each run; the mode is stored locally only (Android / HarmonyOS)
 - Android / HarmonyOS can import ComfyUI UI workflows from local storage; they stay on-device, are marked as local, and can be deleted without touching the host
+- Android / HarmonyOS can export local records as a JSON backup and restore them with full overwrite; AI keys and diagnostics are excluded
 - Fields supplied by a link show their source node (e.g. `#330 Seed (rgthree)`)
 - Values are coerced to their declared types before submit, so string numbers like `"8"` are not rejected by the server
 

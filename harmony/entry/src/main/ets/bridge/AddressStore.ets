@@ -121,6 +121,27 @@ export class AddressStore {
     await this.persist();
   }
 
+  /** 备份恢复：整体替换最近地址与历史。 */
+  async replace(last: string, entries: AddressEntry[]): Promise<void> {
+    this.last = this.normalize(last);
+    const next: AddressEntry[] = [];
+    entries.forEach((entry: AddressEntry) => {
+      const url = this.normalize(entry.url);
+      if (url.length === 0 || next.length >= MAX_HISTORY) {
+        return;
+      }
+      if (next.some((item: AddressEntry) => item.url === url)) {
+        return;
+      }
+      next.push({ url: url, usedAt: entry.usedAt });
+    });
+    this.entries = next;
+    if (this.last.length === 0 && next.length > 0) {
+      this.last = next[0].url;
+    }
+    await this.persist();
+  }
+
   /** 去掉首尾空白和尾部斜杠；地址里不允许出现制表符/换行，避免拆坏行格式。 */
   private normalize(url: string): string {
     let value = url.replace(/[\t\n\r]+/g, '').trim();

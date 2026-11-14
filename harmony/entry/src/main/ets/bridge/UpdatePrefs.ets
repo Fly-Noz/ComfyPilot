@@ -79,4 +79,18 @@ export class UpdatePrefs {
       // 忽略：下次启动仍会提示。
     }
   }
+
+  /** 备份恢复：清掉旧版本的“稍后”记录。 */
+  async clearDismissed(context: common.Context): Promise<void> {
+    const store = await this.open(context);
+    if (store === null) {
+      return;
+    }
+    try {
+      await store.delete(KEY_DISMISSED);
+      await store.flush();
+    } catch (err) {
+      // 忽略：下次启动仍会提示。
+    }
+  }
 }

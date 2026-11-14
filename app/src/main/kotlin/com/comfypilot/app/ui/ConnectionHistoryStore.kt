@@ -51,6 +51,20 @@ class ConnectionHistoryStore(context: Context) {
         editor.apply()
     }
 
+    /** 备份恢复：整体替换最近地址与历史。 */
+    fun replace(last: String, history: List<String>) {
+        val cleaned = history.map { it.trim() }.filter { it.isNotEmpty() }.distinct().take(MAX_HISTORY)
+        val effectiveLast = last.trim().ifEmpty { cleaned.firstOrNull().orEmpty() }
+        prefs.edit()
+            .putString(KEY_LAST, effectiveLast)
+            .putString(KEY_HISTORY, cleaned.joinToString("\n"))
+            .apply()
+    }
+
+    fun clear() {
+        prefs.edit().clear().apply()
+    }
+
     private companion object {
         const val PREFS_NAME = "connection_history"
         const val KEY_LAST = "last"

@@ -34,6 +34,11 @@ object UpdatePrefs {
         }
     }
 
+    /** 备份恢复：清掉旧版本的“稍后”记录。 */
+    fun clearDismissed(context: Context) {
+        prefs(context).edit().remove(KEY_DISMISSED).apply()
+    }
+
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 }

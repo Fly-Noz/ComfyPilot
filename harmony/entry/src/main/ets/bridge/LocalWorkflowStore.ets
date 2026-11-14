@@ -87,6 +87,37 @@ export class LocalWorkflowStore {
     await this.writeIndex(items);
   }
 
+  /** 备份恢复：整体替换本地工作流。path 必须仍是 local://<id>。 */
+  async replaceAll(items: LocalWorkflowItem[], raws: Map<string, string>): Promise<void> {
+    const valid: LocalWorkflowItem[] = [];
+    items.forEach((item: LocalWorkflowItem) => {
+      const raw = raws.get(item.path);
+      if (raw === undefined || raw.length === 0) {
+        return;
+      }
+      if (!/^local:\/\/[A-Za-z0-9_-]+$/.test(item.path)) {
+        return;
+      }
+      valid.push(item);
+    });
+    try {
+      const names = await fileIo.listFile(this.dir);
+      for (let i = 0; i < names.length; i++) {
+        if (names[i] !== 'index.json') {
+          await fileIo.unlink(`${this.dir}/${names[i]}`);
+        }
+      }
+    } catch (err) {
+      // 目录为空或还不存在时不用清理。
+    }
+    for (let i = 0; i < valid.length; i++) {
+      const item = valid[i];
+      const raw = raws.get(item.path) ?? '';
+      await this.writeText(this.fileFor(item.path), raw);
+    }
+    await this.writeIndex(valid);
+  }
+
   private fileFor(path: string): string {
     const id = path.substring(path.lastIndexOf('/') + 1);
     return `${this.dir}/${id}.json`;

@@ -221,6 +221,7 @@ fun ComfyPilotApp(
                         mode = it
                         appearance.save(it)
                     },
+                    onBackupImported = { SessionHost.reloadTaskStore() },
                     onAbout = { screen = Screen.About },
                     onDiagnostics = { screen = Screen.Diagnostics },
                     onBack = { screen = settingsReturn },

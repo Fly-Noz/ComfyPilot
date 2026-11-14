@@ -95,6 +95,34 @@ export class TaskStorage {
     this.flush();
   }
 
+  /** 备份恢复：整体替换任务快照；payload 仍是 Kotlin toPersistJson 的原文。 */
+  async replaceAll(payloads: string[]): Promise<void> {
+    const store = this.store;
+    if (store === null) {
+      throw new Error('任务数据库未打开');
+    }
+    await store.executeSql(`DELETE FROM ${TABLE}`);
+    for (let i = 0; i < payloads.length; i++) {
+      const payload = payloads[i];
+      let id = '';
+      try {
+        const parsed = JSON.parse(payload) as Record<string, string>;
+        id = typeof parsed.id === 'string' ? parsed.id : '';
+      } catch (err) {
+        continue;
+      }
+      if (id.length === 0) {
+        continue;
+      }
+      const bucket: relationalStore.ValuesBucket = {
+        'id': id,
+        'payload': payload,
+        'updated_at': Date.now(),
+      };
+      await store.insert(TABLE, bucket, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+    }
+  }
+
   private flush(): void {
     if (this.flushing || this.store === null) {
       return;
