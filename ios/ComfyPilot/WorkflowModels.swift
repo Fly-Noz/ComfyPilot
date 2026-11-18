@@ -17,6 +17,9 @@ struct WorkflowField: Identifiable {
     /// 是不是前端控件（可调），以及是不是常用参数——决定节点卡默认展开与否。
     let widget: Bool
     let common: Bool
+    /// 上传槽位类型：`image` / `audio`；nil 表示普通字段。
+    /// 由 shared 的 `uploadKind` 给出（LoadImage.image、LoadAudio.audio）。
+    let uploadKind: String?
 
     var id: String { "\(nodeId).\(inputName)" }
 
@@ -27,8 +30,14 @@ struct WorkflowField: Identifiable {
     /// 由连线提供值的字段不给编辑：真正的值在上游节点，改了也不会生效。
     var editable: Bool { !linked }
 
-    /// 和安卓一致：只有 LoadImage 的 image 控件走相册上传。
-    var isImageUpload: Bool { nodeType == "LoadImage" && inputName == "image" }
+    /// 图片上传槽位。旧版 shared 不带 uploadKind 时按节点类型兜底。
+    var isImageUpload: Bool {
+        if let kind = uploadKind { return kind == "image" }
+        return nodeType == "LoadImage" && inputName == "image"
+    }
+
+    /// 音频上传槽位（LoadAudio.audio）。
+    var isAudioUpload: Bool { uploadKind == "audio" }
 }
 
 struct WorkflowNode: Identifiable {
@@ -294,7 +303,8 @@ struct WorkflowView {
             sourceLabel: string(raw["fromNodeLabel"]),
             required: bool(raw["required"]),
             widget: bool(raw["widget"]),
-            common: bool(raw["common"])
+            common: bool(raw["common"]),
+            uploadKind: raw["uploadKind"] as? String
         )
     }
 

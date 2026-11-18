@@ -1078,6 +1078,7 @@ struct FieldRow: View {
     @State private var text: String
     @State private var showPicker = false
     @State private var pickedItem: PhotosPickerItem?
+    @State private var audioPickerOpen = false
     @FocusState private var focused: Bool
 
     init(field: WorkflowField, palette: SpectrumPalette, onCommit: @escaping (Any) -> Void) {
@@ -1138,6 +1139,25 @@ struct FieldRow: View {
             if !focused { text = store.fieldDisplayText(for: field) }
         }
         .photosPicker(isPresented: $showPicker, selection: $pickedItem, matching: .images)
+        .fileImporter(
+            isPresented: $audioPickerOpen,
+            allowedContentTypes: [.audio],
+            allowsMultipleSelection: false,
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                let scoped = url.startAccessingSecurityScopedResource()
+                defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+                guard let data = try? Data(contentsOf: url) else {
+                    store.showToast("读取音频失败")
+                    return
+                }
+                store.uploadAudio(data: data, filename: url.lastPathComponent, field: field)
+            case .failure:
+                store.showToast("选择音频失败")
+            }
+        }
         .onChange(of: pickedItem) { _, item in
             guard let item else { return }
             Task {
@@ -1147,6 +1167,14 @@ struct FieldRow: View {
                 pickedItem = nil
             }
         }
+    }
+
+    /// 上传按钮文案：「选图/换图」「选择音频/换音频」。
+    private var uploadButtonTitle: String {
+        if field.isAudioUpload {
+            return text.isEmpty ? "选择音频" : "换音频"
+        }
+        return text.isEmpty ? "选图" : "换图"
     }
 
     /// 种子字段的快捷操作：随机 / 使用上次 / 每次随机（对齐安卓 SeedChip 组）。
@@ -1187,24 +1215,39 @@ struct FieldRow: View {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(palette.cardStrong.opacity(0.5))
                 )
-        } else if field.isImageUpload {
-            HStack(spacing: 8) {
-                Text(text.isEmpty ? "—" : text)
-                    .font(.system(size: 12.5, design: .monospaced))
-                    .foregroundStyle(text.isEmpty ? palette.textDim : palette.text)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+        } else if field.isImageUpload || field.isAudioUpload {
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Text(text.isEmpty ? (field.isAudioUpload ? "未选择音频" : "—") : text)
+                        .font(.system(size: 12.5, design: .monospaced))
+                        .foregroundStyle(text.isEmpty ? palette.textDim : palette.text)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
 
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
 
-                if store.uploadingFieldId == field.id {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(palette.accent)
-                } else {
-                    GhostButton(title: text.isEmpty ? "选图" : "换图", palette: palette, height: 30) {
-                        showPicker = true
+                    if store.uploadingFieldId == field.id {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(palette.accent)
+                    } else {
+                        GhostButton(
+                            title: uploadButtonTitle,
+                            palette: palette,
+                            height: 30
+                        ) {
+                            if field.isAudioUpload {
+                                audioPickerOpen = true
+                            } else {
+                                showPicker = true
+                            }
+                        }
                     }
+                }
+
+                // 上传完成后直接试听：从主机的 input 目录拉（type=input）。
+                if field.isAudioUpload, !text.isEmpty, let audioUrl = store.inputFileURL(for: text) {
+                    AudioPlayerView(url: audioUrl, palette: palette, compact: true)
                 }
             }
             .padding(.horizontal, 12)

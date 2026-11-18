@@ -3349,6 +3349,15 @@ struct Index {
     return base + output.path;
   }
 
+  /** 主机 input 目录里的文件播放地址（参数页试听已上传的音频）。 */
+  private inputFileUrl(name: string): string {
+    const base: string = this.normalizedBaseUrl();
+    if (base.length === 0 || name.length === 0) {
+      return '';
+    }
+    return `${base}/view?filename=${encodeURIComponent(name)}&type=input`;
+  }
+
   private artifactKey(output: BridgeOutput): string {
     return `${output.type}\u0000${output.subfolder}\u0000${output.filename}`;
   }
@@ -4005,6 +4014,14 @@ struct Index {
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .width('100%')
+      // 音频上传完成后直接试听：从主机的 input 目录拉（type=input）。
+      if (field.uploadKind === 'audio' && this.fieldText(field).length > 0) {
+        AudioPlayer({
+          url: this.inputFileUrl(this.fieldText(field)),
+          isDark: this.isDark,
+        })
+          .width('100%')
+      }
       if (this.uploadNoticeKey === this.editKey(field.nodeId, field.inputName)) {
         Text(this.uploadNotice)
           .fontSize(10.5)

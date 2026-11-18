@@ -15,6 +15,8 @@ export struct AudioPlayer {
   @State private failed: boolean = false;
   @State private positionMs: number = 0;
   @State private durationMs: number = 0;
+  /** 拖动进度条时暂停 timeUpdate 回写，否则会和手指抢位置。 */
+  @State private scrubbing: boolean = false;
   private player: media.AVPlayer | null = null;
 
   aboutToDisappear(): void {
@@ -55,7 +57,9 @@ export struct AudioPlayer {
         }
       });
       player.on('timeUpdate', (time: number) => {
-        this.positionMs = time;
+        if (!this.scrubbing) {
+          this.positionMs = time;
+        }
       });
       player.on('error', (err: BusinessError) => {
         console.warn(`[ComfyPilot] audio error: ${err.message}`);
@@ -79,6 +83,17 @@ export struct AudioPlayer {
       player.play();
       this.playing = true;
     }
+  }
+
+  /** 拖动松手后跳转；SEEK_CLOSEST 比默认更跟手，音频对精度不敏感。 */
+  private seekTo(ms: number): void {
+    const player: media.AVPlayer | null = this.player;
+    if (player === null || !this.ready) {
+      return;
+    }
+    player.seek(ms, media.SeekMode.SEEK_CLOSEST).catch((err: BusinessError) => {
+      console.warn(`[ComfyPilot] audio seek failed: ${err.message}`);
+    });
   }
 
   private clock(ms: number): string {
@@ -116,11 +131,27 @@ export struct AudioPlayer {
       .width('100%')
       .alignItems(VerticalAlign.Center)
 
-      Progress({ value: this.durationMs > 0 ? this.positionMs / this.durationMs * 100 : 0, total: 100 })
+      // 可拖动进度条：Begin/Moving 只更新 UI，End/Click 才真正 seek。
+      Slider({
+        value: this.positionMs,
+        min: 0,
+        max: this.durationMs > 0 ? this.durationMs : 1,
+        style: SliderStyle.OutSet,
+      })
         .width('100%')
-        .height(5)
-        .color(this.c().accent)
-        .backgroundColor(this.c().cardStrong)
+        .blockColor(this.c().accent)
+        .selectedColor(this.c().accent)
+        .trackColor(this.c().cardStrong)
+        .enabled(this.ready && !this.failed)
+        .onChange((value: number, mode: SliderChangeMode) => {
+          this.positionMs = value;
+          if (mode === SliderChangeMode.Begin || mode === SliderChangeMode.Moving) {
+            this.scrubbing = true;
+            return;
+          }
+          this.scrubbing = false;
+          this.seekTo(value);
+        })
     }
     .width('100%')
     .padding(14)

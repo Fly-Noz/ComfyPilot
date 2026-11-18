@@ -13,6 +13,7 @@ struct ArtifactRef: Identifiable, Equatable {
     let mime: String
     let isImage: Bool
     let isVideo: Bool
+    let isAudio: Bool
     let path: String
 }
 
@@ -426,6 +427,7 @@ final class SessionStore: ObservableObject {
                             mime: (raw["mime"] as? String) ?? "",
                             isImage: (raw["image"] as? Bool) ?? false,
                             isVideo: (raw["video"] as? Bool) ?? false,
+                            isAudio: (raw["audio"] as? Bool) ?? false,
                             path: (raw["path"] as? String) ?? ""
                         )
                     },
@@ -702,21 +704,36 @@ final class SessionStore: ObservableObject {
     ///
     /// 上传不进状态机：失败只影响这一个字段，不打断连接或任务。
     func uploadImage(data: Data, filename: String, field: WorkflowField) {
-        guard let bridge else { return }
-        let startPath = openedPath
         let maxSide: CGFloat = Prefs.weakNetwork ? 1536 : 2048
         guard let jpeg = ImageUploadPrep.jpeg(from: data, maxSide: maxSide) else {
             uploadError = "这张图读不出来，换一张试试"
             uploadErrorFieldId = field.id
             return
         }
+        startUpload(base64: jpeg.base64EncodedString(), filename: filename, field: field)
+    }
+
+    /// 音频上传：原样上传（不做图片那套 JPEG 转码），上限 50 MB 与安卓一致。
+    func uploadAudio(data: Data, filename: String, field: WorkflowField) {
+        guard data.count <= 50 * 1024 * 1024 else {
+            uploadError = "音频超过 50 MB"
+            uploadErrorFieldId = field.id
+            return
+        }
+        startUpload(base64: data.base64EncodedString(), filename: filename, field: field)
+    }
+
+    /// 上传公共段：shared 负责拼 multipart，宿主只把 bytes 转 base64 送进去。
+    private func startUpload(base64: String, filename: String, field: WorkflowField) {
+        guard let bridge else { return }
+        let startPath = openedPath
         uploadingFieldId = field.id
         uploadError = ""
         uploadErrorFieldId = nil
 
         let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
         let raw = bridge.uploadRequest(
-            base64: jpeg.base64EncodedString(),
+            base64: base64,
             filename: filename,
             baseUrl: snapshot.baseUrl.isEmpty ? address : snapshot.baseUrl,
             nowMs: nowMs
@@ -771,6 +788,23 @@ final class SessionStore: ObservableObject {
                 self.showToast("已上传 \(serverName)")
             }
         }.resume()
+    
+    }
+
+    /// 已上传到主机 input 目录的文件播放地址（参数页音频试听用）。
+    func inputFileURL(for name: String) -> URL? {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return nil }
+        let base = (snapshot.baseUrl.isEmpty ? address : snapshot.baseUrl)
+            .trimmingCharacters(in: .whitespaces)
+        guard !base.isEmpty else { return nil }
+        let normalized = base.hasSuffix("/") ? String(base.dropLast()) : base
+        var components = URLComponents(string: normalized + "/view")
+        components?.queryItems = [
+            URLQueryItem(name: "filename", value: trimmedName),
+            URLQueryItem(name: "type", value: "input"),
+        ]
+        return components?.url
     }
 
     /// 清掉本次打开后的所有参数修改（不写回服务器上的工作流文件）。

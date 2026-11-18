@@ -2818,8 +2818,31 @@ private fun FieldEditor(
                     height = 36.dp,
                 )
             }
+
+            // 音频上传完成后直接试听：从主机的 input 目录拉（type=input）。
+            if (field.uploadKind == "audio") {
+                val audioName = valueText(value)
+                if (audioName.isNotEmpty()) {
+                    val audioUrl = remember(audioName, SessionHost.baseUrl) {
+                        inputFileUrl(SessionHost.baseUrl, audioName)
+                    }
+                    if (audioUrl != null) {
+                        ArtifactAudio(url = audioUrl)
+                    }
+                }
+            }
         }
     }
+}
+
+/** 主机 input 目录里的文件播放地址（参数页试听已上传的音频）。 */
+private fun inputFileUrl(baseUrl: String, name: String): String? {
+    val base = baseUrl.trim().trimEnd('/')
+    if (base.isEmpty() || name.isBlank()) {
+        return null
+    }
+    val encoded = java.net.URLEncoder.encode(name, "UTF-8")
+    return "$base/view?filename=$encoded&type=input"
 }
 
 @Composable

@@ -87,6 +87,13 @@ struct ArtifactViewer: View {
                             .fill(palette.cardStrong)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            } else if artifact.isAudio, let url = url(for: artifact) {
+                AudioPlayerView(url: url, palette: palette)
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(palette.cardStrong)
+                    )
             } else {
                 placeholder(artifact.displayName, icon: "doc")
             }
@@ -100,7 +107,7 @@ struct ArtifactViewer: View {
 
                 Spacer(minLength: 0)
 
-                if artifact.isImage || artifact.isVideo {
+                if artifact.isImage || artifact.isVideo || artifact.isAudio {
                     if let note = saveNotes[artifact.id] {
                         Text(note)
                             .font(.system(size: 9.5))
@@ -116,14 +123,17 @@ struct ArtifactViewer: View {
                     }
                     .disabled(saving != nil)
 
-                    GhostButton(
-                        title: saving == artifact.id ? "保存中…" : "保存到相册",
-                        palette: palette,
-                        height: 30
-                    ) {
-                        save(artifact)
+                    // 音频不能存相册（那是图片/视频的容器），只给分享。
+                    if artifact.isImage || artifact.isVideo {
+                        GhostButton(
+                            title: saving == artifact.id ? "保存中…" : "保存到相册",
+                            palette: palette,
+                            height: 30
+                        ) {
+                            save(artifact)
+                        }
+                        .disabled(saving != nil)
                     }
-                    .disabled(saving != nil)
                 }
             }
         }

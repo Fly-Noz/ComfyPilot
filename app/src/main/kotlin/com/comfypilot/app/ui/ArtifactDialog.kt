@@ -46,12 +46,16 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -712,11 +716,15 @@ private fun ArtifactPreview(
  * 只在预览打开时创建，离开页面立即释放。
  */
 @Composable
-private fun ArtifactAudio(url: String) {
+internal fun ArtifactAudio(url: String) {
     val c = Spectrum.colors
     var ready by remember(url) { mutableStateOf(false) }
     var playing by remember(url) { mutableStateOf(false) }
     var error by remember(url) { mutableStateOf<String?>(null) }
+    var positionMs by remember(url) { mutableIntStateOf(0) }
+    var durationMs by remember(url) { mutableIntStateOf(0) }
+    var scrubbing by remember(url) { mutableStateOf(false) }
+    var scrubMs by remember(url) { mutableFloatStateOf(0f) }
     val player = remember(url) { MediaPlayer() }
 
     LaunchedEffect(url) {
@@ -725,6 +733,7 @@ private fun ArtifactAudio(url: String) {
                 player.setDataSource(url)
                 player.prepare()
             }
+            durationMs = runCatching { player.duration }.getOrDefault(0)
             ready = true
         } catch (t: Throwable) {
             error = t.message?.takeIf { it.isNotBlank() } ?: "音频加载失败"
@@ -732,6 +741,12 @@ private fun ArtifactAudio(url: String) {
     }
 
     DisposableEffect(player) {
+        // 播完回零：MediaPlayer 不会自己重置，进度条要跟着回位。
+        player.setOnCompletionListener {
+            playing = false
+            positionMs = 0
+            runCatching { player.seekTo(0) }
+        }
         onDispose {
             runCatching {
                 if (player.isPlaying) player.stop()
@@ -740,35 +755,86 @@ private fun ArtifactAudio(url: String) {
         }
     }
 
+    // 进度轮询只在播放时跑；用户拖动时让位（否则会和手指抢位置）。
+    LaunchedEffect(ready, playing) {
+        while (ready && playing) {
+            if (!scrubbing) {
+                positionMs = runCatching { player.currentPosition }.getOrDefault(positionMs)
+            }
+            delay(250)
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(
-            text = error ?: if (ready) "音频已就绪" else "正在加载音频…",
-            color = if (error != null) c.err else c.textMuted,
-            fontSize = 12.sp,
-        )
-        GhostButton(
-            text = when {
-                error != null -> "加载失败"
-                !ready -> "加载中…"
-                playing -> "暂停"
-                else -> "播放"
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            GhostButton(
+                text = when {
+                    error != null -> "加载失败"
+                    !ready -> "加载中…"
+                    playing -> "暂停"
+                    else -> "播放"
+                },
+                onClick = {
+                    if (ready) {
+                        runCatching {
+                            if (playing) player.pause() else player.start()
+                            playing = !playing
+                        }.onFailure { error = it.message ?: "播放失败" }
+                    }
+                },
+                enabled = ready,
+                height = 36.dp,
+            )
+            Text(
+                text = "${clock(positionMs)} / ${clock(durationMs)}",
+                color = c.textMuted,
+                fontSize = 11.sp,
+                fontFamily = SpectrumMono,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = error ?: if (ready) "音频" else "加载中…",
+                color = if (error != null) c.err else c.textDim,
+                fontSize = 10.5.sp,
+            )
+        }
+
+        // 可拖动：松手才 seek，拖动过程中只更新本地位置。
+        Slider(
+            value = if (scrubbing) scrubMs else positionMs.toFloat(),
+            onValueChange = {
+                scrubbing = true
+                scrubMs = it
             },
-            onClick = {
-                if (ready) {
-                    runCatching {
-                        if (playing) player.pause() else player.start()
-                        playing = !playing
-                    }.onFailure { error = it.message ?: "播放失败" }
-                }
+            onValueChangeFinished = {
+                scrubbing = false
+                val target = scrubMs.toInt()
+                runCatching { player.seekTo(target) }
+                positionMs = target
             },
-            enabled = ready,
-            height = 36.dp,
+            valueRange = 0f..durationMs.coerceAtLeast(1).toFloat(),
+            enabled = ready && error == null,
+            colors = SliderDefaults.colors(
+                thumbColor = c.accent,
+                activeTrackColor = c.accent,
+                inactiveTrackColor = c.cardStrong,
+            ),
+            modifier = Modifier.fillMaxWidth(),
         )
     }
+}
+
+/** 毫秒转 m:ss，负值/NaN 兜底成 0:00。 */
+private fun clock(ms: Int): String {
+    val seconds = (ms / 1000).coerceAtLeast(0)
+    return "%d:%02d".format(seconds / 60, seconds % 60)
 }
 
 /**
