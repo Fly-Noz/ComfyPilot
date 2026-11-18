@@ -35,6 +35,8 @@ export interface WorkflowFieldView {
   required: boolean;
   common: boolean;
   needsInput: boolean;
+  /** 前端上传按钮类型：image / audio；普通字段为空。 */
+  uploadKind?: string;
 }
 export interface WorkflowNodeView {
   id: number;

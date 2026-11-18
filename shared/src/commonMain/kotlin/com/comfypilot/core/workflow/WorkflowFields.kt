@@ -32,6 +32,8 @@ data class WorkflowField(
     val fromSlot: Int? = null,
     /** 连线来源的可读标签，如 `#330 Seed (rgthree)`；用于在「由连线提供」后面点明来源。 */
     val fromNodeLabel: String? = null,
+    /** 前端上传按钮类型：image / audio；null 表示普通控件。 */
+    val uploadKind: String? = null,
 ) {
     /** 没有可用值、需要用户填/连线的字段；用于把这类节点排在输入区最前面。 */
     val needsInput: Boolean
@@ -313,6 +315,13 @@ object WorkflowFields {
                 common = isCommon(node.type, declared),
                 fromNodeId = origins[declared.name]?.nodeId,
                 fromSlot = origins[declared.name]?.slot,
+                uploadKind = when {
+                    declared.audioUpload -> "audio"
+                    declared.imageUpload -> "image"
+                    node.type == "LoadAudio" && declared.name == "audio" -> "audio"
+                    node.type == "LoadImage" && declared.name == "image" -> "image"
+                    else -> null
+                },
             )
 
             if (declared.autogrow) {
@@ -471,6 +480,7 @@ object WorkflowFields {
     private fun isCommon(nodeType: String, input: NodeInputDef): Boolean = when {
         input.type == "STRING" && input.name in TEXT_INPUTS -> true
         nodeType == "LoadImage" && input.name == "image" -> true
+        nodeType == "LoadAudio" && input.name == "audio" -> true
         input.name in SEED_INPUTS -> true
         input.controlAfterGenerate -> true
         input.name in SIZE_INPUTS -> true

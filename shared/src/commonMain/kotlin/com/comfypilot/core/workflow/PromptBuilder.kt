@@ -11,6 +11,13 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
+/** 前端上传控件的类型；普通控件返回 null。 */
+private fun NodeInputDef.uploadKind(): String? = when {
+    audioUpload -> "audio"
+    imageUpload -> "image"
+    else -> null
+}
+
 /** 一条阻断提交的问题。带上节点，界面上才能定位到具体节点。 */
 data class BuildProblem(
     val nodeId: Int? = null,
@@ -349,7 +356,7 @@ object PromptBuilder {
             // 别让一条历史覆盖把整次提交卡死。图片上传字段例外：刚上传的文件本来就不在
             // 打开工作流时抓到的候选快照里，替换成别的图会让第二个 LoadImage 用错文件。
             val text = (value as? JsonPrimitive)?.contentOrNull
-            if (!declared.imageUpload && !declared.dynamic &&
+            if (!declared.imageUpload && !declared.audioUpload && !declared.dynamic &&
                 declared.options.isNotEmpty() && text != null
             ) {
                 val matched = matchComboOption(declared.options, text)
@@ -757,7 +764,7 @@ internal object WidgetValueReader {
             // dynamic 附加控件的候选也随当前选项变化，两者都不能拿旧候选去卡。
             val matched = if (def == null) null else text?.let { matchComboOption(def.options, it) }
             if (
-                def == null || def.options.isEmpty() || def.imageUpload || def.dynamic ||
+                def == null || def.options.isEmpty() || def.imageUpload || def.audioUpload || def.dynamic ||
                 text == null || matched != null
             ) {
                 out[name] = if (matched != null) JsonPrimitive(matched) else value
@@ -853,9 +860,9 @@ internal object WidgetValueReader {
                 index++
                 if (def != null) handled += def.name
                 skipFrontendSlots(def)
-                if (def?.imageUpload == true && !uploadIsWidget) {
+                if (def?.uploadKind() != null && !uploadIsWidget) {
                     val upload = values.getOrNull(index)?.let { (it as? JsonPrimitive)?.contentOrNull }
-                    if (upload == "image") index++
+                    if (upload == def?.uploadKind()) index++
                 }
                 if (value != null && value !is JsonNull) {
                     // def == null：前端专用控件（如 upload），服务端没有这个输入，丢弃。
@@ -875,9 +882,9 @@ internal object WidgetValueReader {
                 val value = values.getOrNull(index)
                 index++
                 skipFrontendSlots(def)
-                if (def.imageUpload) {
+                if (def.uploadKind() != null) {
                     val upload = values.getOrNull(index)?.let { (it as? JsonPrimitive)?.contentOrNull }
-                    if (upload == "image") index++
+                    if (upload == def?.uploadKind()) index++
                 }
                 if (value != null && value !is JsonNull) {
                     out[def.name] = value

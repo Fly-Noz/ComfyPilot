@@ -599,7 +599,7 @@ private fun DetailBody(
         }
     }
 
-    // 上传只服务 LoadImage 的 image 控件：先传服务器，再用返回的文件名覆盖控件值。
+    // 上传服务 LoadImage / LoadAudio 的控件：先传服务器，再用返回的文件名覆盖控件值。
     val uploader = remember { OkHttpHttpTransport() }
     var uploadTarget by remember { mutableStateOf<WorkflowField?>(null) }
     var uploading by remember { mutableStateOf(false) }
@@ -621,6 +621,7 @@ private fun DetailBody(
             uploadError = null
             val loaded = withContext(Dispatchers.IO) {
                 runCatching {
+                    val audio = target.uploadKind == "audio"
                     val name = context.contentResolver.query(
                         uri,
                         arrayOf(OpenableColumns.DISPLAY_NAME),
@@ -629,16 +630,21 @@ private fun DetailBody(
                         null,
                     )?.use { cursor ->
                         if (cursor.moveToFirst()) cursor.getString(0) else null
-                    } ?: uri.lastPathSegment ?: "image.png"
+                    } ?: uri.lastPathSegment ?: if (audio) "audio.mp3" else "image.png"
                     val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                        ?: error("读不到图片内容")
-                    // 弱网/大图先压缩再传：手机上原图动辄 5–10MB，上传时间主要花在这里。
-                    val weak = WeakNetworkPrefs.isEnabled(context)
-                    name to compressForUpload(bytes, weak)
+                        ?: error(if (audio) "读不到音频内容" else "读不到图片内容")
+                    if (audio) {
+                        if (bytes.size > 50 * 1024 * 1024) error("音频超过 50 MB")
+                        name to bytes
+                    } else {
+                        // 弱网/大图先压缩再传：手机上原图动辄 5–10MB，上传时间主要花在这里。
+                        val weak = WeakNetworkPrefs.isEnabled(context)
+                        name to compressForUpload(bytes, weak)
+                    }
                 }
             }
             if (loaded.isFailure) {
-                uploadError = loaded.exceptionOrNull()?.message ?: "读取图片失败"
+                uploadError = loaded.exceptionOrNull()?.message ?: "读取上传文件失败"
                 uploading = false
                 return@launch
             }
@@ -653,9 +659,11 @@ private fun DetailBody(
                 )
             ) {
                 is ImageUploadResult.Success -> {
-                    val preview = withContext(Dispatchers.IO) { decodePreview(bytes) }
-                    if (preview != null) {
-                        uploadPreviews = uploadPreviews + ("${target.nodeId}:${target.inputName}" to preview)
+                    if (target.uploadKind != "audio") {
+                        val preview = withContext(Dispatchers.IO) { decodePreview(bytes) }
+                        if (preview != null) {
+                            uploadPreviews = uploadPreviews + ("${target.nodeId}:${target.inputName}" to preview)
+                        }
                     }
                     applyOverride(
                         target.nodeId,
@@ -677,7 +685,7 @@ private fun DetailBody(
             return
         }
         uploadTarget = field
-        picker.launch("image/*")
+        picker.launch(if (field.uploadKind == "audio") "audio/*" else "image/*")
     }
 
     fun submit(force: Boolean = false) {
@@ -939,7 +947,7 @@ private fun DetailBody(
             InlineNote("正在加载节点定义：还差 $pendingClasses 个类")
         }
         if (uploading) {
-            InlineNote("正在上传图片…")
+            InlineNote("正在上传文件…")
         }
         uploadError?.let { message ->
             Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp)) {
@@ -2147,7 +2155,7 @@ private fun NodeInputCard(
                         preview = previews["${node.id}:${field.inputName}"],
                         onPickImage = if (
                             node.reachable && enabled &&
-                            field.nodeType == "LoadImage" && field.inputName == "image"
+                            field.uploadKind != null
                         ) {
                             { onPickImage(field) }
                         } else {
@@ -2727,7 +2735,7 @@ private fun FieldEditor(
             // 图片控件只允许自己上传：不再列出服务器 input 目录里的图片，
             // 这里只回显当前文件名（可能来自刚上传的图片）。
             onPickImage != null -> Text(
-                text = valueText(value).ifEmpty { "未选择图片" },
+                text = valueText(value).ifEmpty { if (field.uploadKind == "audio") "未选择音频" else "未选择图片" },
                 color = if (valueText(value).isEmpty()) c.textDim else c.text,
                 fontSize = 12.sp,
                 fontFamily = SpectrumMono,
@@ -2801,7 +2809,11 @@ private fun FieldEditor(
                     )
                 }
                 GhostButton(
-                    text = if (preview == null) "从相册选择" else "更换图片",
+                    text = if (preview == null) {
+                        if (field.uploadKind == "audio") "选择音频" else "从相册选择"
+                    } else {
+                        "更换图片"
+                    },
                     onClick = onPickImage,
                     height = 36.dp,
                 )

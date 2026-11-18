@@ -1,8 +1,9 @@
 import { image } from '@kit.ImageKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
-import { fileIo } from '@kit.CoreFileKit';
+import { fileIo, picker } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
+import { common } from '@kit.AbilityKit';
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
@@ -44,6 +45,41 @@ export class ImageUploader {
   async pick(): Promise<PickedImage | null> {
     const list = await this.pickMany(1);
     return list.length > 0 ? list[0] : null;
+  }
+
+  /** 选择音频文件；不压缩、不改扩展名，直接交给 /upload/image。 */
+  async pickAudio(context: common.Context): Promise<PickedImage | null> {
+    const options = new picker.DocumentSelectOptions();
+    options.maxSelectNumber = 1;
+    options.fileSuffixFilters = ['.mp3', '.wav', '.m4a', '.flac', '.ogg', '.aac'];
+    const viewPicker = new picker.DocumentViewPicker(context);
+    const uris = await viewPicker.select(options);
+    if (uris.length === 0 || uris[0].length === 0) {
+      return null;
+    }
+    const uri = uris[0];
+    const stat = fileIo.statSync(uri);
+    if (stat.size <= 0) {
+      throw new Error('音频内容为空');
+    }
+    if (stat.size > MAX_UPLOAD_BYTES) {
+      throw new Error('音频超过 50 MB');
+    }
+    const file = fileIo.openSync(uri, fileIo.OpenMode.READ_ONLY);
+    try {
+      const buffer = new ArrayBuffer(stat.size);
+      const read = fileIo.readSync(file.fd, buffer, { offset: 0, length: stat.size });
+      if (read !== stat.size) {
+        throw new Error('读取音频不完整');
+      }
+      return {
+        filename: this.filenameFromUri(uri),
+        bytes: new Uint8Array(buffer),
+        uri: uri,
+      };
+    } finally {
+      fileIo.closeSync(file);
+    }
   }
 
   /** 多选：AI 聊天里一次可以带多张图，各自上传成独立文件名。 */

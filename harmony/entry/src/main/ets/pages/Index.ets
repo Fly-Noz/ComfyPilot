@@ -44,6 +44,7 @@ import { Palette, Spectrum } from '../theme/Spectrum';
 import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/ArtifactDownloader';
 import { VideoThumb } from '../artifact/VideoThumb';
 import { VideoPlayer } from '../artifact/VideoPlayer';
+import { AudioPlayer } from '../artifact/AudioPlayer';
 import { ImageUploader, PickedImage } from '../workflow/ImageUploader';
 import { WorkflowGraphOverlay } from '../workflow/WorkflowGraphOverlay';
 import {
@@ -2321,8 +2322,8 @@ struct Index {
     return `${nodeId}\u0000${inputName}`;
   }
 
-  private isImageField(field: WorkflowFieldView): boolean {
-    return field.nodeType === 'LoadImage' && field.inputName === 'image';
+  private isUploadField(field: WorkflowFieldView): boolean {
+    return (field.uploadKind ?? '').length > 0;
   }
 
   private selectOptions(field: WorkflowFieldView): SelectOption[] {
@@ -2367,7 +2368,10 @@ struct Index {
     this.pickerActive = true;
     this.skipNextAppear = true;
     try {
-      const picked: PickedImage | null = await this.imageUploader.pick();
+      const isAudio: boolean = field.uploadKind === 'audio';
+      const picked: PickedImage | null = isAudio
+        ? await this.imageUploader.pickAudio(getContext(this) as common.Context)
+        : await this.imageUploader.pick();
       if (picked === null) {
         return;
       }
@@ -2377,8 +2381,11 @@ struct Index {
         return;
       }
       this.setFieldText(field, result.reference);
-      this.previewUris.set(key, picked.uri);
-      this.previewVersion++;
+      const isAudioField: boolean = field.uploadKind === 'audio';
+      if (!isAudioField) {
+        this.previewUris.set(key, picked.uri);
+        this.previewVersion++;
+      }
       this.uploadNoticeKey = key;
       this.uploadNotice = result.message;
     } catch (err) {
@@ -3899,7 +3906,7 @@ struct Index {
         Text(field.required ? '需要连线；当前未连接，提交会被拒绝。' : '可选连线；当前未连接。')
           .fontSize(11)
           .fontColor(field.required ? this.c().err : this.c().textDim)
-      } else if (this.isImageField(field)) {
+      } else if (this.isUploadField(field)) {
         this.ImageField(field)
       } else if (field.options.length > 0) {
         this.OptionField(field)
@@ -3977,7 +3984,9 @@ struct Index {
         this.GhostAction(
           this.uploadingField === this.editKey(field.nodeId, field.inputName)
             ? '上传中…'
-            : (this.fieldText(field).length > 0 ? '更换图片' : '从相册选择'),
+            : (field.uploadKind === 'audio'
+              ? (this.fieldText(field).length > 0 ? '更换音频' : '选择音频')
+              : (this.fieldText(field).length > 0 ? '更换图片' : '从相册选择')),
           this.running && this.uploadingField.length === 0 && this.nodeFieldEnabled(field.nodeId),
           () => {
             this.pickAndUpload(field);
@@ -3987,7 +3996,9 @@ struct Index {
       .width('100%')
       .alignItems(VerticalAlign.Center)
 
-      Text(this.fieldText(field).length > 0 ? `当前：${this.fieldText(field)}` : '尚未选择图片')
+      Text(this.fieldText(field).length > 0
+        ? `当前：${this.fieldText(field)}`
+        : (field.uploadKind === 'audio' ? '尚未选择音频' : '尚未选择图片'))
         .fontSize(10.5)
         .fontFamily('monospace')
         .fontColor(this.fieldText(field).length > 0 ? this.c().textMuted : this.c().textDim)
@@ -4597,7 +4608,7 @@ struct Index {
         this.InlineNote(`正在加载节点定义：还差 ${this.view.pendingNodeClasses.length} 个类`)
       }
       if (this.uploadingField.length > 0) {
-        this.InlineNote('正在上传图片…')
+        this.InlineNote('正在上传文件…')
       }
 
       if (this.view.problems.length > 0 &&
@@ -6853,10 +6864,9 @@ struct Index {
       } else if (output.image || output.video) {
         this.ArtifactMedia(output, 190, false)
       } else if (output.audio) {
-        Text('音频产物：下载后可用系统播放器打开。')
-          .fontSize(12)
-          .fontColor(this.c().textMuted)
+        AudioPlayer({ url: this.artifactUrl(output), isDark: this.isDark })
           .width('100%')
+          .height(100)
       } else {
         Text('该类型暂不支持内置预览，可下载后用系统应用打开。')
           .fontSize(12)
@@ -7010,6 +7020,10 @@ struct Index {
             this.videoInlineKey = this.artifactUrl(this.previewOutput);
           })
         }
+      } else if (this.previewOutput.audio) {
+        AudioPlayer({ url: this.artifactUrl(this.previewOutput), isDark: this.isDark })
+          .width('100%')
+          .height(120)
       } else {
         Text('该类型暂不支持内置预览，请下载后打开。')
           .fontSize(12)

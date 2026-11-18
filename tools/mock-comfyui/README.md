@@ -58,6 +58,8 @@ prompt 图、`lastUpload` 最近一次上传的文件名）、`POST /mock/drop-s
 - `demo_api.json`：API 格式（`/prompt` 直接可用），txt2img 标准链路。
 - `demo_ui.json`：网页端保存格式（`nodes`/`links`/`widgets_values`），用于格式识别与后续转换器。
 - `demo_upload.json`：只有 `LoadImage` + `SaveImage` 的最小网页格式，用于相册上传链路。
+- `demo_audio.json`：`LoadAudio` + `SaveAudio`，用于音频选择、上传和音频产物播放链路。
+- `sample.wav`：3 秒双音提示音；音频任务完成后 `/view` 返回它。
 
 `hits` 里对应 `userdata`（列表）、`workflow`（读原文）、`object_info`（取节点定义）、
 `system`（系统状态）。
@@ -87,5 +89,13 @@ prompt 图、`lastUpload` 最近一次上传的文件名）、`POST /mock/drop-s
 5. 点「全部节点」弹出菜单，点 `#3 KSampler` 应关闭菜单、切回「输入」并滚到该节点。
 6. 打开 `demo_upload`，点「从相册选择」上传一张图；控件值应变成
    `lastUpload.name`，提交后 `lastPrompt["1"].inputs.image` 应与之一致。
+
+## 音频手工验证（Android / 鸿蒙）
+
+1. 连接 mock 后打开 `demo_audio`。
+2. 点 `LoadAudio` 的「选择音频」，选一个 `.wav` / `.mp3` / `.m4a` 等文件。
+3. 控件值应变成 `lastUpload.name`，且 `GET /object_info/LoadAudio` 的选项里能看到刚上传的文件。
+4. 提交任务，完成后在产物列表/预览页点播放，应能听到 `sample.wav` 的提示音，并可下载。
+5. 检查 `GET /mock/state`：`lastUpload.name` 是音频文件名，`lastPrompt` 里 `LoadAudio` 的 `audio` 与它一致。
 
 > 以上是联调清单，不代表已在真机验证。真机验证结果需在阶段报告中单独记录。

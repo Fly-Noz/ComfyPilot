@@ -44,6 +44,15 @@ const SAMPLE_MP4 = existsSync(SAMPLE_MP4_PATH)
   ? readFileSync(SAMPLE_MP4_PATH)
   : Buffer.alloc(0)
 
+/** 音频样例：3 秒双音提示音，音频任务（SaveAudio）经 /view 返回它。 */
+const SAMPLE_AUDIO_PATH = nodePath.join(
+  nodePath.dirname(fileURLToPath(import.meta.url)),
+  'sample.wav',
+)
+const SAMPLE_AUDIO = existsSync(SAMPLE_AUDIO_PATH)
+  ? readFileSync(SAMPLE_AUDIO_PATH)
+  : Buffer.alloc(0)
+
 /**
  * fixtures/：演示素材夹具（可选）。
  * frames/frame-1..8.jpg 是同一张图的采样过程帧（噪点云团 → 逐渐显影 → 成品），
@@ -199,6 +208,32 @@ const OBJECT_INFO = {
     name: 'LoadImage',
     display_name: 'Load Image',
     category: 'image',
+  },
+  LoadAudio: {
+    input: {
+      required: {
+        audio: [['example.wav'], { audio_upload: true }],
+      },
+    },
+    output: ['AUDIO'],
+    output_name: ['AUDIO'],
+    name: 'LoadAudio',
+    display_name: 'Load Audio',
+    category: 'audio',
+  },
+  SaveAudio: {
+    input: {
+      required: {
+        audio: ['AUDIO'],
+        filename_prefix: ['STRING', { default: 'ComfyPilot' }],
+      },
+    },
+    output: [],
+    output_name: [],
+    name: 'SaveAudio',
+    display_name: 'Save Audio',
+    category: 'audio',
+    output_node: true,
   },
   VHS_VideoCombine: {
     input: {
@@ -512,8 +547,9 @@ function startJob(promptId, job) {
 
 function finishJob(promptId, job) {
   running.delete(promptId)
-  const ext = job.isVideo ? 'mp4' : SAMPLE_OUTPUT ? 'jpg' : 'png'
+  const ext = job.isVideo ? 'mp4' : (job.isAudio ? 'wav' : (SAMPLE_OUTPUT ? 'jpg' : 'png'))
   const filename = `ComfyPilot_mock_${promptId.slice(0, 8)}.${ext}`
+  const outputKind = job.isVideo ? 'images' : (job.isAudio ? 'audio' : 'images')
   broadcast({
     type: 'executing',
     data: { prompt_id: promptId, node: null },
@@ -523,13 +559,13 @@ function finishJob(promptId, job) {
     data: {
       prompt_id: promptId,
       node: '9',
-      output: { images: [{ filename, subfolder: '', type: 'output' }] },
+      output: { [outputKind]: [{ filename, subfolder: '', type: 'output' }] },
     },
   })
   history.set(promptId, {
     prompt: [],
     outputs: {
-      9: { images: [{ filename, subfolder: '', type: 'output' }] },
+      9: { [outputKind]: [{ filename, subfolder: '', type: 'output' }] },
     },
     status: {
       status_str: 'success',
@@ -578,6 +614,9 @@ const server = http.createServer(async (req, res) => {
       const isVideo = Object.values(payload.prompt).some(
         (n) => n && n.class_type === 'VHS_VideoCombine',
       )
+      const isAudio = Object.values(payload.prompt).some(
+        (n) => n && n.class_type === 'SaveAudio',
+      )
       const job = {
         number,
         createdAt: Date.now(),
@@ -585,6 +624,7 @@ const server = http.createServer(async (req, res) => {
         max: 8,
         status: 'pending',
         isVideo,
+        isAudio,
       }
       pending.set(promptId, job)
       broadcast({ type: 'status', data: { status: { exec_info: { queue_remaining: pending.size + running.size } } } })
@@ -647,8 +687,35 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'GET' && path === '/view') {
+      const filename = url.searchParams.get('filename') || ''
+      // 音频产物：返回 WAV 样例；同时支持 Range，MediaPlayer 才能拖动/稳定播放。
+      if (filename.toLowerCase().endsWith('.wav') && SAMPLE_AUDIO.length > 0) {
+        const total = SAMPLE_AUDIO.length
+        const range = req.headers.range
+        if (range) {
+          const m = /bytes=(\d*)-(\d*)/.exec(range)
+          let start = m && m[1] ? parseInt(m[1], 10) : 0
+          let end = m && m[2] ? parseInt(m[2], 10) : total - 1
+          if (Number.isNaN(start) || start > total - 1) start = 0
+          if (Number.isNaN(end) || end >= total) end = total - 1
+          const chunk = SAMPLE_AUDIO.subarray(start, end + 1)
+          res.writeHead(206, {
+            'content-type': 'audio/wav',
+            'content-length': chunk.length,
+            'content-range': `bytes ${start}-${end}/${total}`,
+            'accept-ranges': 'bytes',
+          })
+          return res.end(chunk)
+        }
+        res.writeHead(200, {
+          'content-type': 'audio/wav',
+          'content-length': total,
+          'accept-ranges': 'bytes',
+        })
+        return res.end(SAMPLE_AUDIO)
+      }
       // filename 以 .mp4 结尾 → 回视频样例（AVPlayer 严格依赖 Range，必须实现 206）
-      if ((url.searchParams.get('filename') || '').endsWith('.mp4') && SAMPLE_MP4) {
+      if (filename.endsWith('.mp4') && SAMPLE_MP4) {
         const total = SAMPLE_MP4.length
         const range = req.headers.range
         if (range) {
@@ -729,6 +796,12 @@ const server = http.createServer(async (req, res) => {
       // 否则回填的文件名不在选项内，客户端本地校验会把它当成非法值。
       if (info && name === 'LoadImage' && lastUpload?.name) {
         const options = info.input?.required?.image?.[0]
+        if (Array.isArray(options) && !options.includes(lastUpload.name)) {
+          options.unshift(lastUpload.name)
+        }
+      }
+      if (info && name === 'LoadAudio' && lastUpload?.name) {
+        const options = info.input?.required?.audio?.[0]
         if (Array.isArray(options) && !options.includes(lastUpload.name)) {
           options.unshift(lastUpload.name)
         }

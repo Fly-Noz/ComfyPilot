@@ -358,6 +358,7 @@ private fun fieldJson(field: WorkflowField) = buildJsonObject {
     put("required", field.required)
     put("common", field.common)
     put("needsInput", field.needsInput)
+    field.uploadKind?.let { put("uploadKind", it) }
 }
 
 private fun problemJson(problem: BuildProblem) = buildJsonObject {

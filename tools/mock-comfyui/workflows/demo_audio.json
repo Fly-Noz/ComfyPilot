@@ -1,0 +1,41 @@
+{
+  "last_node_id": 2,
+  "last_link_id": 1,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "LoadAudio",
+      "pos": [40, 120],
+      "size": [315, 280],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [
+        { "name": "audio", "type": "COMBO", "link": null, "widget": { "name": "audio" } }
+      ],
+      "outputs": [
+        { "name": "AUDIO", "type": "AUDIO", "links": [1] }
+      ],
+      "properties": { "Node name for S&R": "LoadAudio" },
+      "widgets_values": ["example.wav", "audio"]
+    },
+    {
+      "id": 2,
+      "type": "SaveAudio",
+      "pos": [400, 120],
+      "size": [315, 180],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [{ "name": "audio", "type": "AUDIO", "link": 1 }],
+      "outputs": [],
+      "properties": { "Node name for S&R": "SaveAudio" },
+      "widgets_values": ["ComfyPilot"]
+    }
+  ],
+  "links": [[1, 1, 0, 2, 0, "AUDIO"]],
+  "groups": [],
+  "config": {},
+  "extra": { "ds": { "scale": 0.8, "offset": [120, 80] } },
+  "version": 0.4
+}

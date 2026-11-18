@@ -72,8 +72,10 @@ data class NodeInputDef(
     val tooltip: String? = null,
     /** `forceInput`：类型本来是控件，但被强制改成连线输入。 */
     val forceInput: Boolean = false,
-    /** 该控件后面还跟着一个前端专用的上传按钮值（LoadImage）。 */
+    /** 该控件后面还跟着一个前端专用的上传按钮值（LoadImage / LoadAudio）。 */
     val imageUpload: Boolean = false,
+    /** 音频上传按钮；与 [imageUpload] 互斥，来自 object_info 的 `audio_upload`。 */
+    val audioUpload: Boolean = false,
     /** 自动增长输入（`COMFY_AUTOGROW_V3`），在 API 里是 `name.sub` 形式的多个键。 */
     val autogrow: Boolean = false,
     /** 动态下拉框按当前选项展开出来的附加输入；是否必填取决于选项，不能一概而论。 */

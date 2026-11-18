@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.drawable.ColorDrawable
 import android.media.MediaMetadataRetriever
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Build
 import android.util.LruCache
@@ -402,9 +403,10 @@ private fun ArtifactRow(
     val url = viewUrl(baseUrl, output)
     val isImage = ArtifactNames.isImage(output.filename)
     val isVideo = ArtifactNames.isVideo(output.filename)
+    val isAudio = ArtifactNames.isAudio(output.filename)
     val cardShape = RoundedCornerShape(16.dp)
     val mediaShape = RoundedCornerShape(16.dp)
-    val showPreview = url != null && (isImage || isVideo)
+    val showPreview = url != null && (isImage || isVideo || isAudio)
     val showPrimary = url != null &&
         downloadState !is DownloadUiState.Downloading &&
         downloadState !is DownloadUiState.Failed
@@ -468,6 +470,19 @@ private fun ArtifactRow(
                     .border(1.dp, c.border, mediaShape),
                 onClick = onPreview,
             )
+
+            isAudio -> Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(92.dp)
+                    .clip(mediaShape)
+                    .background(ViewerMatte)
+                    .border(1.dp, c.border, mediaShape)
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                ArtifactAudio(url = url)
+            }
 
             else -> Text(
                 text = "该类型暂不支持内置预览，可下载后用系统应用打开。",
@@ -652,6 +667,13 @@ private fun ArtifactPreview(
                     ArtifactVideo(url = url, modifier = Modifier.fillMaxSize(), autoStart = autoStartVideo)
                 }
 
+                ArtifactNames.isAudio(output.filename) -> Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ArtifactAudio(url = url)
+                }
+
                 else -> GlassCard(
                     modifier = Modifier.align(Alignment.Center).padding(24.dp),
                     padding = PaddingValues(16.dp),
@@ -682,6 +704,70 @@ private fun ArtifactPreview(
                 )
             }
         }
+    }
+}
+
+/**
+ * 音频产物：MediaPlayer 直接播 /view 的流，不额外下载到临时文件。
+ * 只在预览打开时创建，离开页面立即释放。
+ */
+@Composable
+private fun ArtifactAudio(url: String) {
+    val c = Spectrum.colors
+    var ready by remember(url) { mutableStateOf(false) }
+    var playing by remember(url) { mutableStateOf(false) }
+    var error by remember(url) { mutableStateOf<String?>(null) }
+    val player = remember(url) { MediaPlayer() }
+
+    LaunchedEffect(url) {
+        try {
+            withContext(Dispatchers.IO) {
+                player.setDataSource(url)
+                player.prepare()
+            }
+            ready = true
+        } catch (t: Throwable) {
+            error = t.message?.takeIf { it.isNotBlank() } ?: "音频加载失败"
+        }
+    }
+
+    DisposableEffect(player) {
+        onDispose {
+            runCatching {
+                if (player.isPlaying) player.stop()
+                player.release()
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = error ?: if (ready) "音频已就绪" else "正在加载音频…",
+            color = if (error != null) c.err else c.textMuted,
+            fontSize = 12.sp,
+        )
+        GhostButton(
+            text = when {
+                error != null -> "加载失败"
+                !ready -> "加载中…"
+                playing -> "暂停"
+                else -> "播放"
+            },
+            onClick = {
+                if (ready) {
+                    runCatching {
+                        if (playing) player.pause() else player.start()
+                        playing = !playing
+                    }.onFailure { error = it.message ?: "播放失败" }
+                }
+            },
+            enabled = ready,
+            height = 36.dp,
+        )
     }
 }
 

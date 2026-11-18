@@ -206,6 +206,7 @@ object WorkflowCodec {
             tooltip = config?.stringOrNull("tooltip"),
             forceInput = forceInput,
             imageUpload = config.boolOrNull("image_upload"),
+            audioUpload = config.boolOrNull("audio_upload"),
             autogrow = type == AUTOGROW,
             dynamic = dynamic,
         )
