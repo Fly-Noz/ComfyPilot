@@ -63,28 +63,70 @@ object WorkflowGraphs {
         }
 
         val componentGraphIds = mutableMapOf<Set<Int>, String>()
-        val outputGraphs = components.mapNotNull { component ->
+        val outputGraphs = mutableListOf<WorkflowGraph>()
+
+        components.forEach { component ->
             val componentOutputs = outputs.intersect(component)
-            if (componentOutputs.isEmpty()) return@mapNotNull null
-            val outputGroups = graph.groups.filter { group ->
-                componentOutputs.any { id -> graph.byId[id]?.let(group::contains) == true }
+            if (componentOutputs.isEmpty()) return@forEach
+
+            val outputGroups = graph.groups
+                .filter { group -> componentOutputs.any { id -> graph.byId[id]?.let(group::contains) == true } }
+                .sortedBy { it.id }
+            if (outputGroups.size > 1) {
+                // 同一个连通分量里可能挂着多个输出分支（共享模型加载器）。
+                // 画布分组才是用户看到的工作区，按分组拆成独立图；节点可以重叠。
+                val assigned = mutableSetOf<Int>()
+                var firstGraphId: String? = null
+                outputGroups.forEach { group ->
+                    val groupOutputs = componentOutputs.filter { id ->
+                        id !in assigned && graph.byId[id]?.let(group::contains) == true
+                    }.toSet()
+                    if (groupOutputs.isEmpty()) return@forEach
+                    assigned += groupOutputs
+                    val groupNodes = graph.nodes.filter(group::contains).map { it.id }.toSet()
+                    if (groupNodes.isEmpty()) return@forEach
+                    val graphId = "g${group.id}"
+                    if (firstGraphId == null) firstGraphId = graphId
+                    outputGraphs += WorkflowGraph(
+                        id = graphId,
+                        title = group.title.ifBlank { "图组 #${group.id}" },
+                        nodeIds = groupNodes,
+                        outputNodeIds = groupOutputs,
+                        enabled = groupOutputs.any { graph.byId[it]?.mode == UiWorkflowParser.MODE_NORMAL },
+                    )
+                }
+                val remainingOutputs = componentOutputs - assigned
+                if (remainingOutputs.isNotEmpty()) {
+                    val graphId = "c${component.minOrNull() ?: 0}"
+                    outputGraphs += WorkflowGraph(
+                        id = graphId,
+                        title = "输出 #${remainingOutputs.minOrNull()}",
+                        nodeIds = component,
+                        outputNodeIds = remainingOutputs,
+                        enabled = remainingOutputs.any { graph.byId[it]?.mode == UiWorkflowParser.MODE_NORMAL },
+                    )
+                    if (firstGraphId == null) firstGraphId = graphId
+                }
+                firstGraphId?.let { componentGraphIds[component] = it }
+            } else {
+                val outputGroups = outputGroups
+                val groupNodes = outputGroups
+                    .flatMap { group -> graph.nodes.filter(group::contains).map { it.id } }
+                    .toSet()
+                val largestGroup = outputGroups.maxByOrNull { group -> graph.nodes.count(group::contains) }
+                val primaryOutput = componentOutputs.minOrNull()?.let { graph.byId[it] }
+                val graphId = "c${component.minOrNull() ?: 0}"
+                componentGraphIds[component] = graphId
+                outputGraphs += WorkflowGraph(
+                    id = graphId,
+                    title = largestGroup?.title
+                        ?: primaryOutput?.title?.takeIf { it.isNotBlank() }
+                        ?: "输出 #${componentOutputs.minOrNull()}",
+                    nodeIds = groupNodes.ifEmpty { component },
+                    outputNodeIds = componentOutputs,
+                    enabled = componentOutputs.any { graph.byId[it]?.mode == UiWorkflowParser.MODE_NORMAL },
+                )
             }
-            val groupNodes = outputGroups
-                .flatMap { group -> graph.nodes.filter(group::contains).map { it.id } }
-                .toSet()
-            val largestGroup = outputGroups.maxByOrNull { group -> graph.nodes.count(group::contains) }
-            val primaryOutput = componentOutputs.minOrNull()?.let { graph.byId[it] }
-            val graphId = "c${component.minOrNull() ?: 0}"
-            componentGraphIds[component] = graphId
-            WorkflowGraph(
-                id = graphId,
-                title = largestGroup?.title
-                    ?: primaryOutput?.title?.takeIf { it.isNotBlank() }
-                    ?: "输出 #${componentOutputs.minOrNull()}",
-                nodeIds = groupNodes.ifEmpty { component },
-                outputNodeIds = componentOutputs,
-                enabled = componentOutputs.any { graph.byId[it]?.mode == UiWorkflowParser.MODE_NORMAL },
-            )
         }
 
         // 一个 LoadImage 图组可能是主输出分组的辅助输入（如 image-2..image-8）。

@@ -58,6 +58,43 @@ class WorkflowGraphsTest {
         assertEquals(false, view.nodes.first { it.id == 2 }.reachable)
     }
 
+    @Test
+    fun `output groups sharing an upstream node stay separate`() {
+        val raw = """
+            {
+              "nodes": [
+                {"id": 1, "type": "Checkpoint", "order": 0, "mode": 0, "pos": [0, 0], "size": [100, 100],
+                 "inputs": [], "outputs": [{"name": "IMAGE", "type": "IMAGE"}], "widgets_values": ["a"]},
+                {"id": 2, "type": "SaveImage", "order": 1, "mode": 0, "pos": [200, 0], "size": [100, 100],
+                 "inputs": [{"name": "images", "type": "IMAGE", "link": 1}], "outputs": [], "widgets_values": ["x"]},
+                {"id": 3, "type": "SaveImage", "order": 2, "mode": 4, "pos": [200, 500], "size": [100, 100],
+                 "inputs": [{"name": "images", "type": "IMAGE", "link": 2}], "outputs": [], "widgets_values": ["y"]}
+              ],
+              "links": [
+                [1, 1, 0, 2, 0, "IMAGE"],
+                [2, 1, 0, 3, 0, "IMAGE"]
+              ],
+              "groups": [
+                {"id": 1, "title": "A", "bounding": [0, 0, 400, 200]},
+                {"id": 2, "title": "B", "bounding": [0, 500, 400, 200]}
+              ]
+            }
+        """.trimIndent()
+        val document = WorkflowDocument(
+            path = "test.json",
+            name = "test",
+            raw = raw,
+            format = WorkflowFormat.UI,
+            nodeClasses = listOf("Checkpoint", "SaveImage"),
+        )
+
+        val graphs = WorkflowGraphs.analyze(document, DEFINITIONS)
+
+        assertEquals(listOf("A", "B"), graphs.map { it.title })
+        assertEquals(setOf(2), graphs[0].outputNodeIds)
+        assertEquals(setOf(3), graphs[1].outputNodeIds)
+    }
+
     private fun document(): WorkflowDocument {
         val raw = """
             {
