@@ -184,6 +184,33 @@ class PromptBuilderTest {
     }
 
     @Test
+    fun `load audio upload slot is skipped instead of becoming a widget`() {
+        val graph = graph(
+            nodes = listOf(
+                uiNode(
+                    id = 1,
+                    type = "LoadAudio",
+                    inputs = listOf(uiInput("audio", "COMBO", widgetName = "audio")),
+                    outputs = listOf(uiOutput("AUDIO", "AUDIO")),
+                    widgets = JsonArray(listOf(JsonPrimitive("voice.wav"), JsonPrimitive("audio"))),
+                ),
+                uiNode(
+                    id = 2,
+                    type = "SaveAudio",
+                    inputs = listOf(uiInput("audio", "AUDIO", link = 1)),
+                    widgets = JsonArray(listOf(JsonPrimitive("ComfyPilot"))),
+                ),
+            ),
+            links = listOf(uiLink(1, 1, 0, 2, 0, "AUDIO")),
+        )
+
+        val ready = ready(PromptBuilder.build(document(graph), DEFINITIONS))
+        assertEquals(setOf("audio"), ready.inputs("1").keys)
+        assertEquals("voice.wav", ready.text("1", "audio"))
+        assertTrue(ready.warnings.isEmpty(), "音频上传槽位被正确跳过后不该有告警：${ready.warnings}")
+    }
+
+    @Test
     fun `autogrow inputs keep their flat name dot sub keys`() {
         val graph = graph(
             nodes = listOf(
@@ -521,6 +548,7 @@ private fun widget(
     options: List<String> = emptyList(),
     controlAfterGenerate: Boolean = false,
     imageUpload: Boolean = false,
+    audioUpload: Boolean = false,
 ): NodeInputDef = NodeInputDef(
     name = name,
     type = type,
@@ -530,6 +558,7 @@ private fun widget(
     required = true,
     controlAfterGenerate = controlAfterGenerate,
     imageUpload = imageUpload,
+    audioUpload = audioUpload,
 )
 
 private fun link(name: String, type: String, required: Boolean = true): NodeInputDef = NodeInputDef(
@@ -601,6 +630,17 @@ private val DEFINITIONS: Map<String, NodeDefinition> = mapOf(
             widget("image", "COMBO", JsonPrimitive("example.png"), options = listOf("example.png"), imageUpload = true),
         ),
         outputs = listOf("IMAGE", "MASK"),
+    ),
+    "LoadAudio" to NodeDefinition(
+        className = "LoadAudio",
+        inputs = listOf(
+            widget("audio", "COMBO", JsonPrimitive("example.wav"), options = listOf("example.wav"), audioUpload = true),
+        ),
+        outputs = listOf("AUDIO"),
+    ),
+    "SaveAudio" to outputDef(
+        "SaveAudio",
+        inputs = listOf(link("audio", "AUDIO"), widget("filename_prefix", "STRING", JsonPrimitive("ComfyPilot"))),
     ),
     "Number" to NodeDefinition(
         className = "Number",
