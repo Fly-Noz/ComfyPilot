@@ -37,12 +37,14 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -64,6 +66,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
@@ -479,14 +483,14 @@ private fun ArtifactRow(
             isAudio -> Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(92.dp)
+                    .heightIn(min = 104.dp)
                     .clip(mediaShape)
                     .background(ViewerMatte)
                     .border(1.dp, c.border, mediaShape)
-                    .padding(horizontal = 14.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                ArtifactAudio(url = url)
+                ArtifactAudio(url = url, compact = true)
             }
 
             else -> Text(
@@ -717,7 +721,7 @@ private fun ArtifactPreview(
  * 只在预览打开时创建，离开页面立即释放。
  */
 @Composable
-internal fun ArtifactAudio(url: String) {
+internal fun ArtifactAudio(url: String, compact: Boolean = false) {
     val c = Spectrum.colors
     var ready by remember(url) { mutableStateOf(false) }
     var playing by remember(url) { mutableStateOf(false) }
@@ -768,20 +772,17 @@ internal fun ArtifactAudio(url: String) {
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 5.dp else 8.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp),
         ) {
-            GhostButton(
-                text = when {
-                    error != null -> "加载失败"
-                    !ready -> "加载中…"
-                    playing -> "暂停"
-                    else -> "播放"
-                },
+            AudioPlayButton(
+                playing = playing,
+                ready = ready && error == null,
+                buttonSize = if (compact) 42.dp else 48.dp,
                 onClick = {
                     if (ready) {
                         runCatching {
@@ -790,45 +791,126 @@ internal fun ArtifactAudio(url: String) {
                         }.onFailure { error = it.message ?: "播放失败" }
                     }
                 },
-                enabled = ready,
-                height = 36.dp,
             )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(if (compact) 1.dp else 4.dp),
+            ) {
+                Text(
+                    text = when {
+                        error != null -> "音频加载失败"
+                        !ready -> "正在加载音频…"
+                        playing -> "正在播放"
+                        else -> "音频已就绪"
+                    },
+                    color = if (error != null) c.err else c.textMuted,
+                    fontSize = 11.sp,
+                )
+                Slider(
+                    value = if (scrubbing) scrubMs else positionMs.toFloat(),
+                    onValueChange = {
+                        scrubbing = true
+                        scrubMs = it
+                    },
+                    onValueChangeFinished = {
+                        scrubbing = false
+                        val target = scrubMs.toInt()
+                        runCatching { player.seekTo(target) }
+                        positionMs = target
+                    },
+                    valueRange = 0f..durationMs.coerceAtLeast(1).toFloat(),
+                    enabled = ready && error == null,
+                    colors = SliderDefaults.colors(
+                        thumbColor = c.accent,
+                        activeTrackColor = c.accent,
+                        inactiveTrackColor = c.cardStrong,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = clock(positionMs),
+                        color = c.textDim,
+                        fontSize = 9.5.sp,
+                        fontFamily = SpectrumMono,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        text = clock(durationMs),
+                        color = c.textDim,
+                        fontSize = 9.5.sp,
+                        fontFamily = SpectrumMono,
+                    )
+                }
+            }
+        }
+        error?.let {
             Text(
-                text = "${clock(positionMs)} / ${clock(durationMs)}",
-                color = c.textMuted,
-                fontSize = 11.sp,
-                fontFamily = SpectrumMono,
-            )
-            Spacer(Modifier.weight(1f))
-            Text(
-                text = error ?: if (ready) "音频" else "加载中…",
-                color = if (error != null) c.err else c.textDim,
+                text = it,
+                color = c.err,
                 fontSize = 10.5.sp,
+                maxLines = 2,
             )
         }
+    }
+}
 
-        // 可拖动：松手才 seek，拖动过程中只更新本地位置。
-        Slider(
-            value = if (scrubbing) scrubMs else positionMs.toFloat(),
-            onValueChange = {
-                scrubbing = true
-                scrubMs = it
-            },
-            onValueChangeFinished = {
-                scrubbing = false
-                val target = scrubMs.toInt()
-                runCatching { player.seekTo(target) }
-                positionMs = target
-            },
-            valueRange = 0f..durationMs.coerceAtLeast(1).toFloat(),
-            enabled = ready && error == null,
-            colors = SliderDefaults.colors(
-                thumbColor = c.accent,
-                activeTrackColor = c.accent,
-                inactiveTrackColor = c.cardStrong,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        )
+/** 圆形播放/暂停按钮；图标用 Canvas 画，避免系统 emoji 字体把 ▶/⏸ 画成彩色图片。 */
+@Composable
+private fun AudioPlayButton(
+    playing: Boolean,
+    ready: Boolean,
+    buttonSize: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit,
+) {
+    val c = Spectrum.colors
+    Box(
+        modifier = Modifier
+            .size(buttonSize)
+            .clip(CircleShape)
+            .background(if (ready) c.accent else c.cardStrong)
+            .clickable(enabled = ready, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (!ready) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(buttonSize * 0.36f),
+                color = c.textDim,
+                strokeWidth = 2.dp,
+            )
+        } else {
+            Canvas(modifier = Modifier.size(buttonSize * 0.42f)) {
+                val color = c.accentInk
+                if (playing) {
+                    val barWidth = size.width * 0.17f
+                    val barHeight = size.height * 0.58f
+                    val top = (size.height - barHeight) / 2f
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(size.width * 0.30f, top),
+                        size = Size(barWidth, barHeight),
+                        cornerRadius = CornerRadius(barWidth * 0.28f),
+                    )
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(size.width * 0.53f, top),
+                        size = Size(barWidth, barHeight),
+                        cornerRadius = CornerRadius(barWidth * 0.28f),
+                    )
+                } else {
+                    val path = Path().apply {
+                        moveTo(size.width * 0.34f, size.height * 0.20f)
+                        lineTo(size.width * 0.78f, size.height * 0.50f)
+                        lineTo(size.width * 0.34f, size.height * 0.80f)
+                        close()
+                    }
+                    drawPath(path, color)
+                }
+            }
+        }
     }
 }
 

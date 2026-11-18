@@ -111,51 +111,91 @@ export struct AudioPlayer {
     this.initPlayer();
   }
 
+  @Builder
+  PlayPauseGlyph() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width(42)
+        .height(42)
+        .borderRadius(21)
+        .backgroundColor(this.ready ? this.c().accent : this.c().cardStrong)
+      if (!this.ready) {
+        LoadingProgress()
+          .width(16)
+          .height(16)
+          .color(this.c().textDim)
+      } else if (this.playing) {
+        Row({ space: 3 }) {
+          Rect({ width: 4, height: 15 })
+            .radius(2)
+            .fill(this.c().accentInk)
+          Rect({ width: 4, height: 15 })
+            .radius(2)
+            .fill(this.c().accentInk)
+        }
+      } else {
+        Polygon({ width: 14, height: 16 })
+          .points([[0, 0], [14, 8], [0, 16]])
+          .fill(this.c().accentInk)
+          .translate({ x: 2 })
+      }
+    }
+    .width(42)
+    .height(42)
+    .enabled(this.ready && !this.failed)
+    .onClick(() => this.togglePlay())
+  }
+
   build() {
-    Column({ space: 10 }) {
+    Column({ space: 6 }) {
       Row({ space: 10 }) {
-        Text(this.playing ? '暂停' : '播放')
-          .fontSize(13)
-          .fontColor('#F2F4F7')
-          .padding({ left: 18, right: 18, top: 9, bottom: 9 })
-          .backgroundColor(this.c().accent)
-          .borderRadius(10)
-          .enabled(this.ready)
-          .opacity(this.ready ? 1 : 0.5)
-          .onClick(() => this.togglePlay())
-        Text(`${this.clock(this.positionMs)} / ${this.clock(this.durationMs)}`)
-          .fontSize(11)
-          .fontFamily('monospace')
-          .fontColor(this.c().textMuted)
-          .layoutWeight(1)
-        Text(this.failed ? '加载失败' : (this.ready ? '音频' : '加载中…'))
-          .fontSize(10.5)
-          .fontColor(this.failed ? this.c().err : this.c().textDim)
+        this.PlayPauseGlyph()
+        Column({ space: 1 }) {
+          Slider({
+            value: this.positionMs,
+            min: 0,
+            max: this.durationMs > 0 ? this.durationMs : 1,
+            style: SliderStyle.OutSet,
+          })
+            .width('100%')
+            .blockColor(this.c().accent)
+            .selectedColor(this.c().accent)
+            .trackColor(this.c().cardStrong)
+            .enabled(this.ready && !this.failed)
+            .onChange((value: number, mode: SliderChangeMode) => {
+              this.positionMs = value;
+              if (mode === SliderChangeMode.Begin || mode === SliderChangeMode.Moving) {
+                this.scrubbing = true;
+                return;
+              }
+              this.scrubbing = false;
+              this.seekTo(value);
+            })
+          Row() {
+            Text(this.clock(this.positionMs))
+              .fontSize(9.5)
+              .fontFamily('monospace')
+              .fontColor(this.c().textDim)
+            Blank()
+            Text(this.clock(this.durationMs))
+              .fontSize(9.5)
+              .fontFamily('monospace')
+              .fontColor(this.c().textDim)
+          }
+          .width('100%')
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
 
-      // 可拖动进度条：Begin/Moving 只更新 UI，End/Click 才真正 seek。
-      Slider({
-        value: this.positionMs,
-        min: 0,
-        max: this.durationMs > 0 ? this.durationMs : 1,
-        style: SliderStyle.OutSet,
-      })
-        .width('100%')
-        .blockColor(this.c().accent)
-        .selectedColor(this.c().accent)
-        .trackColor(this.c().cardStrong)
-        .enabled(this.ready && !this.failed)
-        .onChange((value: number, mode: SliderChangeMode) => {
-          this.positionMs = value;
-          if (mode === SliderChangeMode.Begin || mode === SliderChangeMode.Moving) {
-            this.scrubbing = true;
-            return;
-          }
-          this.scrubbing = false;
-          this.seekTo(value);
-        })
+      if (this.failed) {
+        Text('音频加载失败')
+          .fontSize(10.5)
+          .fontColor(this.c().err)
+          .width('100%')
+      }
     }
     .width('100%')
     .padding(14)
