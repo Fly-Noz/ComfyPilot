@@ -24,8 +24,8 @@ android {
         applicationId = "com.fly.comfypilot.app"
         minSdk = 26
         targetSdk = 37
-        versionCode = 10
-        versionName = "0.3.6"
+        versionCode = 11
+        versionName = "0.3.7"
     }
 
     buildFeatures {
