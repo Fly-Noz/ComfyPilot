@@ -1,8 +1,8 @@
 {
-  "versionCode": 10,
-  "versionName": "0.3.6",
-  "publishedAt": "2026-11-14",
-  "notes": "• 三端统一 0.3.6：新增本地备份导出/导入\n• 本地工作流可从手机导入、标记与删除\n• iOS 补齐任务历史、通知、测速、显存释放等功能\n• 修复若干交互与稳定性问题。",
+  "versionCode": 11,
+  "versionName": "0.3.7",
+  "publishedAt": "2026-11-18",
+  "notes": "• 三端支持音频上传、试听与产物播放\n• 修复共享上游的多个输出分组只识别一个的问题",
   "android": {
     "github": "https://github.com/Fly-Noz/ComfyPilot/releases/latest",
     "gitee": "https://gitee.com/Fly-Noz/ComfyPilot/releases"
