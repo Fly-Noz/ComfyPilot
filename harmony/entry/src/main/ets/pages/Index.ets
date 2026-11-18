@@ -2381,8 +2381,7 @@ struct Index {
         return;
       }
       this.setFieldText(field, result.reference);
-      const isAudioField: boolean = field.uploadKind === 'audio';
-      if (!isAudioField) {
+      if (field.uploadKind !== 'audio') {
         this.previewUris.set(key, picked.uri);
         this.previewVersion++;
       }
@@ -3982,7 +3981,7 @@ struct Index {
   ImageField(field: WorkflowFieldView) {
     Column({ space: 6 }) {
       Row({ space: 10 }) {
-        if (this.previewUri(field).length > 0) {
+        if (field.uploadKind !== 'audio' && this.previewUri(field).length > 0) {
           Image(this.previewUri(field))
             .width(56)
             .height(56)

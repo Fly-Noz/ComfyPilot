@@ -8,7 +8,7 @@ import { Palette, Spectrum } from '../theme/Spectrum';
  */
 @Component
 export struct AudioPlayer {
-  url: string = '';
+  @Prop @Watch('onUrlChanged') url: string = '';
   isDark: boolean = true;
   @State private playing: boolean = false;
   @State private ready: boolean = false;
@@ -108,6 +108,17 @@ export struct AudioPlayer {
   }
 
   aboutToAppear(): void {
+    this.initPlayer();
+  }
+
+  /** 同一字段换文件时只改了 url，组件不会重新 aboutToAppear；必须主动重载。 */
+  private onUrlChanged(): void {
+    this.releasePlayer();
+    this.ready = false;
+    this.failed = false;
+    this.playing = false;
+    this.positionMs = 0;
+    this.durationMs = 0;
     this.initPlayer();
   }
 
