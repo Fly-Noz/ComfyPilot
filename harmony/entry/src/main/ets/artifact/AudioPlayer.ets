@@ -91,9 +91,13 @@ export struct AudioPlayer {
     if (player === null || !this.ready) {
       return;
     }
-    player.seek(ms, media.SeekMode.SEEK_CLOSEST).catch((err: BusinessError) => {
-      console.warn(`[ComfyPilot] audio seek failed: ${err.message}`);
-    });
+    // SDK 里 AVPlayer.seek 返回 void（不是 Promise），只能 try/catch。
+    try {
+      player.seek(ms, media.SeekMode.SEEK_CLOSEST);
+    } catch (err) {
+      const message: string = err instanceof Error ? err.message : `${err}`;
+      console.warn(`[ComfyPilot] audio seek failed: ${message}`);
+    }
   }
 
   private clock(ms: number): string {
