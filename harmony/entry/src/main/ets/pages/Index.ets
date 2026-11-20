@@ -470,6 +470,8 @@ struct Index {
   @State previewOutput: BridgeOutput = emptyOutput();
   /** 当前预览在 outputRefs 里的下标；切换按钮只改这个值，避免对象 key 对不上时永远停在第 1 张。 */
   @State previewCursor: number = 0;
+  @State previewCanPrev: boolean = false;
+  @State previewCanNext: boolean = false;
   @State previewError: boolean = false;
   /** 底栏提示的自动收起定时器句柄（-1 表示没有在计时）。 */
   private submitNoticeTimer: number = -1;
@@ -3327,6 +3329,8 @@ struct Index {
     this.artifactOpen = true;
     this.previewOpen = false;
     this.previewCursor = 0;
+    this.previewCanPrev = false;
+    this.previewCanNext = false;
     this.previewScale = 1;
     this.previewOffsetX = 0;
     this.previewOffsetY = 0;
@@ -6633,6 +6637,13 @@ struct Index {
     return Math.max(0, Math.min(this.previewCursor, count - 1));
   }
 
+  private refreshPreviewNav(): void {
+    const count: number = this.artifactTask.outputRefs.length;
+    const index = this.currentPreviewIndex();
+    this.previewCanPrev = index > 0;
+    this.previewCanNext = index >= 0 && index < count - 1;
+  }
+
   private switchPreview(delta: number): void {
     const outputs: BridgeOutput[] = this.artifactTask.outputRefs;
     if (outputs.length === 0) {
@@ -6645,6 +6656,7 @@ struct Index {
     }
     this.previewCursor = next;
     this.previewOutput = outputs[next];
+    this.refreshPreviewNav();
     this.previewError = false;
     this.videoInlineKey = '';
     this.previewScale = 1;
@@ -6656,6 +6668,7 @@ struct Index {
     this.artifactTask = task;
     this.previewOutput = output;
     this.previewCursor = this.indexOfPreview(task, output);
+    this.refreshPreviewNav();
     this.previewError = false;
     this.videoInlineKey = this.artifactUrl(output);
     animateTo({ duration: 220, curve: Curve.EaseOut }, () => {
@@ -6682,6 +6695,7 @@ struct Index {
     this.artifactTask = task;
     this.previewOutput = output;
     this.previewCursor = this.indexOfPreview(task, output);
+    this.refreshPreviewNav();
     this.previewError = false;
     this.videoInlineKey = '';
     animateTo({ duration: 220, curve: Curve.EaseOut }, () => {
@@ -6694,6 +6708,7 @@ struct Index {
     this.videoInlineKey = '';
     this.previewOutput = output;
     this.previewCursor = this.indexOfPreview(this.artifactTask, output);
+    this.refreshPreviewNav();
     animateTo({ duration: 220, curve: Curve.EaseOut }, () => {
       this.previewOpen = true;
     });
@@ -6962,25 +6977,6 @@ struct Index {
     .border({ width: 1, color: this.c().border })
   }
 
-  /** 预览底部的上一个/下一个按钮，位于保存按钮左侧。 */
-  @Builder
-  ArtifactSwitchButton(left: boolean, enabled: boolean, action: () => void) {
-    Button({ type: ButtonType.Circle, stateEffect: true }) {
-      Text(left ? '‹' : '›')
-        .fontSize(26)
-        .fontColor(enabled ? this.c().text : this.c().textDim)
-        .translate({ y: -2 })
-    }
-    .width(44)
-    .height(44)
-    .backgroundColor(this.c().cardStrong)
-    .borderRadius(22)
-    .border({ width: 1, color: this.c().border })
-    .opacity(enabled ? 1 : 0.45)
-    .enabled(enabled)
-    .onClick(() => action())
-  }
-
   /** 预览态：返回 + 文件名/ meta + 分享 + 关闭，媒体区 16 圆角裁剪。 */
   @Builder
   ArtifactPreview() {
@@ -7139,10 +7135,34 @@ struct Index {
     } else {
       Row({ space: 8 }) {
         if (this.artifactTask.outputRefs.length > 1) {
-          this.ArtifactSwitchButton(true, this.currentPreviewIndex() > 0, () => this.switchPreview(-1))
-          this.ArtifactSwitchButton(false,
-            this.currentPreviewIndex() < this.artifactTask.outputRefs.length - 1,
-            () => this.switchPreview(1))
+          Button({ type: ButtonType.Circle, stateEffect: true }) {
+            Text('‹')
+              .fontSize(26)
+              .fontColor(this.previewCanPrev ? this.c().text : this.c().textDim)
+              .translate({ y: -2 })
+          }
+          .width(44)
+          .height(44)
+          .backgroundColor(this.c().cardStrong)
+          .borderRadius(22)
+          .border({ width: 1, color: this.c().border })
+          .opacity(this.previewCanPrev ? 1 : 0.45)
+          .onClick(() => this.switchPreview(-1))
+
+          Button({ type: ButtonType.Circle, stateEffect: true }) {
+            Text('›')
+              .fontSize(26)
+              .fontColor(this.previewCanNext ? this.c().text : this.c().textDim)
+              .translate({ y: -2 })
+          }
+          .width(44)
+          .height(44)
+          .backgroundColor(this.c().cardStrong)
+          .borderRadius(22)
+          .border({ width: 1, color: this.c().border })
+          .opacity(this.previewCanNext ? 1 : 0.45)
+          .onClick(() => this.switchPreview(1))
+
           Text(`${this.currentPreviewIndex() + 1} / ${this.artifactTask.outputRefs.length}`)
             .fontSize(10)
             .fontFamily('monospace')
