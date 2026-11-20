@@ -294,6 +294,10 @@ private fun DetailBody(
     var pinnedNodeIds by remember(document.path) {
         mutableStateOf(pinnedNodeStore.load(hostScope, document.path))
     }
+    val hiddenNodeStore = remember(context) { HiddenNodeStore(context.applicationContext) }
+    var hiddenNodeIds by remember(document.path) {
+        mutableStateOf(hiddenNodeStore.load(hostScope, document.path))
+    }
     val noteStore = remember { NodeNoteStore(context) }
     var nodeNotes by remember(document.path) {
         mutableStateOf(noteStore.load(hostScope, document.path))
@@ -425,8 +429,15 @@ private fun DetailBody(
     val showGraphPicker = graphs.size > 1 || (graphs.size == 1 && !graphs[0].enabled)
     // 置顶且会提交的节点最前；其余节点按工作流原文顺序排列。
     // 单节点开关不参与排序：关掉一个节点不会让它跳到列表底部。
-    val orderedNodes = remember(analysis, pinnedNodeIds) {
-        WorkflowDecisions.orderNodes(analysis.fields.nodes, pinnedNodeIds)
+    val orderedNodes = remember(analysis, pinnedNodeIds, hiddenNodeIds) {
+        WorkflowDecisions.orderNodes(
+            analysis.fields.nodes.filterNot { it.id in hiddenNodeIds },
+            pinnedNodeIds,
+        )
+    }
+    // 隐藏节点不参与正常分组排序：统一放到列表最下面，按工作流原文顺序展示。
+    val hiddenNodes = remember(analysis, hiddenNodeIds) {
+        analysis.fields.nodes.filter { it.id in hiddenNodeIds }
     }
     // 节点图分组：父图下面挂它的辅助子图（image-2..8、提示词 PE 组）。
     // 启用中的节点图排在前面，未启用的整组后移；组内顺序仍跟主机一致。
@@ -457,6 +468,7 @@ private fun DetailBody(
     var tab by remember(document.path) { mutableStateOf(0) }
     var expandedChildGraphs by remember(document.path) { mutableStateOf<Set<String>>(emptySet()) }
     var restExpanded by remember(document.path) { mutableStateOf(false) }
+    var hiddenExpanded by remember(document.path) { mutableStateOf(false) }
     var expandedOverride by remember(document.path) { mutableStateOf<Set<Int>?>(null) }
     // 关闭节点前的确认弹窗：只有共享层判定 breaking 时才会出现。
     var bypassConfirm by remember(document.path) { mutableStateOf<BypassConfirm?>(null) }
@@ -561,6 +573,15 @@ private fun DetailBody(
             }
             scope.launch { listState.animateScrollToItem(0) }
         }
+    }
+
+    fun toggleHidden(nodeId: Int) {
+        val wasHidden = nodeId in hiddenNodeIds
+        val next = if (wasHidden) hiddenNodeIds - nodeId else hiddenNodeIds + nodeId
+        hiddenNodeIds = next
+        hiddenNodeStore.save(hostScope, document.path, next)
+        // 刚隐藏时把整组收起；取消隐藏直接把卡片放回原分组。
+        if (!wasHidden) hiddenExpanded = false
     }
 
     fun toggleGraph(graph: WorkflowGraph) {
@@ -996,6 +1017,11 @@ private fun DetailBody(
             onJumpHandled = { jumpNodeId = null },
                     disabledNodeIds = disabledNodeIds,
                     pinnedNodeIds = pinnedNodeIds,
+                    hiddenNodeIds = hiddenNodeIds,
+                    hiddenNodes = hiddenNodes,
+                    hiddenExpanded = hiddenExpanded,
+                    onToggleHiddenGroup = { hiddenExpanded = !hiddenExpanded },
+                    onToggleHidden = ::toggleHidden,
                     notes = nodeNotes,
                     previews = uploadPreviews,
                     selectedGraphIds = selectedGraphIds,
@@ -1391,6 +1417,11 @@ private fun InputPane(
     onJumpHandled: () -> Unit,
     disabledNodeIds: Set<Int>,
     pinnedNodeIds: Set<Int>,
+    hiddenNodeIds: Set<Int>,
+    hiddenNodes: List<WorkflowNodeView>,
+    hiddenExpanded: Boolean,
+    onToggleHiddenGroup: () -> Unit,
+    onToggleHidden: (Int) -> Unit,
     notes: Map<Int, String>,
     previews: Map<String, Bitmap>,
     selectedGraphIds: Set<String>,
@@ -1407,7 +1438,16 @@ private fun InputPane(
     onPickImage: (WorkflowField) -> Unit,
 ) {
     val c = Spectrum.colors
-    val rows = remember(sections, restNodes, expandedChildGraphs, restExpanded, selectedGraphIds, collapsedSubgraphs) {
+    val rows = remember(
+        sections,
+        restNodes,
+        hiddenNodes,
+        expandedChildGraphs,
+        restExpanded,
+        hiddenExpanded,
+        selectedGraphIds,
+        collapsedSubgraphs,
+    ) {
         fun MutableList<InputRow>.appendNodes(nodes: List<WorkflowNodeView>, nested: Boolean) {
             var last: String? = null
             nodes.forEach { node ->
@@ -1461,13 +1501,21 @@ private fun InputPane(
                 )
                 if (restExpanded) appendNodes(restNodes, nested = false)
             }
+            if (hiddenNodes.isNotEmpty()) {
+                add(InputRow.HiddenRow(count = hiddenNodes.size, expanded = hiddenExpanded))
+                if (hiddenExpanded) appendNodes(hiddenNodes, nested = false)
+            }
         }
     }
 
 
     // 从节点图点「跳转」：展开目标节点并滚动到它那一行。
-    LaunchedEffect(jumpNodeId, rows) {
+    LaunchedEffect(jumpNodeId, rows, hiddenExpanded) {
         val target = jumpNodeId ?: return@LaunchedEffect
+        if (target in hiddenNodeIds && !hiddenExpanded) {
+            onToggleHiddenGroup()
+            return@LaunchedEffect
+        }
         val index = rows.indexOfFirst { it is InputRow.NodeRow && it.node.id == target }
         if (index >= 0) {
             listState.animateScrollToItem(index)
@@ -1503,6 +1551,7 @@ private fun InputPane(
                     onToggleEnabled = { onToggleGraph(row.graph) },
                 )
                 is InputRow.RestRow -> RestHeader(row = row, onClick = onToggleRest)
+                is InputRow.HiddenRow -> HiddenHeader(row = row, onClick = onToggleHiddenGroup)
                 is InputRow.NodeRow -> NodeInputCard(
                     node = row.node,
                     expanded = row.node.id in expanded,
@@ -1510,10 +1559,12 @@ private fun InputPane(
                     overrides = overrides[row.node.id].orEmpty(),
                     graphDisabled = row.node.id in disabledNodeIds,
                     pinned = row.node.id in pinnedNodeIds,
+                    hidden = row.node.id in hiddenNodeIds,
                     label = notes[row.node.id],
                     previews = previews,
                     onToggle = { onToggle(row.node.id) },
                     onTogglePin = { onTogglePin(row.node.id) },
+                    onToggleHidden = { onToggleHidden(row.node.id) },
                     onToggleBypass = { onToggleBypass(row.node) },
                     onEditNote = { onEditNote(row.node) },
                     onChange = onOverride,
@@ -1820,6 +1871,11 @@ private sealed interface InputRow {
         override val key: String = "h:rest"
     }
 
+    /** 被隐藏的节点统一折叠在列表最下面。 */
+    data class HiddenRow(val count: Int, val expanded: Boolean) : InputRow {
+        override val key: String = "h:hidden"
+    }
+
     /** 子图展开出来的一簇节点：可折叠的分区头。 */
     data class SubgraphRow(
         val tag: String,
@@ -2032,6 +2088,66 @@ private fun RestHeader(row: InputRow.RestRow, onClick: () -> Unit) {
 }
 
 @Composable
+private fun HiddenHeader(row: InputRow.HiddenRow, onClick: () -> Unit) {
+    val c = Spectrum.colors
+    val shape = RoundedCornerShape(13.dp)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .clip(shape)
+            .background(c.card.copy(alpha = 0.4f))
+            .border(1.dp, c.border, shape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Canvas(modifier = Modifier.size(16.dp)) {
+            val stroke = size.width * 0.10f
+            drawOval(
+                color = c.textDim,
+                topLeft = Offset(size.width * 0.10f, size.height * 0.27f),
+                size = Size(size.width * 0.80f, size.height * 0.46f),
+                style = Stroke(width = stroke),
+            )
+            drawCircle(
+                color = c.textDim,
+                radius = size.width * 0.12f,
+                center = Offset(size.width * 0.5f, size.height * 0.5f),
+            )
+            drawLine(
+                color = c.textDim,
+                start = Offset(size.width * 0.16f, size.height * 0.16f),
+                end = Offset(size.width * 0.84f, size.height * 0.84f),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "已隐藏",
+                color = c.textMuted,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "${row.count} 个节点 · 不参与列表排序",
+                color = c.textDim,
+                fontSize = 9.sp,
+                fontFamily = SpectrumMono,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        Text(
+            text = if (row.expanded) "▾" else "▸",
+            color = c.textDim,
+            fontSize = 10.sp,
+        )
+    }
+}
+
+@Composable
 private fun NodeInputCard(
     node: WorkflowNodeView,
     expanded: Boolean,
@@ -2039,10 +2155,12 @@ private fun NodeInputCard(
     overrides: Map<String, JsonElement>,
     graphDisabled: Boolean,
     pinned: Boolean,
+    hidden: Boolean,
     label: String?,
     previews: Map<String, Bitmap>,
     onToggle: () -> Unit,
     onTogglePin: () -> Unit,
+    onToggleHidden: () -> Unit,
     onToggleBypass: () -> Unit,
     onEditNote: () -> Unit,
     onChange: (Int, String, JsonElement) -> Unit,
@@ -2108,6 +2226,7 @@ private fun NodeInputCard(
             }
             NodeIconButton(glyph = NodeGlyph.Note, active = label != null, onClick = onEditNote)
             NodeIconButton(glyph = NodeGlyph.Pin, active = pinned, onClick = onTogglePin)
+            NodeIconButton(glyph = NodeGlyph.Hidden, active = hidden, onClick = onToggleHidden)
             NodeIconButton(
                 glyph = if (expanded) NodeGlyph.ChevronUp else NodeGlyph.ChevronDown,
                 active = false,
@@ -3003,7 +3122,7 @@ private fun decodePreview(bytes: ByteArray, maxSide: Int = 512): Bitmap? {
     return runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options) }.getOrNull()
 }
 
-private enum class NodeGlyph { Pin, Note, ChevronDown, ChevronUp }
+private enum class NodeGlyph { Pin, Note, Hidden, ChevronDown, ChevronUp }
 
 /** 节点卡片上的小图标按钮：备注、置顶、展开。手绘线条，不引入图标包。 */
 @Composable
@@ -3104,6 +3223,24 @@ private fun NodeIconButton(
                         start = Offset(w * 0.62f, h * 0.46f),
                         end = Offset(w * 0.74f, h * 0.58f),
                         strokeWidth = stroke * 0.8f,
+                        cap = StrokeCap.Round,
+                    )
+                }
+
+                NodeGlyph.Hidden -> {
+                    // 眼睛 + 斜杠：隐藏节点卡片。
+                    drawOval(
+                        color = tint,
+                        topLeft = Offset(w * 0.10f, h * 0.27f),
+                        size = Size(w * 0.80f, h * 0.46f),
+                        style = Stroke(width = stroke * 0.85f),
+                    )
+                    drawCircle(color = tint, radius = w * 0.12f, center = Offset(w * 0.5f, h * 0.5f))
+                    drawLine(
+                        color = tint,
+                        start = Offset(w * 0.16f, h * 0.16f),
+                        end = Offset(w * 0.84f, h * 0.84f),
+                        strokeWidth = stroke,
                         cap = StrokeCap.Round,
                     )
                 }

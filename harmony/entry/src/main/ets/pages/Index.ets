@@ -20,6 +20,7 @@ import {
   TaskRestoreResult,
 } from '../bridge/ComfyBridge';
 import { PinnedNodeStore } from '../bridge/PinnedNodeStore';
+import { HiddenNodeStore } from '../bridge/HiddenNodeStore';
 import { WorkflowDraftStore } from '../bridge/WorkflowDraftStore';
 import { AiAssistant, AiApplyOutcome, AiChatMessage, AiConfig, AiHost, AiImage, AiPending, AiQuestion, AiSessionInfo, AI_AVAILABLE, AI_NOTICE } from '../ai/AiAssistant';
 
@@ -389,6 +390,8 @@ struct Index {
   @State bypassConfirmNodeId: number = -1;
   @State bypassConfirmReason: string = '';
   @State pinnedIds: number[] = [];
+  @State hiddenIds: number[] = [];
+  @State hiddenExpanded: boolean = false;
   @State pinnedWorkflowPaths: string[] = [];
   @State editTick: number = 0;
   @State submitting: boolean = false;
@@ -489,6 +492,7 @@ struct Index {
   private bridge: ComfyBridge = new ComfyBridge();
   private abi: number = 0;
   private pinnedStore: PinnedNodeStore = new PinnedNodeStore();
+  private hiddenStore: HiddenNodeStore = new HiddenNodeStore();
   private pinnedWorkflowStore: PinnedWorkflowStore = new PinnedWorkflowStore();
   private downloader: ArtifactDownloader = new ArtifactDownloader();
   private imageUploader: ImageUploader = new ImageUploader();
@@ -1080,6 +1084,7 @@ struct Index {
       return `{"ok":true,"filename":${JSON.stringify(result.reference)}}`;
     };
     const pinnedReady: boolean = await this.pinnedStore.open(context);
+    const hiddenReady: boolean = await this.hiddenStore.open(context);
     const notesReady: boolean = await this.noteStore.open(context);
     const workflowPinsReady: boolean = await this.pinnedWorkflowStore.open(context);
     // 地址历史和错误关闭状态都必须在第一次连接前就绪。 
@@ -1127,6 +1132,9 @@ struct Index {
     }
     if (!pinnedReady) {
       this.log(`置顶存储不可用：${this.pinnedStore.error}`);
+    }
+    if (!hiddenReady) {
+      this.log(`隐藏存储不可用：${this.hiddenStore.error}`);
     }
     if (!workflowPinsReady) {
       this.log(`工作流置顶存储不可用：${this.pinnedWorkflowStore.error}`);
@@ -2088,6 +2096,8 @@ struct Index {
     this.notice = '';
     this.resetUploadState();
     this.pinnedIds = this.pinnedStore.load(this.hostScope(), path);
+    this.hiddenIds = this.hiddenStore.load(this.hostScope(), path);
+    this.hiddenExpanded = false;
     this.notes = this.noteStore.load(this.hostScope(), path);
     // 同一个工作流上次关掉的错误块重新打开时保持关闭（key 由 taskId|errorText 组成， 
     // 换了错误文案就不再匹配，会自动重新显示）。 
@@ -2554,6 +2564,28 @@ struct Index {
     this.refreshView(true);
   }
 
+  private toggleHidden(node: WorkflowNodeView): void {
+    const wasHidden = this.hiddenIds.includes(node.id);
+    this.hiddenIds = wasHidden
+      ? this.hiddenIds.filter((id: number) => id !== node.id)
+      : [...this.hiddenIds, node.id];
+    if (!wasHidden) {
+      this.hiddenExpanded = false;
+    }
+    this.editTick++;
+    this.hiddenStore.save(this.hostScope(), this.selectedPath, this.hiddenIds).catch((err: Error) => {
+      this.log(`隐藏节点保存失败：${err.message}`);
+    });
+  }
+
+  private visibleNodes(): WorkflowNodeView[] {
+    return this.view.nodes.filter((node: WorkflowNodeView) => this.hiddenIds.indexOf(node.id) < 0);
+  }
+
+  private hiddenNodes(): WorkflowNodeView[] {
+    return this.view.nodes.filter((node: WorkflowNodeView) => this.hiddenIds.indexOf(node.id) >= 0);
+  }
+
   private isWorkflowPinned(path: string): boolean {
     return this.pinnedWorkflowPaths.includes(path);
   }
@@ -2725,7 +2757,13 @@ struct Index {
 
   /** 跳到某个节点卡片：按已测高度累加出偏移，再让 Scroll 滚过去。 */
   private jumpToNode(nodeId: number): void {
-    // 未测量过的卡片用「已测卡片的平均高度」估算，比固定 150 更接近真实值
+    const hidden = this.hiddenIds.indexOf(nodeId) >= 0;
+    if (hidden && !this.hiddenExpanded) {
+      this.hiddenExpanded = true;
+      setTimeout(() => this.jumpToNode(nodeId), 80);
+      return;
+    }
+    // 未测量过的卡片用「已测卡片的平均高度」估算，比固定 150 更接近真实值。
     let measuredSum = 0;
     let measuredCount = 0;
     this.cardHeights.forEach((height: number) => {
@@ -2735,16 +2773,35 @@ struct Index {
       }
     });
     const fallback = measuredCount > 0 ? measuredSum / measuredCount : 150;
+    const visible = this.visibleNodes();
     let offset = 6;
-    for (let i = 0; i < this.view.nodes.length; i++) {
-      const node = this.view.nodes[i];
+    let found = false;
+    for (let i = 0; i < visible.length; i++) {
+      const node = visible[i];
       if (node.id === nodeId) {
+        found = true;
         break;
       }
       offset += (this.cardHeights.get(node.id) ?? fallback) + 9;
-      if (this.isSectionStart(i)) {
+      if (this.isSectionStartIn(visible, i)) {
         offset += 30;
       }
+    }
+    if (!found && hidden) {
+      // 隐藏区自己的折叠头在第一张隐藏卡前面。
+      offset += 54;
+      const hiddenList = this.hiddenNodes();
+      for (let i = 0; i < hiddenList.length; i++) {
+        const node = hiddenList[i];
+        if (node.id === nodeId) {
+          found = true;
+          break;
+        }
+        offset += (this.cardHeights.get(node.id) ?? fallback) + 9;
+      }
+    }
+    if (!found) {
+      return;
     }
     const target = Math.max(0, offset - 8);
     this.scroller.scrollTo({
@@ -2752,7 +2809,6 @@ struct Index {
       yOffset: target,
       animation: { duration: 280, curve: Curve.EaseOut },
     });
-    // 展开卡片会改变列表高度，稍后再校正一次，抵消首帧 clamp
     setTimeout(() => {
       this.scroller.scrollTo({ xOffset: 0, yOffset: target, animation: { duration: 160, curve: Curve.EaseOut } });
     }, 320);
@@ -2895,17 +2951,23 @@ struct Index {
   }
 
   /** 列表分组标题：每个节点图前插一行，切换图组时才显示。 */
-  private isSectionStart(index: number): boolean {
-    const nodes = this.view.nodes;
+  private isSectionStartIn(nodes: WorkflowNodeView[], index: number): boolean {
     if (index <= 0) {
       return true;
     }
     return this.graphKeyOfNode(nodes[index]) !== this.graphKeyOfNode(nodes[index - 1]);
   }
 
+  private isSectionStart(index: number): boolean {
+    return this.isSectionStartIn(this.visibleNodes(), index);
+  }
+
   /** 子图展开簇的分区头：在第一个属于该子图的节点前插入。 */
   private isSubgraphStart(index: number): boolean {
-    const nodes = this.view.nodes;
+    return this.isSubgraphStartIn(this.visibleNodes(), index);
+  }
+
+  private isSubgraphStartIn(nodes: WorkflowNodeView[], index: number): boolean {
     const tag: string = nodes[index].subgraph ?? '';
     if (tag.length === 0) {
       return false;
@@ -2923,7 +2985,7 @@ struct Index {
   }
 
   private subgraphNodeCount(tag: string): number {
-    return this.view.nodes.filter((node: WorkflowNodeView) => (node.subgraph ?? '') === tag).length;
+    return this.visibleNodes().filter((node: WorkflowNodeView) => (node.subgraph ?? '') === tag).length;
   }
 
   private graphTitleOfNode(node: WorkflowNodeView): string {
@@ -2941,7 +3003,7 @@ struct Index {
     const graph = this.graphOfNode(node);
     if (graph === null) {
       let count = 0;
-      this.view.nodes.forEach((item: WorkflowNodeView) => {
+      this.visibleNodes().forEach((item: WorkflowNodeView) => {
         if (this.graphOfNode(item) === null) {
           count++;
         }
@@ -2949,7 +3011,7 @@ struct Index {
       return `${count} 个节点 · 未归属节点图`;
     }
     let submit = 0;
-    this.view.nodes.forEach((item: WorkflowNodeView) => {
+    this.visibleNodes().forEach((item: WorkflowNodeView) => {
       if (graph.nodeIds.includes(item.id) && item.reachable) {
         submit++;
       }
@@ -3745,6 +3807,8 @@ struct Index {
         this.NodeIconButton('✎', this.noteOf(node.id).length > 0, `note-${node.id}`,
           () => this.openNoteEditor(node))
         this.NodeIconButton('⇧', node.pinned, `pin-${node.id}`, () => this.togglePin(node))
+        this.NodeIconButton('⊘', this.hiddenIds.indexOf(node.id) >= 0, `hidden-${node.id}`,
+          () => this.toggleHidden(node))
         this.NodeIconButton(this.isNodeExpanded(node) ? '▴' : '▾', false, `expand-${node.id}`,
           () => this.toggleNodeExpanded(node))
       }
@@ -4699,7 +4763,7 @@ struct Index {
             } else {
               // missing/fields/节点图归属都会在节点定义落地后变化；键里必须带上这些， 
               // 否则 ForEach 会复用旧组件，界面一直停在“服务端没有该节点的定义”。 
-              ForEach(this.view.nodes, (node: WorkflowNodeView, index: number) => {
+              ForEach(this.visibleNodes(), (node: WorkflowNodeView, index: number) => {
                 if (this.isSectionStart(index)) {
                   this.SectionHeader(node)
                 }
@@ -4714,7 +4778,16 @@ struct Index {
               }, (node: WorkflowNodeView) =>
                 `${node.id}:${this.graphKeyOfNode(node)}:${node.missing}:${node.fields.length}:` +
                   `${node.pinned}:${node.reachable}:${node.needsInput}:${node.enabled}:${node.bypassed}:` +
-                  `${node.subgraph ?? ''}`)
+                  `${node.subgraph ?? ''}:${this.hiddenIds.indexOf(node.id)}`)
+              if (this.hiddenIds.length > 0) {
+                this.HiddenHeader()
+                if (this.hiddenExpanded) {
+                  ForEach(this.hiddenNodes(), (node: WorkflowNodeView) => {
+                    this.NodeCard(node)
+                  }, (node: WorkflowNodeView) =>
+                    `hidden-${node.id}:${node.fields.length}:${node.enabled}:${node.bypassed}`)
+                }
+              }
             }
           }
           .width('100%')
@@ -4980,6 +5053,40 @@ struct Index {
   }
 
   /** 节点图分组标题，对应 Android SectionHeader。 */
+  @Builder
+  HiddenHeader() {
+    Row({ space: 8 }) {
+      Text('⊘')
+        .fontSize(17)
+        .fontColor(this.c().textDim)
+      Column({ space: 2 }) {
+        Text('已隐藏')
+          .fontSize(12)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.c().textMuted)
+        Text(`${this.hiddenIds.length} 个节点 · 不参与列表排序`)
+          .fontSize(9)
+          .fontFamily('monospace')
+          .fontColor(this.c().textDim)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      Text(this.hiddenExpanded ? '▾' : '▸')
+        .fontSize(10)
+        .fontColor(this.c().textDim)
+    }
+    .width('100%')
+    .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+    .margin({ top: 8 })
+    .backgroundColor(this.c().card)
+    .borderRadius(13)
+    .border({ width: 1, color: this.c().border })
+    .alignItems(VerticalAlign.Center)
+    .onClick(() => {
+      this.hiddenExpanded = !this.hiddenExpanded;
+    })
+  }
+
   @Builder
   SectionHeader(node: WorkflowNodeView) {
     Row({ space: 8 }) {
