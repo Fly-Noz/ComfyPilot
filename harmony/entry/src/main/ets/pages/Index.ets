@@ -6159,6 +6159,8 @@ struct Index {
                 }
                 this.detailTab = 0;
                 this.allNodesOpen = false;
+                // 等面板关闭、列表重新布局后再滚；隐藏节点会先展开隐藏区。
+                setTimeout(() => this.jumpToNode(node.id), 80);
               })
               Row()
                 .width('100%')

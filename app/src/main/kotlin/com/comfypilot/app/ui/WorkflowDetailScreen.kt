@@ -1287,10 +1287,9 @@ private fun DetailBody(
                                 expandedOverride = (expanded + node.id)
                                 tab = 0
                                 sheetVisible = false
-                                val index = orderedNodes.indexOfFirst { it.id == node.id }
-                                if (index >= 0) {
-                                    scope.launch { listState.animateScrollToItem(index) }
-                                }
+                                // 统一走 jumpNodeId：隐藏节点不在 orderedNodes 里，
+                                // 列表侧会先展开「已隐藏」区再滚动。
+                                jumpNodeId = node.id
                             }
                             .padding(horizontal = 18.dp, vertical = 11.dp),
                         verticalAlignment = Alignment.CenterVertically,
