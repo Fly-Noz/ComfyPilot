@@ -6615,6 +6615,30 @@ struct Index {
   }
 
   /** 点首帧后直接跳到产物预览页并开始播放（不是原地替换）。 */
+  private previewIndex(): number {
+    const outputs: BridgeOutput[] = this.artifactTask.outputRefs;
+    const key: string = this.artifactKey(this.previewOutput);
+    return outputs.findIndex((output: BridgeOutput) => this.artifactKey(output) === key);
+  }
+
+  private switchPreview(delta: number): void {
+    const outputs: BridgeOutput[] = this.artifactTask.outputRefs;
+    const index = this.previewIndex();
+    if (index < 0) {
+      return;
+    }
+    const next = Math.max(0, Math.min(outputs.length - 1, index + delta));
+    if (next === index) {
+      return;
+    }
+    this.previewOutput = outputs[next];
+    this.previewError = false;
+    this.videoInlineKey = '';
+    this.previewScale = 1;
+    this.previewOffsetX = 0;
+    this.previewOffsetY = 0;
+  }
+
   private playVideoPage(task: BridgeTask, output: BridgeOutput): void {
     this.artifactTask = task;
     this.previewOutput = output;
@@ -6922,6 +6946,28 @@ struct Index {
     .border({ width: 1, color: this.c().border })
   }
 
+  /** 预览底部的上一个/下一个按钮，位于保存按钮左侧。 */
+  @Builder
+  ArtifactSwitchButton(left: boolean, enabled: boolean, action: () => void) {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width(44)
+        .height(44)
+        .borderRadius(22)
+        .backgroundColor(this.c().cardStrong)
+        .border({ width: 1, color: this.c().border })
+      Text(left ? '‹' : '›')
+        .fontSize(26)
+        .fontColor(enabled ? this.c().text : this.c().textDim)
+        .translate({ y: -2 })
+    }
+    .width(44)
+    .height(44)
+    .opacity(enabled ? 1 : 0.45)
+    .enabled(enabled)
+    .onClick(() => action())
+  }
+
   /** 预览态：返回 + 文件名/ meta + 分享 + 关闭，媒体区 16 圆角裁剪。 */
   @Builder
   ArtifactPreview() {
@@ -7078,7 +7124,13 @@ struct Index {
       .width('100%')
       .alignItems(VerticalAlign.Center)
     } else {
-      Row() {
+      Row({ space: 8 }) {
+        if (this.artifactTask.outputRefs.length > 1) {
+          this.ArtifactSwitchButton(true, this.previewIndex() > 0, () => this.switchPreview(-1))
+          this.ArtifactSwitchButton(false,
+            this.previewIndex() >= 0 && this.previewIndex() < this.artifactTask.outputRefs.length - 1,
+            () => this.switchPreview(1))
+        }
         this.ArtifactActionButton(
           this.downloadingKey === this.artifactKey(this.previewOutput)
             ? '下载中…' : this.artifactActionLabel(this.previewOutput),
@@ -7088,6 +7140,7 @@ struct Index {
       }
       .width('100%')
       .justifyContent(FlexAlign.End)
+      .alignItems(VerticalAlign.Center)
     }
   }
 

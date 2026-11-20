@@ -73,6 +73,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
@@ -242,6 +244,15 @@ fun ArtifactDialog(
                     .border(1.dp, c.borderStrong, panelShape),
             ) {
                 val current = selected
+                val outputs = task.outputs
+                val currentIndex = current?.let { output ->
+                    outputs.indexOfFirst { artifactKey(it) == artifactKey(output) }
+                } ?: -1
+                fun moveOutput(delta: Int) {
+                    if (currentIndex < 0) return
+                    val next = (currentIndex + delta).coerceIn(0, outputs.lastIndex)
+                    if (next != currentIndex) selected = outputs[next]
+                }
                 if (current == null) {
                     ArtifactList(
                         task = task,
@@ -278,6 +289,11 @@ fun ArtifactDialog(
                             },
                             downloadState = stateOf(current),
                             autoStartVideo = autoStartVideo,
+                            showNavigation = outputs.size > 1,
+                            canPrevious = currentIndex > 0,
+                            canNext = currentIndex >= 0 && currentIndex < outputs.lastIndex,
+                            onPrevious = { moveOutput(-1) },
+                            onNext = { moveOutput(1) },
                             onBack = { selected = null },
                             onDownload = { requestDownload(current) },
                             onDismiss = onDismiss,
@@ -591,6 +607,11 @@ private fun ArtifactPreview(
     onBack: () -> Unit,
     onDownload: () -> Unit,
     onDismiss: () -> Unit,
+    showNavigation: Boolean = false,
+    canPrevious: Boolean = false,
+    canNext: Boolean = false,
+    onPrevious: () -> Unit = {},
+    onNext: () -> Unit = {},
     autoStartVideo: Boolean = false,
 ) {
     val c = Spectrum.colors
@@ -704,14 +725,63 @@ private fun ArtifactPreview(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             DownloadStatusLine(downloadState = downloadState, onRetry = onDownload)
-            if (showPrimary) {
-                GradientButton(
-                    text = downloadLabel(downloadState),
-                    onClick = onDownload,
-                    height = 44.dp,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (showNavigation) {
+                    ArtifactSwitchButton(left = true, enabled = canPrevious, onClick = onPrevious)
+                    ArtifactSwitchButton(left = false, enabled = canNext, onClick = onNext)
+                }
+                if (showPrimary) {
+                    GradientButton(
+                        text = downloadLabel(downloadState),
+                        onClick = onDownload,
+                        height = 44.dp,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
             }
+        }
+    }
+}
+
+/** 产物预览底部的上一个/下一个按钮：圆形底板 + 手绘箭头。 */
+@Composable
+private fun ArtifactSwitchButton(left: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val c = Spectrum.colors
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(c.cardStrong)
+            .border(1.dp, c.border, CircleShape)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(modifier = Modifier.size(18.dp)) {
+            val color = if (enabled) c.text else c.textDim.copy(alpha = 0.4f)
+            val path = Path().apply {
+                if (left) {
+                    moveTo(size.width * 0.62f, size.height * 0.18f)
+                    lineTo(size.width * 0.36f, size.height * 0.50f)
+                    lineTo(size.width * 0.62f, size.height * 0.82f)
+                } else {
+                    moveTo(size.width * 0.38f, size.height * 0.18f)
+                    lineTo(size.width * 0.64f, size.height * 0.50f)
+                    lineTo(size.width * 0.38f, size.height * 0.82f)
+                }
+            }
+            drawPath(
+                path = path,
+                color = color,
+                style = Stroke(
+                    width = 2.2.dp.toPx(),
+                    cap = StrokeCap.Round,
+                    join = StrokeJoin.Round,
+                ),
+            )
         }
     }
 }
