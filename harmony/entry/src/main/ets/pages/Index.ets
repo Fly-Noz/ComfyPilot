@@ -2564,6 +2564,26 @@ struct Index {
     this.refreshView(true);
   }
 
+  private requestToggleHidden(node: WorkflowNodeView): void {
+    const alreadyHidden = this.hiddenIds.indexOf(node.id) >= 0;
+    if (!alreadyHidden && !this.hiddenStore.noticeAcknowledged()) {
+      this.openPromptConfirm(
+        '隐藏节点',
+        '隐藏只影响本机列表显示，不会关闭节点，也不会改变提交内容。\n\n隐藏后的卡片会收在列表底部的「已隐藏」区域，可随时点图标恢复。',
+        '隐藏',
+        false,
+        () => {
+          this.hiddenStore.acknowledgeNotice().catch((err: Error) => {
+            this.log(`隐藏提示保存失败：${err.message}`);
+          });
+          this.toggleHidden(node);
+        },
+      );
+      return;
+    }
+    this.toggleHidden(node);
+  }
+
   private toggleHidden(node: WorkflowNodeView): void {
     const wasHidden = this.hiddenIds.includes(node.id);
     this.hiddenIds = wasHidden
@@ -3808,7 +3828,7 @@ struct Index {
           () => this.openNoteEditor(node))
         this.NodeIconButton('⇧', node.pinned, `pin-${node.id}`, () => this.togglePin(node))
         this.NodeIconButton('⊘', this.hiddenIds.indexOf(node.id) >= 0, `hidden-${node.id}`,
-          () => this.toggleHidden(node))
+          () => this.requestToggleHidden(node))
         this.NodeIconButton(this.isNodeExpanded(node) ? '▴' : '▾', false, `expand-${node.id}`,
           () => this.toggleNodeExpanded(node))
       }

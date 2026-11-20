@@ -71,6 +71,32 @@ export class HiddenNodeStore {
     }
   }
 
+  noticeAcknowledged(): boolean {
+    const store = this.store;
+    if (store === null) {
+      return false;
+    }
+    try {
+      return store.getSync('notice_acknowledged', false) as boolean;
+    } catch (err) {
+      this.lastError = (err as Error).message;
+      return false;
+    }
+  }
+
+  async acknowledgeNotice(): Promise<void> {
+    const store = this.store;
+    if (store === null) {
+      return;
+    }
+    try {
+      await store.put('notice_acknowledged', true);
+      await store.flush();
+    } catch (err) {
+      this.lastError = (err as Error).message;
+    }
+  }
+
   private key(host: string, workflowPath: string): string {
     return host.length > 0 ? `${host}|workflow:${workflowPath}` : `workflow:${workflowPath}`;
   }

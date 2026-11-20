@@ -32,6 +32,13 @@ class HiddenNodeStore(context: Context) {
         editor.apply()
     }
 
+    /** 隐藏是破坏可见性的操作：第一次使用前提醒一次，确认后全局不再提醒。 */
+    fun noticeAcknowledged(): Boolean = prefs.getBoolean(KEY_NOTICE_ACKNOWLEDGED, false)
+
+    fun acknowledgeNotice() {
+        prefs.edit().putBoolean(KEY_NOTICE_ACKNOWLEDGED, true).apply()
+    }
+
     private fun key(host: String, workflowPath: String): String =
         if (host.isBlank()) legacyKey(workflowPath) else "$host|workflow:$workflowPath"
 
@@ -39,5 +46,6 @@ class HiddenNodeStore(context: Context) {
 
     private companion object {
         const val PREFS_NAME = "hidden_nodes"
+        const val KEY_NOTICE_ACKNOWLEDGED = "notice_acknowledged"
     }
 }

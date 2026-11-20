@@ -469,6 +469,7 @@ private fun DetailBody(
     var expandedChildGraphs by remember(document.path) { mutableStateOf<Set<String>>(emptySet()) }
     var restExpanded by remember(document.path) { mutableStateOf(false) }
     var hiddenExpanded by remember(document.path) { mutableStateOf(false) }
+    var pendingHideNodeId by remember(document.path) { mutableStateOf<Int?>(null) }
     var expandedOverride by remember(document.path) { mutableStateOf<Set<Int>?>(null) }
     // 关闭节点前的确认弹窗：只有共享层判定 breaking 时才会出现。
     var bypassConfirm by remember(document.path) { mutableStateOf<BypassConfirm?>(null) }
@@ -582,6 +583,15 @@ private fun DetailBody(
         hiddenNodeStore.save(hostScope, document.path, next)
         // 刚隐藏时把整组收起；取消隐藏直接把卡片放回原分组。
         if (!wasHidden) hiddenExpanded = false
+    }
+
+    fun requestToggleHidden(nodeId: Int) {
+        val alreadyHidden = nodeId in hiddenNodeIds
+        if (!alreadyHidden && !hiddenNodeStore.noticeAcknowledged()) {
+            pendingHideNodeId = nodeId
+            return
+        }
+        toggleHidden(nodeId)
     }
 
     fun toggleGraph(graph: WorkflowGraph) {
@@ -1021,7 +1031,7 @@ private fun DetailBody(
                     hiddenNodes = hiddenNodes,
                     hiddenExpanded = hiddenExpanded,
                     onToggleHiddenGroup = { hiddenExpanded = !hiddenExpanded },
-                    onToggleHidden = ::toggleHidden,
+                    onToggleHidden = ::requestToggleHidden,
                     notes = nodeNotes,
                     previews = uploadPreviews,
                     selectedGraphIds = selectedGraphIds,
@@ -1183,6 +1193,27 @@ private fun DetailBody(
             }
         }
     }
+    pendingHideNodeId?.let { nodeId ->
+        SpectrumDialog(
+            title = "隐藏节点",
+            onDismiss = { pendingHideNodeId = null },
+            confirmText = "隐藏",
+            onConfirm = {
+                hiddenNodeStore.acknowledgeNotice()
+                pendingHideNodeId = null
+                toggleHidden(nodeId)
+            },
+            dismissText = "取消",
+        ) {
+            Text(
+                text = "隐藏只影响本机列表显示，不会关闭节点，也不会改变提交内容。\n\n隐藏后的卡片会收在列表底部的「已隐藏」区域，可随时点图标恢复。",
+                color = Spectrum.colors.textMuted,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+            )
+        }
+    }
+
     bypassConfirm?.let { confirm ->
         SpectrumDialog(
             title = "关闭节点",
