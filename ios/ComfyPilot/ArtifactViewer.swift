@@ -28,7 +28,10 @@ struct ArtifactViewer: View {
                 ScrollView {
                     VStack(spacing: 14) {
                         if let artifact = currentArtifact {
+                            // 按产物 id 重建卡片：否则切到下一条时 ZoomableImage 的
+                            // scale/offset 会留在上一条的缩放位置，AVPlayer 也不会重来。
                             artifactCard(artifact)
+                                .id(artifact.id)
                         }
                     }
                     .padding(.horizontal, 18)

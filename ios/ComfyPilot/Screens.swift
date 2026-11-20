@@ -412,11 +412,14 @@ struct TasksScreen: View {
     }
 
     private func maybeOpenArtifact() {
-        guard LaunchOptions.openArtifact, sheet == nil,
-              let task = store.snapshot.tasks.first(where: {
-                  $0.state == "Completed" && !$0.artifacts.isEmpty
-              })
-        else { return }
+        guard LaunchOptions.openArtifact, sheet == nil else { return }
+        // 指定了 -uiOpenWorkflow 就只认那条工作流的任务：CI 的同一个 mock 里留着
+        // 前面几轮截图提交的任务，取「最新任意任务」会打开上一轮工作流的产物。
+        let targetPath = LaunchOptions.workflowPath
+        guard let task = store.snapshot.tasks.first(where: {
+            $0.state == "Completed" && !$0.artifacts.isEmpty
+                && (targetPath == nil || $0.workflowPath == targetPath)
+        }) else { return }
         sheet = .artifacts(task)
     }
 

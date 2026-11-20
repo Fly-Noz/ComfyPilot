@@ -58,6 +58,8 @@ prompt 图、`lastUpload` 最近一次上传的文件名）、`POST /mock/drop-s
 - `demo_api.json`：API 格式（`/prompt` 直接可用），txt2img 标准链路。
 - `demo_ui.json`：网页端保存格式（`nodes`/`links`/`widgets_values`），用于格式识别与后续转换器。
 - `demo_upload.json`：只有 `LoadImage` + `SaveImage` 的最小网页格式，用于相册上传链路。
+- `demo_multi.json`：同一个 `VAEDecode` 接两个 `SaveImage`，一次任务产出两个产物，
+  用于产物查看器的「上一个 / 下一个」切换（只产出一个产物时切换条不出现）。
 - `demo_audio.json`：`LoadAudio` + `SaveAudio`，用于音频选择、上传和音频产物播放链路。
 - `sample.wav`：3 秒双音提示音；音频任务完成后 `/view` 返回它。
 

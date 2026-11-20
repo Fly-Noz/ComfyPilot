@@ -407,7 +407,9 @@ struct WorkflowDetailScreen: View {
                         // 展开要一帧才生效：稍晚一点再滚，否则滚到的是折叠时的高度。
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                             withAnimation(.easeInOut(duration: 0.25)) {
-                                proxy.scrollTo(target, anchor: .top)
+                                // 列表行的 id 是 "node-<数字>"（InputRow），不是裸整数；
+                                // 隐藏区的卡片也挂同一个锚点，两处都能滚到。
+                                proxy.scrollTo("node-\(target)", anchor: .top)
                             }
                             jumpNodeId = nil
                         }
@@ -441,19 +443,19 @@ struct WorkflowDetailScreen: View {
             Button("取消", role: .cancel) { noteNodeId = nil }
         }
         // 首次隐藏前的提醒：只影响本机显示，不改提交内容。
+        // 用 presenting 把节点号快照传进动作里：isPresented 的 set(false) 会先把
+        // pendingHideNode 清空，直接读 state 会拿到 nil，点「隐藏」变成没反应。
         .alert("隐藏节点", isPresented: Binding(
             get: { pendingHideNode != nil },
             set: { if !$0 { pendingHideNode = nil } }
-        )) {
+        ), presenting: pendingHideNode) { id in
             Button("取消", role: .cancel) { pendingHideNode = nil }
             Button("隐藏") {
                 HiddenNodes.noticeAcknowledged = true
-                if let id = pendingHideNode {
-                    pendingHideNode = nil
-                    store.toggleHiddenNode(id)
-                }
+                pendingHideNode = nil
+                store.toggleHiddenNode(id)
             }
-        } message: {
+        } message: { _ in
             Text("隐藏只影响本机列表显示，不会关闭节点，也不会改变提交内容。\n\n隐藏后的卡片会收在列表底部的「已隐藏」区域，可随时点图标恢复。")
         }
         .sheet(item: $sheet) { item in
@@ -588,7 +590,9 @@ struct WorkflowDetailScreen: View {
 
             if hiddenExpanded {
                 ForEach(hidden) { node in
+                    // 与正常区的行共用一个锚点：从「全部节点」跳过来时能滚到这里。
                     nodeCard(node)
+                        .id("node-\(node.id)")
                 }
             }
         }

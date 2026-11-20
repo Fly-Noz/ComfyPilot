@@ -545,28 +545,53 @@ function startJob(promptId, job) {
   setTimeout(step, 200)
 }
 
+/**
+ * 会产出文件的节点。PreviewImage 只写 temp 预览，不当作产物——
+ * 客户端看到的产物数量要和提交里的「真正输出节点」一致。
+ */
+const OUTPUT_CLASSES = new Set(['SaveImage', 'SaveAudio', 'VHS_VideoCombine'])
+
+/** 提交里的输出节点；一个都没有时（例如只跑 KSampler）沿用老行为挂到 9 号。 */
+function outputNodesOf(prompt) {
+  const nodes = []
+  for (const [id, node] of Object.entries(prompt || {})) {
+    if (!node || !OUTPUT_CLASSES.has(node.class_type)) continue
+    nodes.push({ id, classType: node.class_type })
+  }
+  return nodes.length > 0 ? nodes : [{ id: '9', classType: 'SaveImage' }]
+}
+
+/** 单个输出节点的产物：后缀跟节点类型走，多节点时文件名带上节点号避免撞名。 */
+function artifactOf(promptId, node, multi) {
+  const ext =
+    node.classType === 'VHS_VideoCombine'
+      ? 'mp4'
+      : node.classType === 'SaveAudio'
+        ? 'wav'
+        : SAMPLE_OUTPUT
+          ? 'jpg'
+          : 'png'
+  const kind = node.classType === 'SaveAudio' ? 'audio' : 'images'
+  const suffix = multi ? `_${node.id}` : ''
+  return { nodeId: node.id, kind, filename: `ComfyPilot_mock_${promptId.slice(0, 8)}${suffix}.${ext}` }
+}
+
 function finishJob(promptId, job) {
   running.delete(promptId)
-  const ext = job.isVideo ? 'mp4' : (job.isAudio ? 'wav' : (SAMPLE_OUTPUT ? 'jpg' : 'png'))
-  const filename = `ComfyPilot_mock_${promptId.slice(0, 8)}.${ext}`
-  const outputKind = job.isVideo ? 'images' : (job.isAudio ? 'audio' : 'images')
-  broadcast({
-    type: 'executing',
-    data: { prompt_id: promptId, node: null },
-  })
-  broadcast({
-    type: 'executed',
-    data: {
-      prompt_id: promptId,
-      node: '9',
-      output: { [outputKind]: [{ filename, subfolder: '', type: 'output' }] },
-    },
-  })
+  const nodes = job.outNodes
+  // 一个输出节点产一个文件：两路 SaveImage 就是两个产物，产物查看器才有「上一个/下一个」。
+  const artifacts = nodes.map((node) => artifactOf(promptId, node, nodes.length > 1))
+
+  // 先落 history 再广播：客户端收到 executing(null) 会立刻拉 /history，
+  // 顺序反了会拿到空 outputs（任务显示完成但没有产物）。
   history.set(promptId, {
     prompt: [],
-    outputs: {
-      9: { [outputKind]: [{ filename, subfolder: '', type: 'output' }] },
-    },
+    outputs: Object.fromEntries(
+      artifacts.map((item) => [
+        item.nodeId,
+        { [item.kind]: [{ filename: item.filename, subfolder: '', type: 'output' }] },
+      ]),
+    ),
     status: {
       status_str: 'success',
       completed: true,
@@ -575,6 +600,23 @@ function finishJob(promptId, job) {
         ['execution_success', { prompt_id: promptId }],
       ],
     },
+  })
+
+  // 每个输出节点各发一条 executed（真实 ComfyUI 就是这么逐节点推的），
+  // 客户端据此累计已完成节点数。
+  for (const item of artifacts) {
+    broadcast({
+      type: 'executed',
+      data: {
+        prompt_id: promptId,
+        node: item.nodeId,
+        output: { [item.kind]: [{ filename: item.filename, subfolder: '', type: 'output' }] },
+      },
+    })
+  }
+  broadcast({
+    type: 'executing',
+    data: { prompt_id: promptId, node: null },
   })
   broadcast({ type: 'status', data: { status: { exec_info: { queue_remaining: pending.size } } } })
 }
@@ -610,21 +652,14 @@ const server = http.createServer(async (req, res) => {
       lastPrompt = payload.prompt
       const promptId = randomUUID()
       const number = seq++
-      // 输出节点里有 VideoCombine → 这次任务产出视频（/view 与 history 都按 mp4 走）
-      const isVideo = Object.values(payload.prompt).some(
-        (n) => n && n.class_type === 'VHS_VideoCombine',
-      )
-      const isAudio = Object.values(payload.prompt).some(
-        (n) => n && n.class_type === 'SaveAudio',
-      )
+      // 产物按提交里的输出节点逐个生成：两路 SaveImage → 两个产物。
       const job = {
         number,
         createdAt: Date.now(),
         progress: 0,
         max: 8,
         status: 'pending',
-        isVideo,
-        isAudio,
+        outNodes: outputNodesOf(payload.prompt),
       }
       pending.set(promptId, job)
       broadcast({ type: 'status', data: { status: { exec_info: { queue_remaining: pending.size + running.size } } } })

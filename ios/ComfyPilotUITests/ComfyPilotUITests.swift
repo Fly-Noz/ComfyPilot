@@ -213,6 +213,51 @@ final class ComfyPilotUITests: XCTestCase {
     }
 
 
+    /// 产物切换：一次产出两个文件时查看器才有「上一个/下一个」。
+    /// 断言首项禁用、翻页后页码与禁用态对调、再翻回原位。
+    func testArtifactSwitcher() throws {
+        let app = launch([
+            "-uiResetTasks",
+            "-uiOpenWorkflow", "demo_multi.json",
+            "-uiAutoSubmit",
+            "-uiOpenArtifact",
+        ])
+
+        // 切换条只在 artifacts.count > 1 时出现：它存在就说明两个产物都被解析到了。
+        let next = app.buttons["下一个产物"].firstMatch
+        XCTAssertTrue(
+            next.waitForExistence(timeout: 50),
+            "产物查看器没有「下一个产物」按钮（可能只产出一个产物）。界面树：\n\(app.debugDescription)"
+        )
+        let prev = app.buttons["上一个产物"].firstMatch
+        XCTAssertTrue(prev.exists, "切换条缺少「上一个产物」。界面树：\n\(app.debugDescription)")
+
+        // 第一条：页码 1 / 2，往前翻禁用、往后翻可点
+        XCTAssertTrue(
+            app.staticTexts["1 / 2"].waitForExistence(timeout: 8),
+            "首条产物的页码不是「1 / 2」。界面树：\n\(app.debugDescription)"
+        )
+        XCTAssertFalse(prev.isEnabled, "首条产物的「上一个」应当禁用")
+        XCTAssertTrue(next.isEnabled, "首条产物的「下一个」应当可点")
+
+        // 查看器是 fullScreenCover，弹出动画期间元素的坐标还在动，点早了会点空。
+        Thread.sleep(forTimeInterval: 0.5)
+        next.tap()
+        XCTAssertTrue(
+            app.staticTexts["2 / 2"].waitForExistence(timeout: 8),
+            "点「下一个」后页码没有变成「2 / 2」。界面树：\n\(app.debugDescription)"
+        )
+        XCTAssertFalse(next.isEnabled, "末条产物的「下一个」应当禁用")
+        XCTAssertTrue(prev.isEnabled, "末条产物的「上一个」应当可点")
+
+        prev.tap()
+        XCTAssertTrue(
+            app.staticTexts["1 / 2"].waitForExistence(timeout: 8),
+            "点「上一个」后页码没有回到「1 / 2」。界面树：\n\(app.debugDescription)"
+        )
+    }
+
+
     /// 设置页「数据」分区：导出 / 导入两个备份入口存在且可点
     /// （与安卓、鸿蒙同位置；入口被误删时这条会红）。
     func testSettingsBackupEntries() throws {
