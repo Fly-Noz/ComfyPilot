@@ -1368,6 +1368,25 @@ struct Index {
     this.loadLivePreview(++this.previewRequestSeq);
   }
 
+  /** 手动刷新采样预览：重取当前帧/动画；失败时单帧加载仍会执行。 */
+  private refreshLivePreview(): void {
+    const meta = this.livePreviewMeta;
+    if (meta === null) {
+      promptAction.showToast({ message: '暂无可刷新的采样画面', duration: 1600 });
+      return;
+    }
+    this.previewFrameKey = '';
+    this.animationKey = '';
+    this.previewAppliedSeq = 0;
+    this.livePreviewFailed = false;
+    const seq = ++this.previewRequestSeq;
+    if ((meta.animationCount ?? 0) > 1) {
+      this.loadPreviewAnimation(meta);
+    }
+    this.loadLivePreview(seq);
+    promptAction.showToast({ message: '正在刷新采样预览', duration: 1000 });
+  }
+
   /** 取一批 VHS 动画帧并开始轮播。 */
   private async loadPreviewAnimation(meta: BridgePreview): Promise<void> {
     try {
@@ -5610,6 +5629,23 @@ struct Index {
     .alignItems(HorizontalAlign.Start)
   }
 
+  /** 采样预览右上角的手动刷新按钮。 */
+  @Builder
+  PreviewRefreshButton() {
+    Button({ type: ButtonType.Circle, stateEffect: true }) {
+      Text('↻')
+        .fontSize(19)
+        .fontColor('rgba(242,244,247,0.92)')
+        .translate({ y: -1 })
+    }
+    .width(32)
+    .height(32)
+    .backgroundColor('rgba(10,11,16,0.55)')
+    .borderRadius(16)
+    .border({ width: 1, color: 'rgba(255,255,255,0.18)' })
+    .onClick(() => this.refreshLivePreview())
+  }
+
   /** 进行中任务的预览：Hero 面板 + 状态/进度 + 渐变进度条（对应 Android ActivePreview）。 */
   @Builder
   DetailLivePreview() {
@@ -5634,6 +5670,14 @@ struct Index {
         .backgroundColor('rgba(10,11,16,0.55)')
         .borderRadius(8)
         .position({ x: 10, y: 10 })
+
+        Row() {
+          Blank()
+          this.PreviewRefreshButton()
+        }
+        .width('100%')
+        .padding({ right: 10, top: 10 })
+        .position({ x: 0, y: 0 })
 
         if (this.livePreview !== null && this.livePreviewMatches(this.liveCardTask())) {
           Image(this.livePreview as image.PixelMap)
@@ -6469,8 +6513,10 @@ struct Index {
             .fontSize(10)
             .fontColor(this.c().textDim)
         }
+        this.PreviewRefreshButton()
       }
       .width('100%')
+      .alignItems(VerticalAlign.Center)
 
       if (this.liveCardTask() !== null) {
         Row({ space: 8 }) {

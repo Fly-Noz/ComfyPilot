@@ -2601,6 +2601,52 @@ private fun PreviewPane(
     }
 }
 
+/** 采样预览卡右上角的手动刷新：重解码当前帧，不改变共享层的 receivedAtMs。 */
+@Composable
+private fun PreviewRefreshButton(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .size(34.dp)
+            .clip(RoundedCornerShape(50))
+            .background(Color.Black.copy(alpha = 0.42f))
+            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(50))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(modifier = Modifier.size(17.dp)) {
+            val stroke = 1.8.dp.toPx()
+            val inset = stroke / 2f
+            drawArc(
+                color = Color.White.copy(alpha = 0.9f),
+                startAngle = -55f,
+                sweepAngle = 285f,
+                useCenter = false,
+                topLeft = Offset(inset, inset),
+                size = Size(size.width - stroke, size.height - stroke),
+                style = Stroke(width = stroke, cap = StrokeCap.Round),
+            )
+            // 顺时针箭头：弧线终点附近画一个 V 形箭头。
+            drawLine(
+                color = Color.White.copy(alpha = 0.9f),
+                start = Offset(size.width * 0.58f, size.height * 0.10f),
+                end = Offset(size.width * 0.82f, size.height * 0.16f),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
+            drawLine(
+                color = Color.White.copy(alpha = 0.9f),
+                start = Offset(size.width * 0.82f, size.height * 0.16f),
+                end = Offset(size.width * 0.74f, size.height * 0.38f),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
+        }
+    }
+}
+
 @Composable
 private fun ActivePreview(
     task: PromptTask,
@@ -2611,6 +2657,9 @@ private fun ActivePreview(
 ) {
     val c = Spectrum.colors
     val frame = preview?.takeIf { it.promptId == null || it.promptId == task.promptId }
+    // 手动刷新只重置本地解码缓存，不伪造 receivedAtMs；最新帧仍由共享层提供。
+    var previewRefreshTick by remember(task.id) { mutableStateOf(0) }
+    val previewContext = LocalContext.current
     // 视频节点真正的"循环预览"来自 executed 事件里的 gifs 产物；有就优先播它
     var confirmCancel by remember(task.id) { mutableStateOf(false) }
     val gif = task.outputs.lastOrNull { it.filename.endsWith(".gif", ignoreCase = true) }
@@ -2652,9 +2701,17 @@ private fun ActivePreview(
             } else if (animation != null && animation.frames.size >= 2) {
                 // 只有服务端明确发来"一组帧 + 帧率"时才循环播放；跨步累积的帧混在一起
                 // 会把不同清晰度的画面反复拼接，看起来反而更乱，所以不再做那种轮播。
-                VhsAnimationPlayback(animation = animation, modifier = Modifier.matchParentSize())
+                VhsAnimationPlayback(
+                    animation = animation,
+                    refreshKey = previewRefreshTick,
+                    modifier = Modifier.matchParentSize(),
+                )
             } else if (frame != null) {
-                LivePreviewImage(bytes = frame.image, modifier = Modifier.matchParentSize())
+                LivePreviewImage(
+                    bytes = frame.image,
+                    refreshKey = previewRefreshTick,
+                    modifier = Modifier.matchParentSize(),
+                )
                 // 重连/切后台期间不会再收到帧：明确标注这是"最后一帧"和它有多旧，
                 // 避免把旧画面当成实时采样。
                 val ageSeconds = ((nowMs - frame.receivedAtMs) / 1000).coerceAtLeast(0)
@@ -2695,6 +2752,18 @@ private fun ActivePreview(
                     }
                 }
             }
+            PreviewRefreshButton(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(10.dp),
+                onClick = {
+                    if (frame == null && animation == null) {
+                        Toast.makeText(previewContext, "暂无可刷新的采样画面", Toast.LENGTH_SHORT).show()
+                    } else {
+                        previewRefreshTick++
+                    }
+                },
+            )
         }
 
         Row(verticalAlignment = Alignment.Bottom) {
@@ -3357,10 +3426,11 @@ private fun GraphIconButton(onClick: () -> Unit) {
 @Composable
 private fun VhsAnimationPlayback(
     animation: com.comfypilot.core.event.PreviewAnimation,
+    refreshKey: Int = 0,
     modifier: Modifier = Modifier,
 ) {
-    var frames by remember(animation) { mutableStateOf<List<android.graphics.Bitmap>>(emptyList()) }
-    LaunchedEffect(animation) {
+    var frames by remember(animation, refreshKey) { mutableStateOf<List<android.graphics.Bitmap>>(emptyList()) }
+    LaunchedEffect(animation, refreshKey) {
         frames = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
             animation.frames.mapNotNull { bytes ->
                 android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
