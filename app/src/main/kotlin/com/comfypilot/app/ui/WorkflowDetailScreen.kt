@@ -49,6 +49,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -2604,45 +2605,79 @@ private fun PreviewPane(
 /** 采样预览卡右上角的手动刷新：重解码当前帧，不改变共享层的 receivedAtMs。 */
 @Composable
 private fun PreviewRefreshButton(
+    refreshing: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    val interaction = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
             .size(34.dp)
-            .clip(RoundedCornerShape(50))
+            .clip(CircleShape)
             .background(Color.Black.copy(alpha = 0.42f))
-            .border(1.dp, Color.White.copy(alpha = 0.18f), RoundedCornerShape(50))
-            .clickable(onClick = onClick),
+            .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Canvas(modifier = Modifier.size(17.dp)) {
-            val stroke = 1.8.dp.toPx()
-            val inset = stroke / 2f
-            drawArc(
+        if (refreshing) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(16.dp),
                 color = Color.White.copy(alpha = 0.9f),
-                startAngle = -55f,
-                sweepAngle = 285f,
-                useCenter = false,
-                topLeft = Offset(inset, inset),
-                size = Size(size.width - stroke, size.height - stroke),
-                style = Stroke(width = stroke, cap = StrokeCap.Round),
+                strokeWidth = 1.8.dp,
             )
-            // 顺时针箭头：弧线终点附近画一个 V 形箭头。
-            drawLine(
-                color = Color.White.copy(alpha = 0.9f),
-                start = Offset(size.width * 0.58f, size.height * 0.10f),
-                end = Offset(size.width * 0.82f, size.height * 0.16f),
-                strokeWidth = stroke,
-                cap = StrokeCap.Round,
-            )
-            drawLine(
-                color = Color.White.copy(alpha = 0.9f),
-                start = Offset(size.width * 0.82f, size.height * 0.16f),
-                end = Offset(size.width * 0.74f, size.height * 0.38f),
-                strokeWidth = stroke,
-                cap = StrokeCap.Round,
-            )
+        } else {
+            Canvas(modifier = Modifier.size(18.dp)) {
+                val color = Color.White.copy(alpha = 0.9f)
+                val stroke = 1.8.dp.toPx()
+                val center = Offset(size.width / 2f, size.height / 2f)
+                val radius = size.minDimension / 2f - stroke
+                val arcStart = 35f
+                val arcSweep = 285f
+                drawArc(
+                    color = color,
+                    startAngle = arcStart,
+                    sweepAngle = arcSweep,
+                    useCenter = false,
+                    topLeft = Offset(center.x - radius, center.y - radius),
+                    size = Size(radius * 2f, radius * 2f),
+                    style = Stroke(width = stroke, cap = StrokeCap.Round),
+                )
+                // 弧线终点处画一个沿切线方向的实心箭头，避免箭头和圆环错位。
+                val endRad = Math.toRadians((arcStart + arcSweep).toDouble())
+                val end = Offset(
+                    center.x + radius * kotlin.math.cos(endRad).toFloat(),
+                    center.y + radius * kotlin.math.sin(endRad).toFloat(),
+                )
+                val tangent = endRad + Math.PI / 2.0
+                val arrow = 5.2.dp.toPx()
+                val wing = 3.0.dp.toPx()
+                val tip = Offset(
+                    end.x + kotlin.math.cos(tangent).toFloat() * arrow,
+                    end.y + kotlin.math.sin(tangent).toFloat() * arrow,
+                )
+                val base = Offset(
+                    end.x - kotlin.math.cos(tangent).toFloat() * arrow * 0.15f,
+                    end.y - kotlin.math.sin(tangent).toFloat() * arrow * 0.15f,
+                )
+                val normal = tangent + Math.PI / 2.0
+                val left = Offset(
+                    base.x + kotlin.math.cos(normal).toFloat() * wing,
+                    base.y + kotlin.math.sin(normal).toFloat() * wing,
+                )
+                val right = Offset(
+                    base.x - kotlin.math.cos(normal).toFloat() * wing,
+                    base.y - kotlin.math.sin(normal).toFloat() * wing,
+                )
+                drawPath(
+                    path = Path().apply {
+                        moveTo(tip.x, tip.y)
+                        lineTo(left.x, left.y)
+                        lineTo(right.x, right.y)
+                        close()
+                    },
+                    color = color,
+                )
+            }
         }
     }
 }
@@ -2659,7 +2694,13 @@ private fun ActivePreview(
     val frame = preview?.takeIf { it.promptId == null || it.promptId == task.promptId }
     // 手动刷新只重置本地解码缓存，不伪造 receivedAtMs；最新帧仍由共享层提供。
     var previewRefreshTick by remember(task.id) { mutableStateOf(0) }
+    var previewRefreshing by remember(task.id) { mutableStateOf(false) }
     val previewContext = LocalContext.current
+    LaunchedEffect(previewRefreshTick) {
+        if (previewRefreshTick == 0) return@LaunchedEffect
+        delay(700)
+        previewRefreshing = false
+    }
     // 视频节点真正的"循环预览"来自 executed 事件里的 gifs 产物；有就优先播它
     var confirmCancel by remember(task.id) { mutableStateOf(false) }
     val gif = task.outputs.lastOrNull { it.filename.endsWith(".gif", ignoreCase = true) }
@@ -2753,6 +2794,7 @@ private fun ActivePreview(
                 }
             }
             PreviewRefreshButton(
+                refreshing = previewRefreshing,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(10.dp),
@@ -2760,6 +2802,7 @@ private fun ActivePreview(
                     if (frame == null && animation == null) {
                         Toast.makeText(previewContext, "暂无可刷新的采样画面", Toast.LENGTH_SHORT).show()
                     } else {
+                        previewRefreshing = true
                         previewRefreshTick++
                     }
                 },
