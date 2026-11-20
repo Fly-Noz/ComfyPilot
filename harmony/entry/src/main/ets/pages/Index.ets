@@ -468,6 +468,8 @@ struct Index {
   private previewBaseX: number = 0;
   private previewBaseY: number = 0;
   @State previewOutput: BridgeOutput = emptyOutput();
+  /** 当前预览在 outputRefs 里的下标；切换按钮只改这个值，避免对象 key 对不上时永远停在第 1 张。 */
+  @State previewCursor: number = 0;
   @State previewError: boolean = false;
   /** 底栏提示的自动收起定时器句柄（-1 表示没有在计时）。 */
   private submitNoticeTimer: number = -1;
@@ -3324,6 +3326,7 @@ struct Index {
     this.artifactTask = task;
     this.artifactOpen = true;
     this.previewOpen = false;
+    this.previewCursor = 0;
     this.previewScale = 1;
     this.previewOffsetX = 0;
     this.previewOffsetY = 0;
@@ -6615,22 +6618,32 @@ struct Index {
   }
 
   /** 点首帧后直接跳到产物预览页并开始播放（不是原地替换）。 */
-  private previewIndex(): number {
-    const outputs: BridgeOutput[] = this.artifactTask.outputRefs;
-    const key: string = this.artifactKey(this.previewOutput);
-    return outputs.findIndex((output: BridgeOutput) => this.artifactKey(output) === key);
+  private indexOfPreview(task: BridgeTask, output: BridgeOutput): number {
+    const outputs: BridgeOutput[] = task.outputRefs;
+    const key: string = this.artifactKey(output);
+    const index = outputs.findIndex((item: BridgeOutput) => this.artifactKey(item) === key);
+    return index >= 0 ? index : 0;
+  }
+
+  private currentPreviewIndex(): number {
+    const count: number = this.artifactTask.outputRefs.length;
+    if (count <= 0) {
+      return 0;
+    }
+    return Math.max(0, Math.min(this.previewCursor, count - 1));
   }
 
   private switchPreview(delta: number): void {
     const outputs: BridgeOutput[] = this.artifactTask.outputRefs;
-    const index = this.previewIndex();
-    if (index < 0) {
+    if (outputs.length === 0) {
       return;
     }
+    const index = this.currentPreviewIndex();
     const next = Math.max(0, Math.min(outputs.length - 1, index + delta));
     if (next === index) {
       return;
     }
+    this.previewCursor = next;
     this.previewOutput = outputs[next];
     this.previewError = false;
     this.videoInlineKey = '';
@@ -6642,6 +6655,7 @@ struct Index {
   private playVideoPage(task: BridgeTask, output: BridgeOutput): void {
     this.artifactTask = task;
     this.previewOutput = output;
+    this.previewCursor = this.indexOfPreview(task, output);
     this.previewError = false;
     this.videoInlineKey = this.artifactUrl(output);
     animateTo({ duration: 220, curve: Curve.EaseOut }, () => {
@@ -6667,6 +6681,7 @@ struct Index {
   private openImagePage(task: BridgeTask, output: BridgeOutput): void {
     this.artifactTask = task;
     this.previewOutput = output;
+    this.previewCursor = this.indexOfPreview(task, output);
     this.previewError = false;
     this.videoInlineKey = '';
     animateTo({ duration: 220, curve: Curve.EaseOut }, () => {
@@ -6678,6 +6693,7 @@ struct Index {
   private openPreview(output: BridgeOutput): void {
     this.videoInlineKey = '';
     this.previewOutput = output;
+    this.previewCursor = this.indexOfPreview(this.artifactTask, output);
     animateTo({ duration: 220, curve: Curve.EaseOut }, () => {
       this.previewOpen = true;
     });
@@ -6949,13 +6965,7 @@ struct Index {
   /** 预览底部的上一个/下一个按钮，位于保存按钮左侧。 */
   @Builder
   ArtifactSwitchButton(left: boolean, enabled: boolean, action: () => void) {
-    Stack({ alignContent: Alignment.Center }) {
-      Column()
-        .width(44)
-        .height(44)
-        .borderRadius(22)
-        .backgroundColor(this.c().cardStrong)
-        .border({ width: 1, color: this.c().border })
+    Button({ type: ButtonType.Circle, stateEffect: true }) {
       Text(left ? '‹' : '›')
         .fontSize(26)
         .fontColor(enabled ? this.c().text : this.c().textDim)
@@ -6963,6 +6973,9 @@ struct Index {
     }
     .width(44)
     .height(44)
+    .backgroundColor(this.c().cardStrong)
+    .borderRadius(22)
+    .border({ width: 1, color: this.c().border })
     .opacity(enabled ? 1 : 0.45)
     .enabled(enabled)
     .onClick(() => action())
@@ -7126,10 +7139,14 @@ struct Index {
     } else {
       Row({ space: 8 }) {
         if (this.artifactTask.outputRefs.length > 1) {
-          this.ArtifactSwitchButton(true, this.previewIndex() > 0, () => this.switchPreview(-1))
+          this.ArtifactSwitchButton(true, this.currentPreviewIndex() > 0, () => this.switchPreview(-1))
           this.ArtifactSwitchButton(false,
-            this.previewIndex() >= 0 && this.previewIndex() < this.artifactTask.outputRefs.length - 1,
+            this.currentPreviewIndex() < this.artifactTask.outputRefs.length - 1,
             () => this.switchPreview(1))
+          Text(`${this.currentPreviewIndex() + 1} / ${this.artifactTask.outputRefs.length}`)
+            .fontSize(10)
+            .fontFamily('monospace')
+            .fontColor(this.c().textDim)
         }
         this.ArtifactActionButton(
           this.downloadingKey === this.artifactKey(this.previewOutput)
