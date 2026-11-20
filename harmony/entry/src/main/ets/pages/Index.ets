@@ -1382,6 +1382,7 @@ struct Index {
     this.previewAppliedSeq = 0;
     this.livePreviewFailed = false;
     this.previewRefreshing = true;
+    promptAction.showToast({ message: '正在刷新采样预览', duration: 1000 });
     setTimeout(() => {
       this.previewRefreshing = false;
     }, 700);
@@ -5691,6 +5692,7 @@ struct Index {
         .width('100%')
         .padding({ right: 10, top: 10 })
         .position({ x: 0, y: 0 })
+        .zIndex(10)
 
         if (this.livePreview !== null && this.livePreviewMatches(this.liveCardTask())) {
           Image(this.livePreview as image.PixelMap)
