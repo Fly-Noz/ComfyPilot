@@ -488,6 +488,8 @@ struct Index {
   @State livePreview: image.PixelMap | null = null;
   @State livePreviewMeta: BridgePreview | null = null;
   @State livePreviewFailed: boolean = false;
+  /** 手动刷新按钮的短暂忙碌态，给用户明确反馈。 */
+  @State previewRefreshing: boolean = false;
 
   private bridge: ComfyBridge = new ComfyBridge();
   private abi: number = 0;
@@ -1379,6 +1381,10 @@ struct Index {
     this.animationKey = '';
     this.previewAppliedSeq = 0;
     this.livePreviewFailed = false;
+    this.previewRefreshing = true;
+    setTimeout(() => {
+      this.previewRefreshing = false;
+    }, 700);
     const seq = ++this.previewRequestSeq;
     if ((meta.animationCount ?? 0) > 1) {
       this.loadPreviewAnimation(meta);
@@ -5633,10 +5639,17 @@ struct Index {
   @Builder
   PreviewRefreshButton() {
     Button({ type: ButtonType.Circle, stateEffect: true }) {
-      Text('↻')
-        .fontSize(19)
-        .fontColor('rgba(242,244,247,0.92)')
-        .translate({ y: -1 })
+      if (this.previewRefreshing) {
+        LoadingProgress()
+          .width(16)
+          .height(16)
+          .color('rgba(242,244,247,0.9)')
+      } else {
+        Text('↻')
+          .fontSize(19)
+          .fontColor('rgba(242,244,247,0.92)')
+          .translate({ y: -1 })
+      }
     }
     .width(32)
     .height(32)
