@@ -27,18 +27,65 @@ struct ArtifactViewer: View {
 
                 ScrollView {
                     VStack(spacing: 14) {
-                        ForEach(task.artifacts) { artifact in
+                        if let artifact = currentArtifact {
                             artifactCard(artifact)
                         }
                     }
                     .padding(.horizontal, 18)
                     .padding(.bottom, 26)
                 }
+
+                if task.artifacts.count > 1 {
+                    switchBar
+                }
+            }
+        }
+        .onChange(of: task.artifacts.count) { _, count in
+            // 任务刷新导致产物变少时把下标夹回范围内。
+            if count > 0, index > count - 1 {
+                index = count - 1
             }
         }
         .sheet(item: $shareItem) { item in
             ShareSheet(items: [item.url])
         }
+    }
+
+    @State private var index = 0
+
+    private var currentArtifact: ArtifactRef? {
+        guard !task.artifacts.isEmpty else { return nil }
+        return task.artifacts[max(0, min(index, task.artifacts.count - 1))]
+    }
+
+    /// 产物间切换：与安卓/鸿蒙同款「上一个 / 下一个」，首尾禁用。
+    private var switchBar: some View {
+        HStack(spacing: 16) {
+            switchButton(left: true, enabled: index > 0) {
+                index = max(0, index - 1)
+            }
+            Text("\(min(index, task.artifacts.count - 1) + 1) / \(task.artifacts.count)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(palette.textMuted)
+            switchButton(left: false, enabled: index < task.artifacts.count - 1) {
+                index = min(task.artifacts.count - 1, index + 1)
+            }
+        }
+        .padding(.bottom, 12)
+    }
+
+    private func switchButton(left: Bool, enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: left ? "chevron.left" : "chevron.right")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(enabled ? palette.text : palette.textDim.opacity(0.4))
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(palette.cardStrong))
+                .overlay(Circle().stroke(palette.border, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .accessibilityLabel(left ? "上一个产物" : "下一个产物")
     }
 
     private var header: some View {
@@ -48,7 +95,9 @@ struct ArtifactViewer: View {
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(palette.text)
                     .lineLimit(1)
-                Text("\(task.artifacts.count) 个文件")
+                Text(task.artifacts.count > 1
+                     ? "\(min(index, max(0, task.artifacts.count - 1)) + 1) / \(task.artifacts.count) 个文件"
+                     : "\(task.artifacts.count) 个文件")
                     .font(.system(size: 10.5))
                     .foregroundStyle(palette.textDim)
             }

@@ -144,6 +144,8 @@ final class SessionStore: ObservableObject {
 
     /// 置顶的节点。跟着草稿存本机，重开工作流还在。
     @Published private(set) var pinnedNodeIds: Set<Int> = []
+    /// 被隐藏的节点（纯 UI 折叠，照常提交）。按「主机 + 路径」存本机。
+    @Published private(set) var hiddenNodeIds: Set<Int> = []
     /// 工作流置顶的版本号：只用来触发列表重排（真值在 UserDefaults）。
     @Published private(set) var pinnedRevision: Int = 0
     /// 种子模式的版本号：开关变化后让字段行重绘。
@@ -266,6 +268,7 @@ final class SessionStore: ObservableObject {
         overrides = [:]
         enabledGraphIds = nil
         pinnedNodeIds = []
+        hiddenNodeIds = []
         nodeNotes = [:]
         workflowView = nil
         fieldDisplayRevision &+= 1
@@ -576,6 +579,7 @@ final class SessionStore: ObservableObject {
         overrides = [:]
         enabledGraphIds = nil
         pinnedNodeIds = []
+        hiddenNodeIds = []
         nodeNotes = [:]
         workflowView = nil
         // 打开就把本机草稿带出来：参数、置顶、图分组。安卓也是这个行为。
@@ -585,6 +589,7 @@ final class SessionStore: ObservableObject {
             enabledGraphIds = draft.graphs
             nodeNotes = draft.notes
         }
+        hiddenNodeIds = HiddenNodes.list(host: draftHost, path: path)
         fieldDisplayRevision &+= 1
         uploadingFieldId = nil
         uploadError = ""
@@ -675,6 +680,18 @@ final class SessionStore: ObservableObject {
     }
 
     /// 置顶/取消置顶。置顶只影响排序，不改变工作流本身。
+    /// 隐藏 / 恢复节点：只改本机列表显示，不影响提交。
+    func toggleHiddenNode(_ nodeId: Int) {
+        guard let path = openedPath, !path.isEmpty else { return }
+        if hiddenNodeIds.contains(nodeId) {
+            hiddenNodeIds.remove(nodeId)
+        } else {
+            hiddenNodeIds.insert(nodeId)
+        }
+        HiddenNodes.save(host: draftHost, path: path, ids: hiddenNodeIds)
+        pushNotice(hiddenNodeIds.contains(nodeId) ? "已隐藏 #\(nodeId)" : "已恢复 #\(nodeId)")
+    }
+
     func togglePin(_ nodeId: Int) {
         if pinnedNodeIds.contains(nodeId) {
             pinnedNodeIds.remove(nodeId)
@@ -1066,6 +1083,11 @@ final class SessionStore: ObservableObject {
         guard let bridge, next.animationCount > 0, next.animationSeq > 0 else { return }
         guard next.animationSeq != lastAnimationSeq else { return }
         lastAnimationSeq = next.animationSeq
+        loadAnimation(bridge: bridge)
+    }
+
+    /// 取一次动画帧（定时刷新与手动刷新共用）。
+    private func loadAnimation(bridge: BridgeHost) {
         let raw = bridge.previewAnimationBase64()
         let lines = raw.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
         guard let header = lines.first, header.hasPrefix("OK|") else { return }
@@ -1081,6 +1103,30 @@ final class SessionStore: ObservableObject {
         guard !frames.isEmpty else { return }
         animationRate = max(rate, 1)
         animationFrames = frames
+    }
+
+    /// 手动刷新采样预览：重取共享层最后一帧并重解码。
+    /// 只重置本地解码结果，不伪造 receivedAtMs（与安卓 / 鸿蒙一致）。
+    func refreshPreviewNow() {
+        guard let bridge else {
+            previewError = "未连接"
+            return
+        }
+        let raw = bridge.previewBase64()
+        guard !raw.isEmpty else {
+            previewError = "共享层没有帧"
+            return
+        }
+        guard let bytes = Data(base64Encoded: raw), let image = UIImage(data: bytes) else {
+            previewError = "图片解码失败"
+            return
+        }
+        previewError = ""
+        previewImage = image
+        // 正在看动画的话也重取一次，否则刷新后看到的还是旧动画。
+        if !animationFrames.isEmpty && !Prefs.weakNetwork {
+            loadAnimation(bridge: bridge)
+        }
     }
 
     /// 拉增量日志并打时间戳。Kotlin 那边不给时间（拿本地时区要碰 posix），

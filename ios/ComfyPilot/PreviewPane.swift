@@ -14,6 +14,8 @@ struct PreviewPane: View {
     let palette: SpectrumPalette
     let workflowPath: String
     @EnvironmentObject private var store: SessionStore
+    /// 手动刷新按钮的转圈反馈（0.6 秒），避免点了没反应的感觉。
+    @State private var refreshing = false
 
     var body: some View {
         if let active = activeTask {
@@ -74,6 +76,16 @@ struct PreviewPane: View {
                         }
                     }
                 }
+
+                // 手动刷新：重解码共享层最后一帧（与安卓/鸿蒙同位置，右上角）。
+                VStack {
+                    HStack {
+                        Spacer(minLength: 0)
+                        previewRefreshButton
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(10)
             }
             .frame(maxWidth: .infinity)
             .frame(minHeight: 240)
@@ -171,6 +183,35 @@ struct PreviewPane: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(palette.border, lineWidth: 1)
         )
+    }
+
+    /// 采样预览右上角的手动刷新：只重解码当前帧，不伪造 receivedAtMs。
+    private var previewRefreshButton: some View {
+        Button {
+            guard !refreshing else { return }
+            refreshing = true
+            store.refreshPreviewNow()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                refreshing = false
+            }
+        } label: {
+            Group {
+                if refreshing {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .tint(.white)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+            }
+            .frame(width: 34, height: 34)
+            .background(Circle().fill(Color.black.opacity(0.42)))
+            .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("刷新预览")
     }
 
     private var empty: some View {

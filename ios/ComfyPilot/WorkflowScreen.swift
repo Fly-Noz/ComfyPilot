@@ -330,6 +330,10 @@ struct WorkflowDetailScreen: View {
     @State private var collapsedSubgraphs: Set<String> = []
     @State private var expandedChildGraphs: Set<String> = []
     @State private var restExpanded = true
+    /// 「已隐藏」折叠区；刚隐藏一个节点时自动收起（与安卓一致）。
+    @State private var hiddenExpanded = false
+    /// 首次隐藏前要弹一次提醒，确认后才真正隐藏。
+    @State private var pendingHideNode: Int?
 
     enum DetailSheet: Identifiable {
         case nodes
@@ -396,6 +400,10 @@ struct WorkflowDetailScreen: View {
                     }
                     .onChange(of: jumpNodeId) { _, target in
                         guard let target else { return }
+                        // 目标被隐藏：先把「已隐藏」区展开，否则滚不到那张卡。
+                        if store.hiddenNodeIds.contains(target), !hiddenExpanded {
+                            hiddenExpanded = true
+                        }
                         // 展开要一帧才生效：稍晚一点再滚，否则滚到的是折叠时的高度。
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                             withAnimation(.easeInOut(duration: 0.25)) {
@@ -431,6 +439,22 @@ struct WorkflowDetailScreen: View {
                 noteNodeId = nil
             }
             Button("取消", role: .cancel) { noteNodeId = nil }
+        }
+        // 首次隐藏前的提醒：只影响本机显示，不改提交内容。
+        .alert("隐藏节点", isPresented: Binding(
+            get: { pendingHideNode != nil },
+            set: { if !$0 { pendingHideNode = nil } }
+        )) {
+            Button("取消", role: .cancel) { pendingHideNode = nil }
+            Button("隐藏") {
+                HiddenNodes.noticeAcknowledged = true
+                if let id = pendingHideNode {
+                    pendingHideNode = nil
+                    store.toggleHiddenNode(id)
+                }
+            }
+        } message: {
+            Text("隐藏只影响本机列表显示，不会关闭节点，也不会改变提交内容。\n\n隐藏后的卡片会收在列表底部的「已隐藏」区域，可随时点图标恢复。")
         }
         .sheet(item: $sheet) { item in
             switch item {
@@ -481,7 +505,7 @@ struct WorkflowDetailScreen: View {
     /// 只做分组标题，避免在列表里像多出来一张卡。
     @ViewBuilder
     private func inputList(_ view: WorkflowView) -> some View {
-        let plan = sectionPlan(view)
+        let plan = sectionPlan(view, hidden: store.hiddenNodeIds)
         ForEach(plan.sections) { section in
             sectionHeader(
                 title: section.title,
@@ -524,6 +548,59 @@ struct WorkflowDetailScreen: View {
                 }
             }
         }
+
+        hiddenSection(view)
+    }
+
+    /// 已隐藏的节点：统一折叠在列表最下面（与安卓/鸿蒙一致）。
+    @ViewBuilder
+    private func hiddenSection(_ view: WorkflowView) -> some View {
+        let hidden = view.nodes.filter { store.hiddenNodeIds.contains($0.id) }
+        if !hidden.isEmpty {
+            Button {
+                hiddenExpanded.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "eye.slash")
+                        .font(.system(size: 12))
+                        .foregroundStyle(palette.textDim)
+                    Text("已隐藏 \(hidden.count) 个节点")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(palette.textMuted)
+                    Spacer(minLength: 0)
+                    Image(systemName: hiddenExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(palette.textDim)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .fill(palette.card.opacity(0.4))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .stroke(palette.border, lineWidth: 1)
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 8)
+
+            if hiddenExpanded {
+                ForEach(hidden) { node in
+                    nodeCard(node)
+                }
+            }
+        }
+    }
+
+    /// 首次隐藏前提醒一次（隐藏是破坏可见性的操作）。
+    private func requestHideNode(_ nodeId: Int) {
+        if !store.hiddenNodeIds.contains(nodeId), !HiddenNodes.noticeAcknowledged {
+            pendingHideNode = nodeId
+            return
+        }
+        store.toggleHiddenNode(nodeId)
     }
 
     private func sectionHeader(
@@ -670,8 +747,16 @@ struct WorkflowDetailScreen: View {
     }
 
     /// 把图结构摊成可渲染的分区。子图的节点从父分区里剔除，避免重复出现。
-    private func sectionPlan(_ view: WorkflowView) -> (sections: [InputSection], rest: [WorkflowNode]) {
-        let byId = Dictionary(uniqueKeysWithValues: view.nodes.map { ($0.id, $0) })
+    private func sectionPlan(
+        _ view: WorkflowView,
+        hidden: Set<Int> = []
+    ) -> (sections: [InputSection], rest: [WorkflowNode]) {
+        // 隐藏的节点不进 byId：分组、子图、rest 会自然跳过它们。
+        let byId = Dictionary(
+            uniqueKeysWithValues: view.nodes
+                .filter { !hidden.contains($0.id) }
+                .map { ($0.id, $0) }
+        )
         let childNodeIds = Set(view.graphs.filter { !$0.parentId.isEmpty }.flatMap { $0.nodeIds })
         let groupedIds = Set(view.graphs.flatMap { $0.nodeIds })
 
@@ -702,7 +787,9 @@ struct WorkflowDetailScreen: View {
             // 只带子图、自己没有直接节点的分区也要留着，否则子图整块消失。
             .filter { $0.nodeCount > 0 || !$0.children.isEmpty }
 
-        let rest = view.nodes.filter { !groupedIds.contains($0.id) && !$0.fields.isEmpty }
+        let rest = view.nodes.filter {
+            !hidden.contains($0.id) && !groupedIds.contains($0.id) && !$0.fields.isEmpty
+        }
         return (sections, rest)
     }
 
@@ -868,6 +955,9 @@ struct WorkflowDetailScreen: View {
                 }
                 iconButton(pinned ? "pin.fill" : "pin", active: pinned) {
                     store.togglePin(node.id)
+                }
+                iconButton("eye.slash", active: false) {
+                    requestHideNode(node.id)
                 }
                 iconButton(node.enabled ? "power.circle.fill" : "power.circle", active: node.enabled) {
                     store.requestNodeToggle(nodeId: node.id, bypassed: node.enabled)
