@@ -2440,6 +2440,9 @@ struct Index {
       }
       this.setFieldText(field, result.reference);
       if (field.uploadKind !== 'audio') {
+        // 新图片就是新的蒙版起点，不能继续复用上一张图的蒙版缓存。
+        this.maskEditorCache.delete(key);
+        this.maskEditorBase64 = '';
         this.previewUris.set(key, picked.uri);
         this.previewVersion++;
       }

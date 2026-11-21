@@ -49,11 +49,13 @@ export struct MaskEditor {
   private sourceW: number = 1;
   private sourceH: number = 1;
   private basePm: image.PixelMap | null = null;
+  private basePixels: Uint8Array | null = null;
   private baseBitmap: ImageBitmap | null = null;
   private initialOverlay: ImageBitmap | null = null;
   private initialMaskBitmap: ImageBitmap | null = null;
   private offCanvas: OffscreenCanvas | null = null;
   private offCtx: OffscreenCanvasRenderingContext2D | null = null;
+  private baseCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
   private overlayCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
   private strokes: MaskStroke[] = [];
   private active: MaskStroke | null = null;
@@ -111,43 +113,59 @@ export struct MaskEditor {
 
   private async load(): Promise<void> {
     try {
-      let bytes: Uint8Array | null = this.initialBase64.length > 0
+      const maskBytes: Uint8Array | null = this.initialBase64.length > 0
         ? new util.Base64Helper().decodeSync(this.initialBase64)
         : null;
-      if (bytes === null || bytes.length === 0) {
-        if (this.sourceUri.length > 0) {
-          bytes = this.readUri(this.sourceUri);
-        } else if (this.sourceName.length > 0 && this.baseUrl.length > 0) {
-          bytes = await this.fetchInput(this.sourceName);
-        }
+      let baseBytes: Uint8Array | null = this.sourceUri.length > 0 ? this.readUri(this.sourceUri) : null;
+      if (baseBytes === null || baseBytes.length === 0) {
+        baseBytes = maskBytes;
       }
-      if (bytes === null || bytes.length === 0) {
+      if ((baseBytes === null || baseBytes.length === 0) && this.sourceName.length > 0 && this.baseUrl.length > 0) {
+        baseBytes = await this.fetchInput(this.sourceName);
+      }
+      if (baseBytes === null || baseBytes.length === 0) {
         throw new Error('读不到原图');
       }
-      const source = image.createImageSource(bytes.buffer as ArrayBuffer);
-      const info = await source.getImageInfo();
-      const maxSide = Math.max(info.size.width, info.size.height);
+      const baseSource = image.createImageSource(baseBytes.buffer as ArrayBuffer);
+      const baseInfo = await baseSource.getImageInfo();
+      const maxSide = Math.max(baseInfo.size.width, baseInfo.size.height);
       const scale = maxSide > 1600 ? 1600 / maxSide : 1;
-      const width = Math.max(1, Math.round(info.size.width * scale));
-      const height = Math.max(1, Math.round(info.size.height * scale));
-      const pm = await source.createPixelMap({
+      const width = Math.max(1, Math.round(baseInfo.size.width * scale));
+      const height = Math.max(1, Math.round(baseInfo.size.height * scale));
+      const basePmTemp = await baseSource.createPixelMap({
         desiredSize: { width: width, height: height },
         desiredPixelFormat: image.PixelMapFormat.RGBA_8888,
       });
-      await source.release();
-      const buffer = new ArrayBuffer(width * height * 4);
-      await pm.readPixelsToBuffer(buffer);
-      await pm.release();
-      const pixels = new Uint8Array(buffer);
+      await baseSource.release();
+      const baseBuffer = new ArrayBuffer(width * height * 4);
+      await basePmTemp.readPixelsToBuffer(baseBuffer);
+      await basePmTemp.release();
+      const basePixels = new Uint8Array(baseBuffer);
+
+      // 缓存里有蒙版时，base 仍优先用原图，不能拿已经透明的蒙版图当 RGB 底图。
+      let maskPixels: Uint8Array | null = null;
+      if (maskBytes !== null && maskBytes.length > 0) {
+        const maskSource = image.createImageSource(maskBytes.buffer as ArrayBuffer);
+        const maskPm = await maskSource.createPixelMap({
+          desiredSize: { width: width, height: height },
+          desiredPixelFormat: image.PixelMapFormat.RGBA_8888,
+        });
+        const maskBuffer = new ArrayBuffer(width * height * 4);
+        await maskPm.readPixelsToBuffer(maskBuffer);
+        await maskPm.release();
+        await maskSource.release();
+        maskPixels = new Uint8Array(maskBuffer);
+      }
+      const alphaPixels = maskPixels === null ? basePixels : maskPixels;
       let hasAlpha = false;
-      for (let i = 3; i < pixels.length; i += 4) {
-        if (pixels[i] < 255) {
+      for (let i = 3; i < alphaPixels.length; i += 4) {
+        if (alphaPixels[i] < 255) {
           hasAlpha = true;
           break;
         }
       }
-      const baseData = new Uint8Array(pixels.length);
-      baseData.set(pixels);
+      const baseData = new Uint8Array(basePixels.length);
+      baseData.set(basePixels);
       for (let i = 3; i < baseData.length; i += 4) {
         baseData[i] = 255;
       }
@@ -158,15 +176,16 @@ export struct MaskEditor {
         editable: true,
       });
       this.baseBitmap = new ImageBitmap(this.basePm);
+      this.basePixels = baseData;
       this.sourceW = width;
       this.sourceH = height;
       this.offCanvas = new OffscreenCanvas(width, height);
       this.offCtx = this.offCanvas.getContext('2d', new RenderingContextSettings(true));
       this.offCtx.drawImage(this.baseBitmap, 0, 0);
-      if (hasAlpha && this.deriveMask) {
-        const maskData = new Uint8Array(pixels.length);
-        for (let i = 0; i < pixels.length; i += 4) {
-          const alpha = 255 - pixels[i + 3];
+      if (hasAlpha && (maskPixels !== null || this.deriveMask)) {
+        const maskData = new Uint8Array(alphaPixels.length);
+        for (let i = 0; i < alphaPixels.length; i += 4) {
+          const alpha = 255 - alphaPixels[i + 3];
           maskData[i] = 255;
           maskData[i + 1] = 255;
           maskData[i + 2] = 255;
@@ -254,7 +273,23 @@ export struct MaskEditor {
     return (this.viewH - this.sourceH * this.fitScale()) / 2 + this.panY;
   }
 
+  private drawBase(): void {
+    this.baseCtx.clearRect(0, 0, this.viewW, this.viewH);
+    if (this.baseBitmap === null) {
+      return;
+    }
+    const s = this.fitScale();
+    this.baseCtx.drawImage(
+      this.baseBitmap,
+      this.imageX(),
+      this.imageY(),
+      this.sourceW * s,
+      this.sourceH * s,
+    );
+  }
+
   private drawOverlay(): void {
+    this.drawBase();
     const s = this.fitScale();
     const dx = this.imageX();
     const dy = this.imageY();
@@ -533,25 +568,36 @@ export struct MaskEditor {
       const info = await exported.getImageInfo();
       const exportW = info.size.width;
       const exportH = info.size.height;
-      let result = exported;
-      if (exportW !== this.sourceW || exportH !== this.sourceH) {
-        const raw = new ArrayBuffer(exportW * exportH * 4);
-        await exported.readPixelsToBuffer(raw);
-        const sourcePixels = new Uint8Array(raw);
-        const croppedPixels = new Uint8Array(this.sourceW * this.sourceH * 4);
-        for (let y = 0; y < this.sourceH; y++) {
-          const from = y * exportW * 4;
-          const to = y * this.sourceW * 4;
-          croppedPixels.set(sourcePixels.subarray(from, from + this.sourceW * 4), to);
+      const raw = new ArrayBuffer(exportW * exportH * 4);
+      await exported.readPixelsToBuffer(raw);
+      await exported.release();
+      const sourcePixels = new Uint8Array(raw);
+      const outputPixels = new Uint8Array(this.sourceW * this.sourceH * 4);
+      const basePixels = this.basePixels;
+      for (let y = 0; y < this.sourceH; y++) {
+        for (let x = 0; x < this.sourceW; x++) {
+          const from = (y * exportW + x) * 4;
+          const to = (y * this.sourceW + x) * 4;
+          const alpha = sourcePixels[from + 3];
+          outputPixels[to] = sourcePixels[from];
+          outputPixels[to + 1] = sourcePixels[from + 1];
+          outputPixels[to + 2] = sourcePixels[from + 2];
+          outputPixels[to + 3] = alpha;
+          if (alpha < 255 && basePixels !== null) {
+            // Canvas 的 destination-out 会把透明区域的 RGB 冲成黑色；
+            // 蒙版只该改 alpha，RGB 必须从原图恢复，否则再次编辑会出现黑块。
+            outputPixels[to] = basePixels[to];
+            outputPixels[to + 1] = basePixels[to + 1];
+            outputPixels[to + 2] = basePixels[to + 2];
+          }
         }
-        result = await image.createPixelMap(croppedPixels.buffer, {
-          size: { width: this.sourceW, height: this.sourceH },
-          srcPixelFormat: image.PixelMapFormat.RGBA_8888,
-          pixelFormat: image.PixelMapFormat.RGBA_8888,
-          editable: false,
-        });
-        await exported.release();
       }
+      const result = await image.createPixelMap(outputPixels.buffer, {
+        size: { width: this.sourceW, height: this.sourceH },
+        srcPixelFormat: image.PixelMapFormat.RGBA_8888,
+        pixelFormat: image.PixelMapFormat.RGBA_8888,
+        editable: false,
+      });
       const packer = image.createImagePacker();
       const data = await packer.packToData(result, { format: 'image/png', quality: 100 });
       await result.release();
@@ -663,15 +709,10 @@ export struct MaskEditor {
           .padding(24)
         } else {
           Stack({ alignContent: Alignment.TopStart }) {
-            if (this.basePm !== null) {
-              Image(this.basePm)
-                .width('100%')
-                .height('100%')
-                .objectFit(ImageFit.Contain)
-                .scale({ x: this.zoom, y: this.zoom, centerX: '50%', centerY: '50%' })
-                .translate({ x: this.panX, y: this.panY })
-                .interpolation(ImageInterpolation.High)
-            }
+            Canvas(this.baseCtx)
+              .width('100%')
+              .height('100%')
+              .onReady(() => this.drawBase())
             Canvas(this.overlayCtx)
               .width('100%')
               .height('100%')
