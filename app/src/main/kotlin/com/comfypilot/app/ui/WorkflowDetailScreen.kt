@@ -212,7 +212,7 @@ fun WorkflowDetailScreen(
                     if (state.workflowUpdateDismissed && state.pendingWorkflowUpdate != null) {
                         TopBarAction(
                             text = "更新",
-                            onClick = { SessionHost.recheckWorkflow() },
+                            onClick = { SessionHost.acceptWorkflowUpdate() },
                             emphasized = true,
                         )
                     }

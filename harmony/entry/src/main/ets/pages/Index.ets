@@ -4746,7 +4746,7 @@ struct Index {
             .fontSize(10.5)
             .fontColor(this.c().accent)
             .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-            .onClick(() => this.bridge.recheckWorkflow())
+            .onClick(() => this.bridge.acceptWorkflowUpdate())
         }
         .width('100%')
         .padding({ left: 12, right: 12, top: 7, bottom: 7 })
