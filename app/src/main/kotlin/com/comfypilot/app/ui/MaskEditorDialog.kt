@@ -7,10 +7,14 @@ import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import androidx.compose.foundation.Canvas
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +33,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -37,14 +42,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
@@ -75,8 +87,9 @@ private data class MaskStroke(
 @Composable
 fun MaskEditorDialog(
     image: Bitmap,
+    initialMask: Bitmap? = null,
     onDismiss: () -> Unit,
-    onSave: (Bitmap) -> Unit,
+    onSave: (Bitmap, Bitmap) -> Unit,
 ) {
     val c = Spectrum.colors
     var strokes by remember(image) { mutableStateOf<List<MaskStroke>>(emptyList()) }
@@ -85,8 +98,14 @@ fun MaskEditorDialog(
     var brushScreen by remember(image) { mutableFloatStateOf(34f) }
     var version by remember(image) { mutableIntStateOf(0) }
     var boxSize by remember(image) { mutableStateOf(IntSize.Zero) }
-    val mask = remember(image) {
-        Bitmap.createBitmap(image.width, image.height, Bitmap.Config.ARGB_8888)
+    var zoom by remember(image) { mutableFloatStateOf(1f) }
+    var pan by remember(image) { mutableStateOf(Offset.Zero) }
+    val mask = remember(image, initialMask) {
+        Bitmap.createBitmap(image.width, image.height, Bitmap.Config.ARGB_8888).also { target ->
+            if (initialMask != null) {
+                Canvas(target).drawBitmap(initialMask, 0f, 0f, null)
+            }
+        }
     }
 
     fun drawStroke(stroke: MaskStroke, canvas: Canvas) {
@@ -133,8 +152,12 @@ fun MaskEditorDialog(
     fun scaleAndOffset(): Triple<Float, Float, Float> {
         val box = boxSize
         if (box.width <= 0 || box.height <= 0) return Triple(1f, 0f, 0f)
-        val scale = min(box.width.toFloat() / image.width, box.height.toFloat() / image.height)
-        return Triple(scale, (box.width - image.width * scale) / 2f, (box.height - image.height * scale) / 2f)
+        val scale = min(box.width.toFloat() / image.width, box.height.toFloat() / image.height) * zoom
+        return Triple(
+            scale,
+            (box.width - image.width * scale) / 2f + pan.x,
+            (box.height - image.height * scale) / 2f + pan.y,
+        )
     }
 
     fun begin(point: Offset) {
@@ -174,14 +197,34 @@ fun MaskEditorDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
-        Box(modifier = Modifier.fillMaxSize().background(c.background).windowInsetsPadding(WindowInsets.safeDrawing)) {
-            Column(modifier = Modifier.fillMaxSize()) {
+        var visible by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { visible = true }
+        AnimatedVisibility(
+            visible = visible,
+            enter = slideInVertically(tween(240)) { it / 3 } + fadeIn(tween(160)),
+            exit = slideOutVertically(tween(180)) { it / 3 } + fadeOut(tween(120)),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(ComposeColor.Black.copy(alpha = 0.35f))
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(22.dp))
+                        .background(c.dialog)
+                        .border(1.dp, c.borderStrong, RoundedCornerShape(22.dp)),
+                ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    MaskIconButton(glyph = "‹", onClick = onDismiss)
+                    MaskIconButton(tool = MaskTool.Back, onClick = onDismiss)
                     Text(
                         text = "编辑蒙版",
                         color = c.text,
@@ -189,11 +232,11 @@ fun MaskEditorDialog(
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
                         modifier = Modifier.weight(1f),
                     )
-                    MaskIconButton(glyph = "✓", emphasized = true, onClick = {
+                    MaskIconButton(tool = MaskTool.Save, emphasized = true, onClick = {
                         if (strokes.isEmpty() && active == null) {
-                            onSave(image)
+                            onSave(image, mask)
                         } else {
-                            onSave(composeMask(image, mask))
+                            onSave(composeMask(image, mask), mask)
                         }
                     })
                 }
@@ -204,23 +247,37 @@ fun MaskEditorDialog(
                         .padding(horizontal = 12.dp)
                         .onSizeChanged { boxSize = it }
                         .background(ComposeColor.Black.copy(alpha = 0.85f), RoundedCornerShape(18.dp))
-                        .then(
-                            Modifier.pointerInput(image, boxSize, brushScreen, erasing) {
-                                detectTapGestures { p -> begin(p); end() }
-                            },
-                        )
-                        .then(
-                            Modifier.pointerInput(image, boxSize, brushScreen, erasing) {
-                                detectDragGestures(
-                                    onDragStart = { p -> begin(p) },
-                                    onDrag = { change, _ ->
-                                        change.consume()
-                                        move(change.position)
-                                    },
-                                    onDragEnd = { end() },
-                                )
-                            },
-                        ),
+                        .pointerInput(image, boxSize, brushScreen, erasing, zoom, pan) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                var drawing = false
+                                var zooming = false
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val pressed = event.changes.filter { it.pressed }
+                                    if (pressed.size >= 2) {
+                                        if (drawing) {
+                                            end()
+                                            drawing = false
+                                        }
+                                        zooming = true
+                                        zoom = (zoom * event.calculateZoom()).coerceIn(1f, 5f)
+                                        pan += event.calculatePan()
+                                        pressed.forEach { it.consume() }
+                                    } else if (!zooming && pressed.isNotEmpty()) {
+                                        val position = pressed.first().position
+                                        if (!drawing) {
+                                            begin(position)
+                                            drawing = true
+                                        } else {
+                                            move(position)
+                                        }
+                                        pressed.forEach { it.consume() }
+                                    }
+                                } while (event.changes.any { it.pressed })
+                                if (drawing) end()
+                            }
+                        },
                 ) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         version // read state so mutations repaint
@@ -239,15 +296,15 @@ fun MaskEditorDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    MaskIconButton(glyph = "✎", active = !erasing, onClick = { erasing = false })
-                    MaskIconButton(glyph = "eraser", active = erasing, onClick = { erasing = true })
-                    MaskIconButton(glyph = "↩", onClick = {
+                    MaskIconButton(tool = MaskTool.Brush, active = !erasing, onClick = { erasing = false })
+                    MaskIconButton(tool = MaskTool.Eraser, active = erasing, onClick = { erasing = true })
+                    MaskIconButton(tool = MaskTool.Undo, onClick = {
                         if (strokes.isNotEmpty()) {
                             strokes = strokes.dropLast(1)
                             rebuild()
                         }
                     })
-                    MaskIconButton(glyph = "✕", onClick = {
+                    MaskIconButton(tool = MaskTool.Clear, onClick = {
                         mask.eraseColor(Color.TRANSPARENT)
                         strokes = emptyList()
                         active = null
@@ -266,13 +323,16 @@ fun MaskEditorDialog(
                     )
                 }
             }
+            }
         }
     }
 }
 
+private enum class MaskTool { Back, Save, Brush, Eraser, Undo, Clear }
+
 @Composable
-internal fun MaskIconButton(
-    glyph: String,
+private fun MaskIconButton(
+    tool: MaskTool,
     active: Boolean = false,
     emphasized: Boolean = false,
     onClick: () -> Unit,
@@ -282,42 +342,85 @@ internal fun MaskIconButton(
     Box(
         modifier = Modifier
             .size(40.dp)
-            .background(
-                if (active || emphasized) c.accentSoft else c.card,
-                shape,
-            )
+            .background(if (active || emphasized) c.accentSoft else c.card, shape)
             .border(1.dp, if (active || emphasized) c.accentBorder else c.border, shape)
-            .pointerInput(Unit) { detectTapGestures { onClick() } },
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false).consume()
+                    do {
+                        val event = awaitPointerEvent()
+                        event.changes.forEach { if (it.pressed) it.consume() }
+                    } while (event.changes.any { it.pressed })
+                    onClick()
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
-        if (glyph == "eraser") {
-            Canvas(modifier = Modifier.size(22.dp)) {
-                val color = if (active || emphasized) c.accent else c.textMuted
-                rotate(-32f) {
-                    drawRoundRect(
-                        color = color,
-                        topLeft = Offset(size.width * 0.18f, size.height * 0.38f),
-                        size = Size(size.width * 0.64f, size.height * 0.28f),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.width * 0.08f),
-                        style = Stroke(width = 1.8.dp.toPx()),
+        Canvas(modifier = Modifier.size(22.dp)) {
+            val tint = if (active || emphasized) c.accent else c.textMuted
+            val stroke = 1.9.dp.toPx()
+            when (tool) {
+                MaskTool.Back -> {
+                    val path = Path().apply {
+                        moveTo(size.width * 0.64f, size.height * 0.22f)
+                        lineTo(size.width * 0.38f, size.height * 0.50f)
+                        lineTo(size.width * 0.64f, size.height * 0.78f)
+                    }
+                    drawPath(path, tint, style = Stroke(width = stroke, cap = StrokeCap.Round))
+                }
+                MaskTool.Save -> {
+                    val path = Path().apply {
+                        moveTo(size.width * 0.22f, size.height * 0.52f)
+                        lineTo(size.width * 0.43f, size.height * 0.73f)
+                        lineTo(size.width * 0.80f, size.height * 0.28f)
+                    }
+                    drawPath(path, tint, style = Stroke(width = stroke, cap = StrokeCap.Round))
+                }
+                MaskTool.Brush -> {
+                    drawLine(tint, Offset(size.width * 0.30f, size.height * 0.72f), Offset(size.width * 0.70f, size.height * 0.30f), strokeWidth = stroke, cap = StrokeCap.Round)
+                    val tip = Path().apply {
+                        moveTo(size.width * 0.24f, size.height * 0.78f)
+                        lineTo(size.width * 0.34f, size.height * 0.76f)
+                        lineTo(size.width * 0.26f, size.height * 0.68f)
+                        close()
+                    }
+                    drawPath(tip, tint)
+                }
+                MaskTool.Eraser -> {
+                    rotate(-35f) {
+                        drawRoundRect(
+                            color = tint,
+                            topLeft = Offset(size.width * 0.18f, size.height * 0.40f),
+                            size = Size(size.width * 0.64f, size.height * 0.26f),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.width * 0.07f),
+                            style = Stroke(width = stroke),
+                        )
+                        drawLine(tint, Offset(size.width * 0.34f, size.height * 0.62f), Offset(size.width * 0.66f, size.height * 0.62f), strokeWidth = stroke, cap = StrokeCap.Round)
+                    }
+                }
+                MaskTool.Undo -> {
+                    drawArc(
+                        color = tint,
+                        startAngle = 35f,
+                        sweepAngle = 265f,
+                        useCenter = false,
+                        topLeft = Offset(size.width * 0.18f, size.height * 0.18f),
+                        size = Size(size.width * 0.64f, size.height * 0.64f),
+                        style = Stroke(width = stroke, cap = StrokeCap.Round),
                     )
-                    drawLine(
-                        color = color,
-                        start = Offset(size.width * 0.20f, size.height * 0.68f),
-                        end = Offset(size.width * 0.80f, size.height * 0.68f),
-                        strokeWidth = 1.8.dp.toPx(),
-                    )
+                    val arrow = Path().apply {
+                        moveTo(size.width * 0.18f, size.height * 0.50f)
+                        lineTo(size.width * 0.33f, size.height * 0.36f)
+                        lineTo(size.width * 0.33f, size.height * 0.64f)
+                        close()
+                    }
+                    drawPath(arrow, tint)
+                }
+                MaskTool.Clear -> {
+                    drawLine(tint, Offset(size.width * 0.28f, size.height * 0.28f), Offset(size.width * 0.72f, size.height * 0.72f), strokeWidth = stroke, cap = StrokeCap.Round)
+                    drawLine(tint, Offset(size.width * 0.72f, size.height * 0.28f), Offset(size.width * 0.28f, size.height * 0.72f), strokeWidth = stroke, cap = StrokeCap.Round)
                 }
             }
-        } else {
-            Text(
-                text = glyph,
-                color = if (active || emphasized) c.accent else c.textMuted,
-                fontSize = 20.sp,
-                fontFamily = SpectrumMono,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.offset(y = (-1).dp),
-            )
         }
     }
 }
@@ -336,6 +439,39 @@ private fun composeMask(image: Bitmap, mask: Bitmap): Bitmap {
     }
     out.setPixels(src, 0, image.width, 0, 0, image.width, image.height)
     return out
+}
+
+/**
+ * 如果当前字段指向的是已经保存过蒙版的 PNG，则从 alpha 还原出基础原图和蒙版；
+ * 普通不透明图片原样返回，蒙版为空。
+ */
+fun splitMaskSource(source: Bitmap): Pair<Bitmap, Bitmap?> {
+    val width = source.width
+    val height = source.height
+    val pixels = IntArray(width * height)
+    source.getPixels(pixels, 0, width, 0, 0, width, height)
+    var hasAlpha = false
+    for (pixel in pixels) {
+        if (((pixel ushr 24) and 0xFF) < 255) {
+            hasAlpha = true
+            break
+        }
+    }
+    if (!hasAlpha) return source to null
+    val maskPixels = IntArray(pixels.size)
+    for (i in pixels.indices) {
+        val alpha = (pixels[i] ushr 24) and 0xFF
+        pixels[i] = pixels[i] or (0xFF shl 24)
+        val maskAlpha = 255 - alpha
+        maskPixels[i] = (maskAlpha shl 24) or 0x00FFFFFF
+    }
+    val base = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
+        setPixels(pixels, 0, width, 0, 0, width, height)
+    }
+    val mask = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
+        setPixels(maskPixels, 0, width, 0, 0, width, height)
+    }
+    return base to mask
 }
 
 /** 从 ComfyUI /view(input) 拉原图；供重启后没有本地缩略图时编辑蒙版。 */

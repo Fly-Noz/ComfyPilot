@@ -674,8 +674,10 @@ private fun DetailBody(
     // 蒙版编辑：source 是当前图片（本地缩略图或从主机 input 重新拉取）。
     var maskTarget by remember { mutableStateOf<WorkflowField?>(null) }
     var maskSource by remember { mutableStateOf<Bitmap?>(null) }
+    var maskInitial by remember { mutableStateOf<Bitmap?>(null) }
     var maskLoading by remember { mutableStateOf(false) }
     var maskError by remember { mutableStateOf<String?>(null) }
+    var maskCache by remember { mutableStateOf<Map<String, Bitmap>>(emptyMap()) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         val target = uploadTarget
@@ -772,10 +774,12 @@ private fun DetailBody(
             return
         }
         maskError = null
-        val cached = uploadPreviews["${field.nodeId}:${field.inputName}"]
+        val key = "${field.nodeId}:${field.inputName}"
+        val cached = uploadPreviews[key]
         if (cached != null) {
             maskTarget = field
             maskSource = cached
+            maskInitial = maskCache[key]
             return
         }
         val base = state.lease?.baseUrl
@@ -794,17 +798,21 @@ private fun DetailBody(
                 maskError = "原图读取失败，请先重新选择图片"
                 maskTarget = null
             } else {
-                maskSource = loaded
+                val (base, derivedMask) = splitMaskSource(loaded)
+                maskSource = base
+                maskInitial = maskCache[key] ?: derivedMask
             }
         }
     }
 
-    fun saveMask(image: Bitmap) {
+    fun saveMask(image: Bitmap, mask: Bitmap) {
         val field = maskTarget ?: return
         val originalName = currentFieldName(field)
         val sourcePreview = maskSource
+        maskCache = maskCache + ("${field.nodeId}:${field.inputName}" to mask)
         maskTarget = null
         maskSource = null
+        maskInitial = null
         val lease = state.lease
         if (lease == null) {
             uploadError = "未连接 ComfyUI"
@@ -1383,9 +1391,11 @@ private fun DetailBody(
     maskSource?.let { source ->
         MaskEditorDialog(
             image = source,
+            initialMask = maskInitial,
             onDismiss = {
                 maskTarget = null
                 maskSource = null
+                maskInitial = null
                 maskError = null
             },
             onSave = ::saveMask,
