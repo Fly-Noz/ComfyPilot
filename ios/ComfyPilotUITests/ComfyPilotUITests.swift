@@ -313,8 +313,10 @@ final class ComfyPilotUITests: XCTestCase {
             edit.waitForExistence(timeout: 30),
             "LoadImage 节点没有「编辑蒙版」入口。界面树：\n\(app.debugDescription)"
         )
+        // shared 的 ImageUpload.uniqueFilename 会加时间戳+随机后缀，
+        // 实际落到 mock 的名字是 preview-<随机>.png，只能用前缀匹配。
         XCTAssertNotNil(
-            waitForUpload(named: "preview.png"),
+            waitForUpload(timeout: 30) { $0.hasPrefix("preview-") && !$0.contains("_mask") },
             "内置夹具图没有上传成功。界面树：\n\(app.debugDescription)"
         )
         scrollToHittable(edit, in: app)
