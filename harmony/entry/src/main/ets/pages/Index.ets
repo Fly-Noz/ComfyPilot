@@ -427,6 +427,7 @@ struct Index {
   @State maskEditorName: string = '';
   @State maskEditorBase64: string = '';
   @State maskEditorSession: number = 0;
+  @State maskUnsupportedOpen: boolean = false;
 
   @State nodeNotesVersion: number = 0;
   @State previewVersion: number = 0;
@@ -2462,15 +2463,7 @@ struct Index {
     }
     const name = this.fieldText(field);
     if (name.length === 0 || this.previewUri(field).length === 0) {
-      AlertDialog.show({
-        title: '无法编辑蒙版',
-        message: '当前图片是直接使用主机上的文件名，本次没有上传原图。\n\n请先点击「更换图片」上传一张图片，再编辑蒙版。',
-        autoCancel: true,
-        confirm: {
-          value: '知道了',
-          action: () => {},
-        },
-      });
+      this.maskUnsupportedOpen = true;
       return;
     }
     const key = this.editKey(field.nodeId, field.inputName);
@@ -10994,6 +10987,52 @@ struct Index {
     .position({ x: 0, y: 0 })
   }
 
+  @Builder
+  MaskUnsupportedDialog() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#99000000')
+        .onClick(() => { this.maskUnsupportedOpen = false; })
+      Column({ space: 8 }) {
+        Text('无法编辑蒙版')
+          .fontSize(17)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.c().text)
+        Text('当前图片是直接使用主机上的文件名，本次没有上传原图。')
+          .fontSize(12)
+          .fontColor(this.c().textMuted)
+          .lineHeight(18)
+        Text('请先点击「更换图片」上传一张图片，再编辑蒙版。')
+          .fontSize(12)
+          .fontColor(this.c().textMuted)
+          .lineHeight(18)
+        Row({ space: 10 }) {
+          Text('知道了')
+            .fontSize(12.5)
+            .fontColor('#FFFFFF')
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+            .borderRadius(10)
+            .onClick(() => { this.maskUnsupportedOpen = false; })
+        }
+        .width('100%')
+        .margin({ top: 6 })
+        .justifyContent(FlexAlign.End)
+      }
+      .width('86%')
+      .padding(18)
+      .backgroundColor(this.c().dialog)
+      .borderRadius(20)
+      .border({ width: 1, color: this.c().border })
+      .alignItems(HorizontalAlign.Start)
+    }
+    .width('100%')
+    .height('100%')
+    .position({ x: 0, y: 0 })
+  }
+
   private copyDiagnosticsLogs(): void {
     if (this.logs.length === 0) {
       promptAction.showToast({ message: '暂无日志', duration: 1600 });
@@ -11882,6 +11921,9 @@ struct Index {
             this.refreshView(false);
           },
         })
+      }
+      if (this.maskUnsupportedOpen) {
+        this.MaskUnsupportedDialog()
       }
       if (this.updateOpen) {
         this.UpdateOverlay()
