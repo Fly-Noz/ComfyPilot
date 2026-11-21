@@ -76,6 +76,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import com.comfypilot.core.workflow.WorkflowNodeTraits
 import com.comfypilot.core.workflow.NodeTrait
@@ -2205,8 +2206,8 @@ private fun NodeInputCard(
             .fillMaxWidth()
             .padding(start = if (nested) 10.dp else 0.dp)
             .clip(shape)
-            .background(if (enabled) c.card else c.card.copy(alpha = 0.5f))
-            .border(1.dp, if (enabled) c.border else c.border.copy(alpha = 0.55f), shape),
+            .background(if (enabled) c.card else c.background)
+            .border(1.dp, c.border, shape),
     ) {
         Row(
             modifier = Modifier
@@ -2231,7 +2232,7 @@ private fun NodeInputCard(
                     )
                     Text(
                         text = label ?: node.displayName,
-                        color = if (enabled) c.text else c.textMuted,
+                        color = if (enabled) c.text else c.textDim,
                         fontSize = 13.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
@@ -2244,7 +2245,7 @@ private fun NodeInputCard(
                     } else {
                         "${node.type} · ${node.fields.size} 个输入"
                     },
-                    color = if (enabled) c.textDim else c.textMuted,
+                    color = c.textDim,
                     fontSize = 9.5.sp,
                     fontFamily = SpectrumMono,
                     modifier = Modifier.padding(top = 2.dp),
@@ -2293,7 +2294,9 @@ private fun NodeInputCard(
             exit = shrinkVertically(animationSpec = tween(180)) + fadeOut(tween(110)),
         ) {
             Column(
-                modifier = Modifier.padding(start = 13.dp, end = 13.dp, bottom = 13.dp, top = 2.dp),
+                modifier = Modifier
+                    .padding(start = 13.dp, end = 13.dp, bottom = 13.dp, top = 2.dp)
+                    .alpha(if (enabled) 1f else 0.55f),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 node.fields.forEachIndexed { index, field ->
