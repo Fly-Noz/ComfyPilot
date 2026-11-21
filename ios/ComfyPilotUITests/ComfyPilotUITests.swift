@@ -281,7 +281,110 @@ final class ComfyPilotUITests: XCTestCase {
         )
     }
 
+    /// 蒙版编辑器：未上传原图时给出引导，不允许拿主机上的文件名硬编。
+    func testMaskEditorRequiresUploadedSource() throws {
+        let app = launch(["-uiOpenWorkflow", "demo_upload.json"])
+
+        let edit = app.buttons["edit-mask-1.image"]
+        XCTAssertTrue(
+            edit.waitForExistence(timeout: 30),
+            "LoadImage 节点没有「编辑蒙版」入口。界面树：\n\(app.debugDescription)"
+        )
+        scrollToHittable(edit, in: app)
+        edit.tap()
+
+        let alert = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "当前图片是直接使用主机上的文件名")
+        ).firstMatch
+        XCTAssertTrue(
+            alert.waitForExistence(timeout: 10),
+            "未上传原图时没有弹出引导。界面树：\n\(app.debugDescription)"
+        )
+    }
+
+    /// 蒙版保存链路：画一笔后上传的必须是带 alpha 的 PNG（颜色类型 6），
+    /// 且文件名带 _mask 并覆盖回 LoadImage.image。
+    func testMaskEditorUploadsRGBAPNG() throws {
+        resetMock()
+        let app = launch(["-uiOpenWorkflow", "demo_upload.json", "-uiUploadImage"])
+
+        let edit = app.buttons["edit-mask-1.image"]
+        XCTAssertTrue(
+            edit.waitForExistence(timeout: 30),
+            "LoadImage 节点没有「编辑蒙版」入口。界面树：\n\(app.debugDescription)"
+        )
+        XCTAssertNotNil(
+            waitForUpload(named: "preview.png"),
+            "内置夹具图没有上传成功。界面树：\n\(app.debugDescription)"
+        )
+        scrollToHittable(edit, in: app)
+        edit.tap()
+
+        let editor = app.otherElements["mask-editor"]
+        XCTAssertTrue(
+            editor.waitForExistence(timeout: 15),
+            "点「编辑蒙版」后编辑器没有出现。界面树：\n\(app.debugDescription)"
+        )
+        let canvas = app.otherElements["mask-canvas"]
+        XCTAssertTrue(canvas.exists, "蒙版画布不存在")
+
+        canvas.swipeRight()
+        Thread.sleep(forTimeInterval: 0.3)
+        app.buttons["mask-save"].tap()
+
+        let mask = waitForUpload(containing: "_mask")
+        XCTAssertNotNil(mask, "蒙版没有上传到 mock")
+        XCTAssertEqual(mask?["pngColorType"] as? Int ?? -1, 6, "蒙版 PNG 丢了 alpha 通道（不是 RGBA）")
+        let fields = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "蒙版已上传：")
+        )
+        XCTAssertTrue(fields.count > 0, "节点卡片里没有显示蒙版上传结果")
+    }
+
     // MARK: - 辅助
+
+    /// 清空 mock 的上传记录；UI 测试之间不互相污染。
+    private func resetMock() {
+        guard let url = URL(string: "http://127.0.0.1:8188/mock/reset") else { return }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        let done = expectation(description: "mock reset")
+        URLSession.shared.dataTask(with: request) { _, _, _ in done.fulfill() }.resume()
+        wait(for: [done], timeout: 10)
+    }
+
+    private func mockState() -> [String: Any]? {
+        guard let url = URL(string: "http://127.0.0.1:8188/mock/state"),
+              let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return nil }
+        return json
+    }
+
+    private func waitForUpload(named name: String, timeout: TimeInterval = 30) -> [String: Any]? {
+        waitForUpload(timeout: timeout) { $0 == name }
+    }
+
+    private func waitForUpload(containing fragment: String, timeout: TimeInterval = 20) -> [String: Any]? {
+        waitForUpload(timeout: timeout) { $0.contains(fragment) }
+    }
+
+    private func waitForUpload(
+        timeout: TimeInterval,
+        matches: (String) -> Bool
+    ) -> [String: Any]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let last = mockState()?["lastUpload"] as? [String: Any],
+               let name = last["name"] as? String,
+               matches(name) {
+                return last
+            }
+            Thread.sleep(forTimeInterval: 0.4)
+        }
+        return nil
+    }
+
     /// 切 mock 场景（XCUITest 进程与宿主共享网络栈，直接打 127.0.0.1:8188）。
     private func setMockScenario(_ name: String) {
         guard let url = URL(string: "http://127.0.0.1:8188/mock/scenario") else { return }

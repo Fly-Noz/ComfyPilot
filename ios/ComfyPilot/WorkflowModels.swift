@@ -50,6 +50,8 @@ struct WorkflowNode: Identifiable {
     let reachable: Bool
     /// 有必填项还没填。
     let needsInput: Bool
+    /// 节点输出含 MASK：图片字段可以编辑蒙版（shared 的 WorkflowFields 规则）。
+    let maskEditable: Bool
     /// 子图标签；同一标签的节点在列表里合成一簇。
     let subgraph: String
     let subgraphWidgets: String
@@ -277,6 +279,7 @@ struct WorkflowView {
                 missing: bool(node["missing"]),
                 reachable: bool(node["reachable"]),
                 needsInput: bool(node["needsInput"]),
+                maskEditable: bool(node["maskEditable"]),
                 subgraph: string(node["subgraph"]),
                 subgraphWidgets: string(node["subgraphWidgets"]),
                 fields: (node["fields"] as? [[String: Any]] ?? []).map { field($0) }

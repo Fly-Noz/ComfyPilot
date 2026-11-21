@@ -54,6 +54,9 @@ enum LaunchOptions {
     /// 打开工作流后自动上传内置夹具图到 LoadImage 字段，CI 验证上传链路用。
     static var autoUpload: Bool { flag("-uiUploadImage") }
 
+    /// 自动上传成功后立刻打开蒙版编辑器，CI 截图用（不必模拟相册点按）。
+    static var openMaskEditor: Bool { flag("-uiMaskEditor") }
+
     /// 任务页出现「完成且有产物」的任务时自动打开产物查看器，CI 截图用。
     static var openArtifact: Bool { flag("-uiOpenArtifact") }
 

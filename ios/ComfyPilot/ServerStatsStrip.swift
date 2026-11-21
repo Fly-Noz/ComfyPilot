@@ -39,6 +39,8 @@ struct ServerStatsStrip: View {
                                 .font(.system(size: 10.5, design: .monospaced))
                                 .foregroundStyle(palette.textDim)
                                 .lineLimit(1)
+                                .truncationMode(.tail)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
                         }
 
                         Text(expanded ? "收起 ▾" : "展开 ▸")
@@ -222,17 +224,20 @@ struct ServerStatsStrip: View {
         }
     }
 
-    /// 收起时只留两条最有用的：内存、显存；没有就退回 CPU 与温度。
+    /// 收起时优先 CPU/GPU：内存/显存通常很稳，只看它们像卡住（对齐安卓、鸿蒙）。
     private var summary: String {
         let cells = statCells
         var parts: [String] = []
-        if let cell = cells.first(where: { $0.label == "内存" }) { parts.append("内存 \(cell.value)") }
-        if let cell = cells.first(where: { $0.label == "显存" }) { parts.append("显存 \(cell.value)") }
-        if parts.isEmpty {
-            if let cell = cells.first(where: { $0.label == "CPU" }) { parts.append("CPU \(cell.value)") }
-            if let cell = cells.first(where: { $0.label == "温度" }) { parts.append(cell.value) }
+        for label in ["CPU", "GPU", "内存", "显存"] {
+            if let cell = cells.first(where: { $0.label == label }) {
+                parts.append("\(label) \(cell.value)")
+            }
         }
-        return parts.joined(separator: " · ")
+        if parts.isEmpty,
+           let cell = cells.first(where: { $0.label == "温度" }) {
+            parts.append(cell.value)
+        }
+        return Array(parts.prefix(3)).joined(separator: " · ")
     }
 
     private func statCell(_ cell: StatValue) -> some View {

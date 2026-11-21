@@ -32,7 +32,8 @@ curl -X POST http://127.0.0.1:8188/mock/scenario -H "content-type: application/j
 | `slow` | 每 10s 才发一次进度（8 步 = 80s） | 自适应静默预算；也用于"跑到一半重启服务端" |
 
 辅助接口：`GET /mock/state`（含 `hits` 请求计数、`lastPrompt` 最近一次提交的
-prompt 图、`lastUpload` 最近一次上传的文件名）、`POST /mock/drop-sockets`
+prompt 图、`lastUpload` 最近一次上传的文件名/字节数/PNG 颜色类型（6=RGBA），
+以及最近 10 次上传的 `uploads` 数组）、`POST /mock/drop-sockets`
 （只掐断所有 WebSocket，不清 jobs/history/hits，用来模拟"ComfyUI 进程重启"且保留
 计数以便对比对账前后的 `hits.prompt`）、`POST /mock/reset`（同时清零计数、
 `lastPrompt` 与 `lastUpload`）、`GET /view`（返回 1x1 PNG）。

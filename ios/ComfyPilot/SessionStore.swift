@@ -165,6 +165,12 @@ final class SessionStore: ObservableObject {
     @Published private(set) var uploadError: String = ""
     /// 错误属于哪个字段：只在该字段下面显示，别让所有图片字段一起报错。
     @Published private(set) var uploadErrorFieldId: String?
+    /// 本次会话上传过的原图与蒙版，键是 field.id（nodeId.inputName）。
+    /// 两端都只留内存：重开应用后直接引用主机文件名的字段不能编辑蒙版。
+    @Published private(set) var maskSources: [String: UIImage] = [:]
+    @Published private(set) var maskCache: [String: UIImage] = [:]
+    /// 每个字段最近的上传结果，显示在节点卡片内（对齐安卓 uploadNoticeKey）。
+    @Published private(set) var uploadNotices: [String: String] = [:]
     /// 参数显示刷新计数。字段值来自工作流原文（不含 override），只靠 valueText
     /// 变化回灌永远等不到；上传回填、恢复默认、重开工作流都靠它让 FieldRow 重取显示值。
     @Published private(set) var fieldDisplayRevision: Int = 0
@@ -275,6 +281,9 @@ final class SessionStore: ObservableObject {
         uploadingFieldId = nil
         uploadError = ""
         uploadErrorFieldId = nil
+        maskSources = [:]
+        maskCache = [:]
+        uploadNotices = [:]
         pendingSubmit = nil
         bypassConfirmation = nil
         catalogRequested = false
@@ -594,6 +603,9 @@ final class SessionStore: ObservableObject {
         uploadingFieldId = nil
         uploadError = ""
         uploadErrorFieldId = nil
+        maskSources = [:]
+        maskCache = [:]
+        uploadNotices = [:]
         pendingSubmit = nil
         bypassConfirmation = nil
         sendOpenIfReady()
@@ -727,7 +739,49 @@ final class SessionStore: ObservableObject {
             uploadErrorFieldId = field.id
             return
         }
-        startUpload(base64: jpeg.base64EncodedString(), filename: filename, field: field)
+        // 蒙版底图用未压缩的原图（缩到 2048），弱网的 JPEG 压缩不能影响编辑精度。
+        let maskSource = Self.maskSourceImage(from: data, maxSide: 2048)
+        startUpload(
+            base64: jpeg.base64EncodedString(),
+            filename: filename,
+            field: field,
+            maskSource: maskSource,
+            notice: "图片已上传"
+        )
+    }
+
+    /// 蒙版 PNG 必须原样上传：走 JPEG 转码会把 alpha 吃掉，ComfyUI 就收不到蒙版。
+    func uploadMask(data: Data, filename: String, field: WorkflowField, snapshot: UIImage?) {
+        guard data.count <= 50 * 1024 * 1024 else {
+            uploadError = "蒙版超过 50 MB"
+            uploadErrorFieldId = field.id
+            return
+        }
+        startUpload(
+            base64: data.base64EncodedString(),
+            filename: filename,
+            field: field,
+            notice: "蒙版已上传",
+            onSuccess: { [weak self] in
+                guard let self else { return }
+                if let snapshot { self.maskCache[field.id] = snapshot }
+            }
+        )
+    }
+
+    /// 解码并等比缩小原图，作为蒙版编辑器的底图；scale=1 保证像素坐标好算。
+    private static func maskSourceImage(from data: Data, maxSide: CGFloat) -> UIImage? {
+        guard let image = UIImage(data: data) else { return nil }
+        let longest = max(image.size.width, image.size.height)
+        let factor = longest > maxSide ? maxSide / longest : 1
+        if factor == 1 { return image }
+        let size = CGSize(width: round(image.size.width * factor), height: round(image.size.height * factor))
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = false
+        return UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
     }
 
     /// 音频上传：原样上传（不做图片那套 JPEG 转码），上限 50 MB 与安卓一致。
@@ -741,7 +795,14 @@ final class SessionStore: ObservableObject {
     }
 
     /// 上传公共段：shared 负责拼 multipart，宿主只把 bytes 转 base64 送进去。
-    private func startUpload(base64: String, filename: String, field: WorkflowField) {
+    private func startUpload(
+        base64: String,
+        filename: String,
+        field: WorkflowField,
+        maskSource: UIImage? = nil,
+        notice: String? = nil,
+        onSuccess: (() -> Void)? = nil
+    ) {
         guard let bridge else { return }
         let startPath = openedPath
         uploadingFieldId = field.id
@@ -800,9 +861,19 @@ final class SessionStore: ObservableObject {
                 }
                 self.uploadError = ""
                 self.uploadErrorFieldId = nil
-                self.setOverride(field, value: parts[1])
+                let reference = parts[1]
+                if let maskSource {
+                    // 换图必须清掉旧蒙版：否则新图会沿用上一次的笔画。
+                    self.maskSources[field.id] = maskSource
+                    self.maskCache[field.id] = nil
+                }
+                if let notice {
+                    self.uploadNotices[field.id] = "\(notice)：\(reference)"
+                }
+                self.setOverride(field, value: reference)
                 self.pushNotice("已上传 \(serverName)")
                 self.showToast("已上传 \(serverName)")
+                onSuccess?()
             }
         }.resume()
     

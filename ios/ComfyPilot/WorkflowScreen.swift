@@ -981,7 +981,11 @@ struct WorkflowDetailScreen: View {
             if expanded {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(node.fields) { field in
-                        FieldRow(field: field, palette: palette) { value in
+                        FieldRow(
+                            field: field,
+                            palette: palette,
+                            maskEditable: node.maskEditable && node.reachable && node.enabled
+                        ) { value in
                             store.setOverride(field, value: value)
                         }
                     }
@@ -1166,6 +1170,8 @@ struct WorkflowDetailScreen: View {
 struct FieldRow: View {
     let field: WorkflowField
     let palette: SpectrumPalette
+    /// 节点输出含 MASK、可达且已启用：可以编辑蒙版（对齐安卓 maskEditable）。
+    var maskEditable: Bool = false
     let onCommit: (Any) -> Void
 
     @EnvironmentObject private var store: SessionStore
@@ -1173,11 +1179,20 @@ struct FieldRow: View {
     @State private var showPicker = false
     @State private var pickedItem: PhotosPickerItem?
     @State private var audioPickerOpen = false
+    @State private var maskEditorOpen = false
+    @State private var maskUnsupported = false
+    @State private var maskState: MaskCanvasState?
     @FocusState private var focused: Bool
 
-    init(field: WorkflowField, palette: SpectrumPalette, onCommit: @escaping (Any) -> Void) {
+    init(
+        field: WorkflowField,
+        palette: SpectrumPalette,
+        maskEditable: Bool = false,
+        onCommit: @escaping (Any) -> Void
+    ) {
         self.field = field
         self.palette = palette
+        self.maskEditable = maskEditable
         self.onCommit = onCommit
         _text = State(initialValue: field.valueText)
     }
@@ -1261,6 +1276,49 @@ struct FieldRow: View {
                 pickedItem = nil
             }
         }
+        .onChange(of: store.maskSources[field.id] == nil) { _, missing in
+            // CI 截图用：-uiUploadImage 上传成功后直接展开编辑器。
+            if !missing && LaunchOptions.openMaskEditor { openMaskEditor() }
+        }
+        .fullScreenCover(isPresented: $maskEditorOpen) {
+            if let state = maskState {
+                MaskEditorSheet(
+                    state: state,
+                    palette: palette,
+                    onSave: { png in
+                        let name = (text as NSString).lastPathComponent
+                        store.uploadMask(
+                            data: png,
+                            filename: MaskNaming.filename(for: name.isEmpty ? "image" : name),
+                            field: field,
+                            snapshot: state.snapshotMask()
+                        )
+                        maskEditorOpen = false
+                        maskState = nil
+                    },
+                    onCancel: {
+                        maskEditorOpen = false
+                        maskState = nil
+                    }
+                )
+            }
+        }
+        .alert("无法编辑蒙版", isPresented: $maskUnsupported) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text("当前图片是直接使用主机上的文件名，本次没有上传原图。\n\n请先点击「更换图片」上传一张图片，再编辑蒙版。")
+        }
+    }
+
+    /// 打开蒙版编辑器。两端都拒绝直接引用主机文件名的字段——拿不到可信底图。
+    private func openMaskEditor() {
+        guard field.isImageUpload, maskEditable else { return }
+        guard store.uploadingFieldId == nil, let source = store.maskSources[field.id] else {
+            maskUnsupported = true
+            return
+        }
+        maskState = MaskCanvasState(base: source, initialMask: store.maskCache[field.id])
+        maskEditorOpen = true
     }
 
     /// 上传按钮文案：「选图/换图」「选择音频/换音频」。
@@ -1312,6 +1370,15 @@ struct FieldRow: View {
         } else if field.isImageUpload || field.isAudioUpload {
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
+                    if field.isImageUpload, let source = store.maskSources[field.id] {
+                        Image(uiImage: source)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: 36, height: 36)
+                            .clipped()
+                            .cornerRadius(6)
+                    }
+
                     Text(text.isEmpty ? (field.isAudioUpload ? "未选择音频" : "—") : text)
                         .font(.system(size: 12.5, design: .monospaced))
                         .foregroundStyle(text.isEmpty ? palette.textDim : palette.text)
@@ -1336,7 +1403,23 @@ struct FieldRow: View {
                                 showPicker = true
                             }
                         }
+                        .accessibilityIdentifier("upload-\(field.id)")
                     }
+
+                    if field.isImageUpload && maskEditable {
+                        GhostButton(title: "编辑蒙版", palette: palette, height: 30) {
+                            openMaskEditor()
+                        }
+                        .accessibilityIdentifier("edit-mask-\(field.id)")
+                    }
+                }
+
+                if let notice = store.uploadNotices[field.id], !notice.isEmpty {
+                    Text(notice)
+                        .font(.system(size: 10))
+                        .foregroundStyle(palette.textDim)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
 
                 // 上传完成后直接试听：从主机的 input 目录拉（type=input）。

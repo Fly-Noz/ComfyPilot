@@ -197,6 +197,9 @@ jobs:
           # 截图才看得见 image 字段被换成服务器文件名
           shoot workflow-upload 14 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_upload.json -uiUploadImage
 
+          # 蒙版编辑器：自动上传内置夹具图后展开编辑器，核对工具条、原图与蒙版叠加层
+          shoot mask-editor 18 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_upload.json -uiUploadImage -uiMaskEditor
+
           # 自动提交一次后自动跳到任务页：验证 prompt 能被服务端接受、任务真的入列，
           # 同时看产物行的排版（已完成的任务带 1 个产物）
           shoot tasks-after-submit 20 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_ui.json -uiAutoSubmit

@@ -295,8 +295,10 @@ const sockets = new Set()
 const hits = new Map()
 /** 最近一次 /prompt 的 prompt 图：只用于端到端核对提交内容，不落盘。 */
 let lastPrompt = null
-/** 最近一次 /upload/image 的文件名与字节数，便于核对相册上传链路。 */
+/** 最近一次 /upload/image 的文件名、字节数与 PNG 颜色类型，便于核对上传链路与 alpha。 */
 let lastUpload = null
+/** 最近 10 次上传，UI 测试用它区分「原图」和「蒙版」两次上传。 */
+const uploads = []
 
 function hit(key) {
   hits.set(key, (hits.get(key) ?? 0) + 1)
@@ -428,6 +430,43 @@ function readBody(req) {
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
     req.on('error', reject)
   })
+}
+
+/** 二进制安全版本：/upload/image 要从 multipart 里取出真实的 PNG 字节校验 alpha。 */
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = []
+    req.on('data', (c) => chunks.push(c))
+    req.on('end', () => resolve(Buffer.concat(chunks)))
+    req.on('error', reject)
+  })
+}
+
+/**
+ * 从 multipart 里摘出 name="image" 的文件字节。latin1 与字节一一对应，
+ * 用它做分隔不会像 utf8 那样把 PNG 数据改坏。
+ */
+function multipartImageBytes(raw, contentType) {
+  const match = /boundary=(?:"([^"]+)"|([^;\s]+))/.exec(contentType || '')
+  const boundary = match ? (match[1] || match[2]) : null
+  if (!boundary) return null
+  const marker = `--${boundary}`
+  const parts = raw.toString('latin1').split(marker)
+  for (const part of parts) {
+    if (!/name="image"/.test(part)) continue
+    const split = part.indexOf('\r\n\r\n')
+    if (split < 0) continue
+    const bytes = Buffer.from(part.slice(split + 4), 'latin1')
+    const end = bytes.lastIndexOf('\r\n')
+    return end > 0 ? bytes.subarray(0, end) : bytes
+  }
+  return null
+}
+
+/** PNG IHDR 的第 25 字节是颜色类型：6=RGBA、2=RGB；非 PNG 返回 null。 */
+function pngColorType(bytes) {
+  if (!bytes || bytes.length < 26 || bytes.subarray(1, 4).toString() !== 'PNG') return null
+  return bytes[25]
 }
 
 function startJob(promptId, job) {
@@ -786,11 +825,17 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && path === '/upload/image') {
-      const raw = await readBody(req)
-      // 真实服务端会解析 multipart 并保存文件；这里只抄回文件名，足够验证客户端链路。
-      const match = /filename="([^"]+)"/.exec(raw)
+      const raw = await readRawBody(req)
+      // 真实服务端会解析 multipart 并保存文件；这里抄回文件名，同时记录文件字节，
+      // 让 UI 测试能断言蒙版 PNG 真的带 alpha（颜色类型 6），而不是被转成 RGB。
+      const latin = raw.toString('latin1')
+      const match = /filename="([^"]+)"/.exec(latin)
       const name = nodePath.basename(match ? match[1] : 'mock-upload.png')
-      lastUpload = { name, bytes: Buffer.byteLength(raw) }
+      const fileBytes = multipartImageBytes(raw, req.headers['content-type'])
+      const colorType = pngColorType(fileBytes)
+      lastUpload = { name, bytes: fileBytes?.length ?? 0, pngColorType: colorType }
+      uploads.push(lastUpload)
+      if (uploads.length > 10) uploads.shift()
       return sendJson(res, 200, { name, subfolder: '', type: 'input' })
     }
 
@@ -865,6 +910,7 @@ const server = http.createServer(async (req, res) => {
         hits: Object.fromEntries(hits),
         lastPrompt,
         lastUpload,
+        uploads,
       })
     }
 
@@ -875,6 +921,7 @@ const server = http.createServer(async (req, res) => {
       hits.clear()
       lastPrompt = null
       lastUpload = null
+      uploads.length = 0
       seq = 0
       return sendJson(res, 200, { ok: true })
     }
