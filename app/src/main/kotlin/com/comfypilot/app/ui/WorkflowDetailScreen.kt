@@ -357,13 +357,15 @@ private fun DetailBody(
                     ?.toSet()
                     ?.takeIf { it.isNotEmpty() }
                     ?.let { enabledGraphOverride = it }
+                // 参数名是 "bypassed"：true 表示关闭节点。之前这里传反了，
+                // 恢复时反而把已关闭节点重新启用，看起来就是“状态没保存”。
                 root["bypassed"]?.jsonArray?.forEach { element ->
                     element.jsonPrimitive.contentOrNull?.toIntOrNull()
-                        ?.let { onSetNodeBypassed(it, false) }
+                        ?.let { onSetNodeBypassed(it, true) }
                 }
                 root["enabled"]?.jsonArray?.forEach { element ->
                     element.jsonPrimitive.contentOrNull?.toIntOrNull()
-                        ?.let { onSetNodeBypassed(it, true) }
+                        ?.let { onSetNodeBypassed(it, false) }
                 }
             }
         }
