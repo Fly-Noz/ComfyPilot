@@ -194,6 +194,10 @@ export struct MaskEditor {
         await maskPm.release();
       }
       this.loading = false;
+      this.overlayTick++;
+      // initialOverlay 是异步算出来的，Canvas 的 onReady 可能已经跑过了；
+      // 这里主动重绘一次，否则再次打开时只会显示原图、看不到上次蒙版。
+      setTimeout(() => this.drawOverlay(), 80);
     } catch (err) {
       this.error = (err as Error).message;
       this.loading = false;
