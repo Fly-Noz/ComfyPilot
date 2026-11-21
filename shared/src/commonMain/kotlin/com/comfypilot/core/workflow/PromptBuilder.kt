@@ -521,6 +521,22 @@ internal class UiGraphResolver(private val graph: UiGraph) {
         if (node.type == "Reroute") {
             return resolveInput(node, 0, seen)
         }
+        // rgthree 的 SetNode / GetNode 是前端总线：SetNode 收一条值，GetNode
+        // 按名字取回。服务端没有这两个类，必须在这里穿透，否则下游会把
+        // GetNode 当成真实来源并报「服务端没有该节点的定义」。
+        if (node.type == "SetNode") {
+            val slotIndex = if (slot in node.inputs.indices) slot else 0
+            return resolveInput(node, slotIndex, seen)
+        }
+        if (node.type == "GetNode") {
+            val name = busName(node)
+            val source = graph.nodes.firstOrNull { candidate ->
+                candidate.type == "SetNode" && busName(candidate) == name
+            } ?: return null
+            val sourceSlot = source.inputs.indexOfFirst { it.linkId != null }
+            if (sourceSlot < 0) return null
+            return resolveInput(source, sourceSlot, seen)
+        }
         return when (node.mode) {
             UiWorkflowParser.MODE_MUTED -> null
             UiWorkflowParser.MODE_BYPASS -> {
@@ -531,6 +547,10 @@ internal class UiGraphResolver(private val graph: UiGraph) {
             else -> ResolvedLink(node.id, slot)
         }
     }
+
+    private fun busName(node: UiNode): String? =
+        node.widgetsNamed["name"]?.let { (it as? JsonPrimitive)?.contentOrNull }
+            ?: node.widgets?.getOrNull(0)?.let { (it as? JsonPrimitive)?.contentOrNull }
 
     private fun bypassSlot(node: UiNode, outputSlot: Int, expectedType: String): Int? {
         val outputType = node.outputs.getOrNull(outputSlot)?.type.orEmpty()

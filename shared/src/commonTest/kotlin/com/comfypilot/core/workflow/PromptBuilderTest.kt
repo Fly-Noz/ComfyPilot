@@ -211,6 +211,48 @@ class PromptBuilderTest {
     }
 
     @Test
+    fun `rgthree set get nodes resolve to their source`() {
+        val graph = graph(
+            nodes = listOf(
+                uiNode(
+                    id = 1,
+                    type = "LoadImage",
+                    inputs = listOf(uiInput("image", "COMBO", widgetName = "image")),
+                    outputs = listOf(uiOutput("IMAGE", "IMAGE"), uiOutput("MASK", "MASK")),
+                    widgets = JsonArray(listOf(JsonPrimitive("photo.png"), JsonPrimitive("image"))),
+                ),
+                uiNode(
+                    id = 2,
+                    type = "SetNode",
+                    inputs = listOf(uiInput("IMAGE", "IMAGE", link = 1)),
+                    outputs = listOf(uiOutput("*", "*")),
+                    widgets = JsonArray(listOf(JsonPrimitive("my-image"))),
+                ),
+                uiNode(
+                    id = 3,
+                    type = "GetNode",
+                    outputs = listOf(uiOutput("IMAGE", "IMAGE")),
+                    widgets = JsonArray(listOf(JsonPrimitive("my-image"))),
+                ),
+                uiNode(
+                    id = 4,
+                    type = "SaveImage",
+                    inputs = listOf(uiInput("images", "IMAGE", link = 2)),
+                    widgets = JsonArray(listOf(JsonPrimitive("ComfyPilot"))),
+                ),
+            ),
+            links = listOf(
+                uiLink(1, 1, 0, 2, 0, "IMAGE"),
+                uiLink(2, 3, 0, 4, 0, "IMAGE"),
+            ),
+        )
+
+        val ready = ready(PromptBuilder.build(document(graph), DEFINITIONS))
+        assertEquals(1 to 0, ready.link("4", "images"))
+        assertTrue(ready.warnings.isEmpty(), "Set/Get 是前端虚拟节点，不该产生告警：${ready.warnings}")
+    }
+
+    @Test
     fun `autogrow inputs keep their flat name dot sub keys`() {
         val graph = graph(
             nodes = listOf(

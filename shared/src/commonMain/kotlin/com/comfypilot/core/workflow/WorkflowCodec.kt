@@ -27,6 +27,8 @@ object WorkflowCodec {
         "Note",
         "MarkdownNote",
         "Reroute",
+        "SetNode",
+        "GetNode",
         "PrimitiveNode",
         "Label (rgthree)",
         "Fast Groups Bypasser (rgthree)",
