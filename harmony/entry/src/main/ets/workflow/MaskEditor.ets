@@ -253,22 +253,38 @@ export struct MaskEditor {
     const dy = this.imageY();
     const ctx = this.overlayCtx;
     ctx.globalCompositeOperation = stroke.erase ? 'destination-out' : 'source-over';
+    ctx.globalAlpha = stroke.erase ? 1 : 0.45;
     ctx.strokeStyle = this.palette().accent;
+    ctx.fillStyle = this.palette().accent;
     ctx.lineWidth = Math.max(1, stroke.size * s);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ctx.moveTo(dx + stroke.points[0].x * s, dy + stroke.points[0].y * s);
-    for (let i = 1; i < stroke.points.length; i++) {
-      ctx.lineTo(dx + stroke.points[i].x * s, dy + stroke.points[i].y * s);
-    }
-    if (stroke.points.length === 1) {
-      ctx.arc(dx + stroke.points[0].x * s, dy + stroke.points[0].y * s, ctx.lineWidth / 2, 0, Math.PI * 2);
-      ctx.fillStyle = this.palette().accent;
+    const points = stroke.points;
+    if (points.length === 1) {
+      ctx.beginPath();
+      ctx.arc(dx + points[0].x * s, dy + points[0].y * s, ctx.lineWidth / 2, 0, Math.PI * 2);
       ctx.fill();
-    } else {
-      ctx.stroke();
+      ctx.globalAlpha = 1;
+      return;
     }
+    ctx.beginPath();
+    ctx.moveTo(dx + points[0].x * s, dy + points[0].y * s);
+    for (let i = 1; i < points.length - 1; i++) {
+      const control = points[i];
+      const next = points[i + 1];
+      const midX = (points[i].x + next.x) / 2;
+      const midY = (points[i].y + next.y) / 2;
+      ctx.quadraticCurveTo(
+        dx + control.x * s,
+        dy + control.y * s,
+        dx + midX * s,
+        dy + midY * s,
+      );
+    }
+    const last = points[points.length - 1];
+    ctx.lineTo(dx + last.x * s, dy + last.y * s);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
   }
 
   private paintOverlaySegment(from: MaskPoint, to: MaskPoint, size: number, erase: boolean): void {
@@ -308,16 +324,17 @@ export struct MaskEditor {
       return;
     }
     const p = this.toImage(x, y);
-    const last = this.active.points[this.active.points.length - 1];
     this.active.points.push(p);
-    this.applySegment(last, p, this.active.size, this.active.erase);
-    this.paintOverlaySegment(last, p, this.active.size, this.active.erase);
+    // 拖动时只更新屏幕上的蒙版层；离屏图在抬笔后一次画完，避免每帧操作大图。
+    this.drawOverlay();
     this.overlayTick++;
   }
 
   private endStroke(): void {
-    if (this.active !== null) {
-      this.strokes.push(this.active);
+    const finished = this.active;
+    if (finished !== null) {
+      this.applyStroke(finished);
+      this.strokes.push(finished);
       this.active = null;
     }
     this.drawing = false;
@@ -356,6 +373,50 @@ export struct MaskEditor {
     ctx.globalCompositeOperation = 'source-over';
   }
 
+  private applyStroke(stroke: MaskStroke): void {
+    if (stroke.points.length === 0) {
+      return;
+    }
+    if (stroke.erase) {
+      for (let i = 1; i < stroke.points.length; i++) {
+        this.applySegment(stroke.points[i - 1], stroke.points[i], stroke.size, true);
+      }
+      return;
+    }
+    const ctx = this.offCtx;
+    if (ctx === null) {
+      return;
+    }
+    const points = stroke.points;
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = stroke.size;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
+    if (points.length === 1) {
+      ctx.arc(points[0].x, points[0].y, stroke.size / 2, 0, Math.PI * 2);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fill();
+    } else {
+      for (let i = 1; i < points.length - 1; i++) {
+        const control = points[i];
+        const next = points[i + 1];
+        ctx.quadraticCurveTo(
+          control.x,
+          control.y,
+          (points[i].x + next.x) / 2,
+          (points[i].y + next.y) / 2,
+        );
+      }
+      const last = points[points.length - 1];
+      ctx.lineTo(last.x, last.y);
+      ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
   private rebuildOffscreen(): void {
     const ctx = this.offCtx;
     if (ctx === null || this.baseBitmap === null) {
@@ -370,15 +431,7 @@ export struct MaskEditor {
       ctx.globalCompositeOperation = 'source-over';
     }
     for (const stroke of this.strokes) {
-      if (stroke.erase) {
-        const first = stroke.points[0];
-        const last = stroke.points[stroke.points.length - 1];
-        this.applySegment(first, last, stroke.size, true);
-      } else {
-        for (let i = 1; i < stroke.points.length; i++) {
-          this.applySegment(stroke.points[i - 1], stroke.points[i], stroke.size, false);
-        }
-      }
+      this.applyStroke(stroke);
     }
   }
 
