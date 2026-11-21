@@ -678,6 +678,7 @@ private fun DetailBody(
     var maskLoading by remember { mutableStateOf(false) }
     var maskError by remember { mutableStateOf<String?>(null) }
     var maskCache by remember { mutableStateOf<Map<String, Bitmap>>(emptyMap()) }
+    var maskUnsupported by remember { mutableStateOf(false) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         val target = uploadTarget
@@ -771,40 +772,17 @@ private fun DetailBody(
     fun openMaskEditor(field: WorkflowField) {
         if (uploading || maskLoading) return
         val name = currentFieldName(field)
-        if (name.isBlank()) {
-            uploadError = "先选择一张图片，再编辑蒙版"
-            return
-        }
-        maskError = null
         val key = "${field.nodeId}:${field.inputName}"
         val cached = uploadPreviews[key]
-        if (cached != null) {
-            maskTarget = field
-            maskSource = cached
-            maskInitial = maskCache[key]
-            return
-        }
-        val base = state.lease?.baseUrl
-        val url = inputFileUrl(base.orEmpty(), name)
-        if (url == null) {
-            uploadError = "未连接 ComfyUI，无法读取原图"
+        if (name.isBlank() || cached == null) {
+            // 只有本次从相册选过并上传的图片才有可编辑的本地原图；
+            // 直接引用主机上已有文件名时不支持蒙版编辑，避免拿错底图。
+            maskUnsupported = true
             return
         }
         maskTarget = field
-        maskSource = null
-        maskLoading = true
-        scope.launch {
-            val loaded = withContext(Dispatchers.IO) { loadMaskSource(url) }
-            maskLoading = false
-            if (loaded == null) {
-                maskError = "原图读取失败，请先重新选择图片"
-                maskTarget = null
-            } else {
-                val (base, derivedMask) = splitMaskSource(loaded)
-                maskSource = base
-                maskInitial = maskCache[key] ?: derivedMask
-            }
-        }
+        maskSource = cached
+        maskInitial = maskCache[key]
     }
 
     fun saveMask(image: Bitmap, mask: Bitmap) {
@@ -1404,6 +1382,22 @@ private fun DetailBody(
         )
     }
 
+    if (maskUnsupported) {
+        SpectrumDialog(
+            title = "无法编辑蒙版",
+            onDismiss = { maskUnsupported = false },
+            confirmText = "知道了",
+            onConfirm = { maskUnsupported = false },
+            dismissText = null,
+        ) {
+            Text(
+                text = "当前图片是直接使用主机上的文件名，本次没有上传原图。\n\n请先点击「更换图片」上传一张图片，再编辑蒙版。",
+                color = c.textMuted,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+            )
+        }
+    }
     if (sheetVisible) {
         val sheetNodes = remember(fields.nodes, sheetQuery, sheetTraits, nodeNotes) {
             val typeFilters = sheetTraits - NodeTrait.NeedsInput

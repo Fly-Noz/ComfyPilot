@@ -2461,8 +2461,16 @@ struct Index {
       return;
     }
     const name = this.fieldText(field);
-    if (name.length === 0) {
-      this.setUploadError(field, '先选择一张图片，再编辑蒙版');
+    if (name.length === 0 || this.previewUri(field).length === 0) {
+      AlertDialog.show({
+        title: '无法编辑蒙版',
+        message: '当前图片是直接使用主机上的文件名，本次没有上传原图。\n\n请先点击「更换图片」上传一张图片，再编辑蒙版。',
+        autoCancel: true,
+        confirm: {
+          value: '知道了',
+          action: () => {},
+        },
+      });
       return;
     }
     const key = this.editKey(field.nodeId, field.inputName);
