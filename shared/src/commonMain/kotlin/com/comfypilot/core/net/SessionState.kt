@@ -26,6 +26,12 @@ data class SessionState(
     val catalog: WorkflowCatalog = WorkflowCatalog.Idle,
     /** 当前打开的工作流（原文 + 格式识别）。 */
     val workflow: WorkflowSelection = WorkflowSelection(),
+    /** 进程内工作流原文缓存，key = host|path；关掉应用即丢失。 */
+    val workflowCache: Map<String, com.comfypilot.core.workflow.CachedWorkflow> = emptyMap(),
+    /** 后台发现的主机更新；应用确认前不覆盖当前文档。 */
+    val pendingWorkflowUpdate: com.comfypilot.core.workflow.WorkflowUpdate? = null,
+    /** 用户选择了「稍后」：仍保留更新提示，但不再自动弹窗。 */
+    val workflowUpdateDismissed: Boolean = false,
     /**
      * 当前工作流里被用户逐个关闭（旁路）的节点。
      *

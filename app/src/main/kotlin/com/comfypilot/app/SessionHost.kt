@@ -173,6 +173,18 @@ object SessionHost {
         runtime?.openLocalWorkflow(path, name, raw)
     }
 
+    fun acceptWorkflowUpdate() {
+        runtime?.acceptWorkflowUpdate()
+    }
+
+    fun dismissWorkflowUpdate() {
+        runtime?.dismissWorkflowUpdate()
+    }
+
+    fun recheckWorkflow() {
+        runtime?.recheckWorkflow()
+    }
+
     /** 导入本地备份后丢掉内存里的任务 store，下次连接重新读 filesDir/tasks.json。 */
     fun reloadTaskStore() {
         taskStore = null

@@ -117,6 +117,12 @@ class SessionRuntime(
 
     fun openWorkflow(path: String) = enqueue(SessionInput.WorkflowOpenRequested(path))
 
+    fun acceptWorkflowUpdate() = enqueue(SessionInput.WorkflowUpdateAccepted)
+
+    fun dismissWorkflowUpdate() = enqueue(SessionInput.WorkflowUpdateDismissed)
+
+    fun recheckWorkflow() = enqueue(SessionInput.WorkflowRecheckRequested)
+
     /** 打开本地导入的工作流；[raw] 是 JSON 原文，节点定义仍从主机拉。 */
     fun openLocalWorkflow(path: String, name: String, raw: String) =
         enqueue(SessionInput.LocalWorkflowOpenRequested(path, name, raw))

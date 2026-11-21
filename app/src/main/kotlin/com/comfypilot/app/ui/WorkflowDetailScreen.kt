@@ -208,7 +208,16 @@ fun WorkflowDetailScreen(
             SpectrumTopBar(
                 title = document?.name?.takeIf { it.isNotBlank() } ?: "工作流",
                 onBack = onBack,
-                actions = { TopBarAction(text = "任务", onClick = onTasks) },
+                actions = {
+                    if (state.workflowUpdateDismissed && state.pendingWorkflowUpdate != null) {
+                        TopBarAction(
+                            text = "更新",
+                            onClick = { SessionHost.recheckWorkflow() },
+                            emphasized = true,
+                        )
+                    }
+                    TopBarAction(text = "任务", onClick = onTasks)
+                },
             )
         },
     ) { padding ->
@@ -240,6 +249,26 @@ fun WorkflowDetailScreen(
                     onOpenWorkflow = onOpenWorkflow,
                 )
             }
+        }
+    }
+
+    val update = state.pendingWorkflowUpdate
+    if (update != null && !state.workflowUpdateDismissed) {
+        SpectrumDialog(
+            title = "主机工作流已更新",
+            confirmText = "刷新",
+            dismissText = "稍后",
+            onConfirm = { SessionHost.acceptWorkflowUpdate() },
+            onDismiss = { SessionHost.dismissWorkflowUpdate() },
+        ) {
+            Text(
+                text = "检测到主机上的工作流结构发生变化" +
+                    update.reasons.takeIf { it.isNotEmpty() }?.joinToString("、", prefix = "（", postfix = "）").orEmpty() +
+                    "。\n\n刷新会重新加载工作流，但保留当前参数、节点开关和图选择中仍然有效的修改。",
+                color = Spectrum.colors.textMuted,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+            )
         }
     }
 }

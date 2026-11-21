@@ -53,6 +53,15 @@ sealed interface SessionInput {
     /** 打开某个工作流文件；原文与节点定义都从服务器现取。 */
     data class WorkflowOpenRequested(val path: String) : SessionInput
 
+    /** 用户点「确定」：接受后台发现的新版本，保留本地修改。 */
+    data object WorkflowUpdateAccepted : SessionInput
+
+    /** 用户点「稍后」：保留提示，继续当前缓存。 */
+    data object WorkflowUpdateDismissed : SessionInput
+
+    /** 用户点「刷新」：重新向主机确认当前工作流。 */
+    data object WorkflowRecheckRequested : SessionInput
+
     /**
      * 打开本地导入的工作流：原文由宿主从沙盒读出来交给共享层，
      * 节点定义仍然从当前连接的主机拉；[path] 用宿主生成的本地标识。
@@ -101,7 +110,7 @@ sealed interface RequestTag {
 
     data object Catalog : RequestTag
 
-    data class WorkflowFile(val path: String) : RequestTag
+    data class WorkflowFile(val path: String, val background: Boolean = false) : RequestTag
 
     data class ObjectInfo(val nodeClass: String) : RequestTag
 }

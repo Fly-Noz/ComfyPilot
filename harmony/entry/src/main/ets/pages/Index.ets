@@ -4736,6 +4736,25 @@ struct Index {
       // ---- 输入 / 预览 分段 tabs，对应 Android SpectrumTabs ----
       this.SegmentedTabs()
 
+      if (this.workflow.updateAvailable === true && this.workflow.updateDismissed === true) {
+        Row({ space: 8 }) {
+          Text('主机工作流已更新')
+            .fontSize(10.5)
+            .fontColor(this.c().warn)
+            .layoutWeight(1)
+          Text('刷新')
+            .fontSize(10.5)
+            .fontColor(this.c().accent)
+            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+            .onClick(() => this.bridge.recheckWorkflow())
+        }
+        .width('100%')
+        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+        .backgroundColor(this.c().warnSoft)
+        .borderRadius(10)
+        .alignItems(VerticalAlign.Center)
+      }
+
       // ---- 待加载 / 缺失 / 提交问题 ----
       if (this.view.pendingNodeClasses.length > 0) {
         this.InlineNote(`正在加载节点定义：还差 ${this.view.pendingNodeClasses.length} 个类`)
@@ -7606,6 +7625,58 @@ struct Index {
     this.promptDanger = danger;
     this.promptConfirmAction = action;
     this.promptConfirmOpen = true;
+  }
+
+  /** 主机工作流更新提示：稍后保留当前缓存，刷新接受主机版本。 */
+  @Builder
+  WorkflowUpdateDialog() {
+    Column() {
+      Column({ space: 10 }) {
+        Text('主机工作流已更新')
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.c().text)
+          .width('100%')
+        Text('检测到主机上的工作流结构发生变化' +
+          ((this.workflow.updateReasons ?? []).length > 0
+            ? `（${(this.workflow.updateReasons ?? []).join('、')}）` : '') +
+          '。刷新会重新加载工作流，但保留当前参数、节点开关和图选择中仍然有效的修改。')
+          .fontSize(12)
+          .lineHeight(18)
+          .fontColor(this.c().textMuted)
+          .width('100%')
+        Row({ space: 8 }) {
+          Text('稍后')
+            .fontSize(12.5)
+            .fontColor(this.c().textMuted)
+            .padding({ left: 16, right: 16, top: 9, bottom: 9 })
+            .backgroundColor(this.c().card)
+            .borderRadius(12)
+            .border({ width: 1, color: this.c().borderStrong })
+            .onClick(() => this.bridge.dismissWorkflowUpdate())
+          Text('刷新')
+            .fontSize(12.5)
+            .fontColor(this.c().accentInk)
+            .padding({ left: 16, right: 16, top: 9, bottom: 9 })
+            .backgroundColor(this.c().accent)
+            .borderRadius(12)
+            .onClick(() => this.bridge.acceptWorkflowUpdate())
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.End)
+      }
+      .padding(18)
+      .width('86%')
+      .alignItems(HorizontalAlign.Start)
+      .backgroundColor(this.c().dialog)
+      .borderRadius(18)
+      .border({ width: 1, color: this.c().borderStrong })
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .backgroundColor('#66000000')
+    .position({ x: 0, y: 0 })
   }
 
   /**
@@ -11650,6 +11721,11 @@ struct Index {
       }
       if (this.localDeletePath.length > 0) {
         this.LocalWorkflowDeleteDialog()
+      }
+      if (this.workflow.updateAvailable === true &&
+        this.workflow.updateDismissed !== true &&
+        this.selectedPath.length > 0) {
+        this.WorkflowUpdateDialog()
       }
       if (this.promptConfirmOpen) {
         this.PromptConfirm()

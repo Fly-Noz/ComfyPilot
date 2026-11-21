@@ -251,6 +251,21 @@ class SessionHost(
                 runtime.openWorkflow(message.path)
                 true
             }
+
+            HostMessage.AcceptWorkflowUpdate -> {
+                runtime.acceptWorkflowUpdate()
+                true
+            }
+
+            HostMessage.DismissWorkflowUpdate -> {
+                runtime.dismissWorkflowUpdate()
+                true
+            }
+
+            HostMessage.RecheckWorkflow -> {
+                runtime.recheckWorkflow()
+                true
+            }
             is HostMessage.OpenLocalWorkflow -> {
                 runtime.openLocalWorkflow(message.path, message.name, message.raw)
                 true

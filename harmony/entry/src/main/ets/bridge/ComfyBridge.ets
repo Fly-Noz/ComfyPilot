@@ -79,6 +79,9 @@ export interface BridgeWorkflow {
   error: string | null;
   nodeClasses: number;
   nodeInfo: number;
+  updateAvailable?: boolean;
+  updateDismissed?: boolean;
+  updateReasons?: string[];
 }
 
 export interface BridgePreview {
@@ -408,6 +411,18 @@ export class ComfyBridge {
 
   openWorkflow(path: string): void {
     this.send({ t: 'workflow.open', path: path });
+  }
+
+  acceptWorkflowUpdate(): void {
+    this.send({ t: 'workflow.update_accept' });
+  }
+
+  dismissWorkflowUpdate(): void {
+    this.send({ t: 'workflow.update_dismiss' });
+  }
+
+  recheckWorkflow(): void {
+    this.send({ t: 'workflow.recheck' });
   }
 
   /** 打开本地导入的工作流：原文由 ArkTS 从沙盒读出，节点定义仍从主机拉。 */

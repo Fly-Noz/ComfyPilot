@@ -20,8 +20,11 @@ import com.comfypilot.core.task.TaskProgress
 import com.comfypilot.core.task.TaskState
 import com.comfypilot.core.transport.JitterSource
 import com.comfypilot.core.util.Ids
+import com.comfypilot.core.workflow.CachedWorkflow
 import com.comfypilot.core.workflow.NodeDefinition
 import com.comfypilot.core.workflow.WorkflowCatalog
+import com.comfypilot.core.workflow.WorkflowDiffer
+import com.comfypilot.core.workflow.WorkflowUpdate
 import com.comfypilot.core.workflow.WorkflowCodec
 import com.comfypilot.core.workflow.WorkflowDocument
 import com.comfypilot.core.workflow.WorkflowSelection
@@ -62,6 +65,9 @@ class SessionReducer(
         is SessionInput.CancelRequested -> onCancel(state, input)
         SessionInput.WorkflowCatalogRequested -> onCatalogRequested(state)
         is SessionInput.WorkflowOpenRequested -> onWorkflowOpenRequested(state, input)
+        SessionInput.WorkflowUpdateAccepted -> onWorkflowUpdateAccepted(state)
+        SessionInput.WorkflowUpdateDismissed -> onWorkflowUpdateDismissed(state)
+        SessionInput.WorkflowRecheckRequested -> onWorkflowRecheckRequested(state)
         is SessionInput.LocalWorkflowOpenRequested -> onLocalWorkflowOpenRequested(state, input)
         is SessionInput.NodeBypassChanged -> onNodeBypassChanged(state, input)
         is SessionInput.UserReconnect -> onUserReconnect(state, input.nowMs)
@@ -516,21 +522,148 @@ class SessionReducer(
                     enabledNodeIds = emptySet(),
                 ),
             )
-        return ReduceResult(
+        val cacheKey = workflowCacheKey(state, input.path)
+        val cached = cacheKey?.let { state.workflowCache[it] }
+        val base = state.copy(
             // 换文档就清空单节点开关；它们只属于当前打开的工作流。
-            state.copy(
-                workflow = WorkflowSelection(loadingPath = input.path),
-                bypassedNodeIds = emptySet(),
-                enabledNodeIds = emptySet(),
-                // 每次打开工作流都重新拉一遍节点定义：服务器换过模型/节点版本时，
-                // 旧候选会让提交前的校验误判（把有效值当成失效）。
-                nodeInfoRequested = emptySet(),
-            ),
+            bypassedNodeIds = emptySet(),
+            enabledNodeIds = emptySet(),
+            // 每次打开工作流都重新拉一遍节点定义：服务器换过模型/节点版本时，
+            // 旧候选会让提交前的校验误判（把有效值当成失效）。
+            nodeInfoRequested = emptySet(),
+            pendingWorkflowUpdate = state.pendingWorkflowUpdate
+                ?.takeIf { it.path == input.path },
+            workflowUpdateDismissed = state.workflowUpdateDismissed
+                .takeIf { state.pendingWorkflowUpdate?.path == input.path } ?: false,
+        )
+
+        if (cached != null) {
+            // 同一次使用内：先把缓存文档挂上，界面立即可用；后台再静默对账。
+            val opened = openDocument(
+                base,
+                input.path,
+                cached.name,
+                cached.raw,
+                preserveSession = false,
+            )
+            val cachedState = if (opened.state.workflow.document != null) {
+                opened.state.copy(
+                    workflowCache = opened.state.workflowCache + (cacheKey to cached),
+                )
+            } else {
+                opened.state
+            }
+            return ReduceResult(
+                cachedState,
+                opened.effects + SessionEffect.SendHttp(
+                    lease,
+                    ApiCall.FetchUserData(input.path),
+                    RequestTag.WorkflowFile(input.path, background = true),
+                ),
+            )
+        }
+
+        return ReduceResult(
+            base.copy(workflow = WorkflowSelection(loadingPath = input.path)),
             listOf(
                 SessionEffect.SendHttp(
                     lease,
                     ApiCall.FetchUserData(input.path),
                     RequestTag.WorkflowFile(input.path),
+                ),
+            ),
+        )
+    }
+
+    private fun workflowCacheKey(state: SessionState, path: String): String? {
+        val host = state.lease?.baseUrl?.takeIf { it.isNotBlank() } ?: return null
+        return "$host|$path"
+    }
+
+    private fun rememberWorkflow(
+        result: ReduceResult,
+        path: String,
+        name: String,
+        raw: String,
+    ): ReduceResult {
+        val key = workflowCacheKey(result.state, path) ?: return result
+        if (result.state.workflow.document == null) return result
+        return result.copy(
+            state = result.state.copy(
+                workflowCache = result.state.workflowCache + (key to CachedWorkflow(name, raw)),
+            ),
+        )
+    }
+
+    private fun onWorkflowBackgroundResult(
+        state: SessionState,
+        tag: RequestTag.WorkflowFile,
+        body: String,
+    ): ReduceResult {
+        val current = state.workflow.document
+        if (current == null || current.path != tag.path) return ReduceResult(state)
+        val diff = WorkflowDiffer.compare(current.raw, body)
+        val key = workflowCacheKey(state, tag.path)
+        if (!diff.significant) {
+            return ReduceResult(
+                if (key == null) state else state.copy(
+                    workflowCache = state.workflowCache + (
+                        key to CachedWorkflow(workflowNameOf(tag.path), body)
+                        ),
+                ),
+            )
+        }
+        if (state.pendingWorkflowUpdate?.raw == body) return ReduceResult(state)
+        return ReduceResult(
+            state.copy(
+                pendingWorkflowUpdate = WorkflowUpdate(
+                    path = tag.path,
+                    name = workflowNameOf(tag.path),
+                    raw = body,
+                    reasons = diff.reasons,
+                ),
+                workflowUpdateDismissed = false,
+            ),
+        )
+    }
+
+    private fun onWorkflowUpdateAccepted(state: SessionState): ReduceResult {
+        val update = state.pendingWorkflowUpdate ?: return ReduceResult(state)
+        val opened = openDocument(
+            state.copy(nodeInfoRequested = emptySet()),
+            update.path,
+            update.name,
+            update.raw,
+            preserveSession = true,
+        )
+        val withCache = rememberWorkflow(opened, update.path, update.name, update.raw)
+        return ReduceResult(
+            withCache.state.copy(
+                pendingWorkflowUpdate = null,
+                workflowUpdateDismissed = false,
+            ),
+            withCache.effects,
+        )
+    }
+
+    private fun onWorkflowUpdateDismissed(state: SessionState): ReduceResult {
+        if (state.pendingWorkflowUpdate == null) return ReduceResult(state)
+        return ReduceResult(state.copy(workflowUpdateDismissed = true))
+    }
+
+    private fun onWorkflowRecheckRequested(state: SessionState): ReduceResult {
+        val lease = state.lease ?: return ReduceResult(state)
+        val path = state.workflow.document?.path ?: return ReduceResult(state)
+        return ReduceResult(
+            state.copy(
+                pendingWorkflowUpdate = null,
+                workflowUpdateDismissed = false,
+            ),
+            listOf(
+                SessionEffect.SendHttp(
+                    lease,
+                    ApiCall.FetchUserData(path),
+                    RequestTag.WorkflowFile(path, background = true),
                 ),
             ),
         )
@@ -599,8 +732,19 @@ class SessionReducer(
         outcome: HttpOutcome,
     ): ReduceResult {
         val body = bodyOf(outcome)
-            ?: return ReduceResult(state.copy(workflow = WorkflowSelection(error = describeFailure(outcome))))
-        return openDocument(state, tag.path, workflowNameOf(tag.path), body)
+            ?: return if (tag.background) {
+                // 后台对账失败时保留缓存，不把已经能用的页面打回错误页。
+                ReduceResult(state)
+            } else {
+                ReduceResult(state.copy(workflow = WorkflowSelection(error = describeFailure(outcome))))
+            }
+        if (tag.background) return onWorkflowBackgroundResult(state, tag, body)
+        return rememberWorkflow(
+            openDocument(state, tag.path, workflowNameOf(tag.path), body),
+            tag.path,
+            workflowNameOf(tag.path),
+            body,
+        )
     }
 
     /** 服务器文件和本地导入共用同一套解析、节点定义拉取与文档落地。 */
@@ -609,6 +753,7 @@ class SessionReducer(
         path: String,
         name: String,
         raw: String,
+        preserveSession: Boolean = false,
     ): ReduceResult {
         return when (val parsed = WorkflowCodec.parseDocument(raw)) {
             is WorkflowCodec.Parsed.Bad ->
@@ -638,8 +783,8 @@ class SessionReducer(
                     state.copy(
                         workflow = WorkflowSelection(document = document),
                         nodeInfoRequested = state.nodeInfoRequested + missing,
-                        bypassedNodeIds = emptySet(),
-                        enabledNodeIds = emptySet(),
+                        bypassedNodeIds = if (preserveSession) state.bypassedNodeIds else emptySet(),
+                        enabledNodeIds = if (preserveSession) state.enabledNodeIds else emptySet(),
                     ),
                     effects,
                 )

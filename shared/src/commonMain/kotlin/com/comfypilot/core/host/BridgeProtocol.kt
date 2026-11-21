@@ -138,6 +138,11 @@ fun SessionState.toBridgeJson(): JsonObject = buildJsonObject {
         put("error", jsonString(selection.error))
         put("nodeClasses", selection.document?.nodeClasses?.size ?: 0)
         put("nodeInfo", nodeInfo.size)
+        put("updateAvailable", pendingWorkflowUpdate != null)
+        put("updateDismissed", workflowUpdateDismissed)
+        putJsonArray("updateReasons") {
+            pendingWorkflowUpdate?.reasons?.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) }
+        }
     }
 }
 
@@ -297,6 +302,15 @@ sealed interface HostMessage {
     /** 打开某个工作流文件。 */
     data class OpenWorkflow(val path: String) : HostMessage
 
+    /** 接受后台发现的新工作流版本，保留本地修改。 */
+    data object AcceptWorkflowUpdate : HostMessage
+
+    /** 用户选择稍后处理更新。 */
+    data object DismissWorkflowUpdate : HostMessage
+
+    /** 重新向主机确认当前工作流。 */
+    data object RecheckWorkflow : HostMessage
+
     /** 打开宿主本地导入的工作流：原文随命令传入，节点定义仍从主机拉。 */
     data class OpenLocalWorkflow(
         val path: String,
@@ -365,6 +379,9 @@ sealed interface HostMessage {
                 "cancel" -> Cancel(obj.stringOrNull("promptId") ?: return null)
                 "workflows" -> Workflows
                 "workflow.open" -> OpenWorkflow(obj.stringOrNull("path") ?: return null)
+                "workflow.update_accept" -> AcceptWorkflowUpdate
+                "workflow.update_dismiss" -> DismissWorkflowUpdate
+                "workflow.recheck" -> RecheckWorkflow
                 "workflow.open_local" -> OpenLocalWorkflow(
                     path = obj.stringOrNull("path") ?: return null,
                     name = obj.stringOrNull("name") ?: "",
