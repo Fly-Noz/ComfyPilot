@@ -1179,8 +1179,9 @@ struct FieldRow: View {
     @State private var showPicker = false
     @State private var pickedItem: PhotosPickerItem?
     @State private var audioPickerOpen = false
-    @State private var maskEditorOpen = false
     @State private var maskUnsupported = false
+    /// 编辑器是否呈现由 maskState 本身驱动（fullScreenCover(item:)），
+    /// 避免「先设 state 再设 Bool」时 cover 闭包读到 nil 的时序竞争。
     @State private var maskState: MaskCanvasState?
     @FocusState private var focused: Bool
 
@@ -1280,28 +1281,22 @@ struct FieldRow: View {
             // CI 截图用：-uiUploadImage 上传成功后直接展开编辑器。
             if !missing && LaunchOptions.openMaskEditor { openMaskEditor() }
         }
-        .fullScreenCover(isPresented: $maskEditorOpen) {
-            if let state = maskState {
-                MaskEditorSheet(
-                    state: state,
-                    palette: palette,
-                    onSave: { png in
-                        let name = (text as NSString).lastPathComponent
-                        store.uploadMask(
-                            data: png,
-                            filename: MaskNaming.filename(for: name.isEmpty ? "image" : name),
-                            field: field,
-                            snapshot: state.snapshotMask()
-                        )
-                        maskEditorOpen = false
-                        maskState = nil
-                    },
-                    onCancel: {
-                        maskEditorOpen = false
-                        maskState = nil
-                    }
-                )
-            }
+        .fullScreenCover(item: $maskState) { state in
+            MaskEditorSheet(
+                state: state,
+                palette: palette,
+                onSave: { png in
+                    let name = (text as NSString).lastPathComponent
+                    store.uploadMask(
+                        data: png,
+                        filename: MaskNaming.filename(for: name.isEmpty ? "image" : name),
+                        field: field,
+                        snapshot: state.snapshotMask()
+                    )
+                    maskState = nil
+                },
+                onCancel: { maskState = nil }
+            )
         }
         .alert("无法编辑蒙版", isPresented: $maskUnsupported) {
             Button("知道了", role: .cancel) {}
@@ -1318,7 +1313,6 @@ struct FieldRow: View {
             return
         }
         maskState = MaskCanvasState(base: source, initialMask: store.maskCache[field.id])
-        maskEditorOpen = true
     }
 
     /// 上传按钮文案：「选图/换图」「选择音频/换音频」。

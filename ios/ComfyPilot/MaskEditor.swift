@@ -10,7 +10,9 @@ private struct MaskStroke {
 
 /// 蒙版编辑器状态。语义与安卓/鸿蒙一致：底图保留原 RGB，蒙版层的 alpha 表示被涂掉的量，
 /// ComfyUI 的 MASK 输出 = 1 - alpha，所以导出的 PNG 是「涂抹区透明」。
-final class MaskCanvasState: ObservableObject {
+final class MaskCanvasState: ObservableObject, Identifiable {
+    var id: ObjectIdentifier { ObjectIdentifier(self) }
+
     @Published var brush: CGFloat = 34
     @Published var erasing = false
     @Published var zoom: CGFloat = 1
