@@ -670,7 +670,9 @@ private fun DetailBody(
     var uploadTarget by remember { mutableStateOf<WorkflowField?>(null) }
     var uploading by remember { mutableStateOf(false) }
     var uploadPreviews by remember { mutableStateOf<Map<String, Bitmap>>(emptyMap()) }
+    var maskSources by remember { mutableStateOf<Map<String, Bitmap>>(emptyMap()) }
     var uploadError by remember { mutableStateOf<String?>(null) }
+    var uploadNotice by remember { mutableStateOf<String?>(null) }
     // 蒙版编辑：source 是当前图片（本地缩略图或从主机 input 重新拉取）。
     var maskTarget by remember { mutableStateOf<WorkflowField?>(null) }
     var maskSource by remember { mutableStateOf<Bitmap?>(null) }
@@ -735,12 +737,18 @@ private fun DetailBody(
                 is ImageUploadResult.Success -> {
                     if (target.uploadKind != "audio") {
                         // 新图片是新的蒙版起点，清掉旧图的笔画缓存。
-                        maskCache = maskCache - "${target.nodeId}:${target.inputName}"
+                        val key = "${target.nodeId}:${target.inputName}"
+                        maskCache = maskCache - key
                         val preview = withContext(Dispatchers.IO) { decodePreview(bytes) }
                         if (preview != null) {
-                            uploadPreviews = uploadPreviews + ("${target.nodeId}:${target.inputName}" to preview)
+                            uploadPreviews = uploadPreviews + (key to preview)
+                        }
+                        val maskSource = withContext(Dispatchers.IO) { decodePreview(bytes, maxSide = 2048) }
+                        if (maskSource != null) {
+                            maskSources = maskSources + (key to maskSource)
                         }
                     }
+                    uploadNotice = "图片已上传"
                     applyOverride(
                         target.nodeId,
                         target.inputName,
@@ -774,14 +782,15 @@ private fun DetailBody(
         val name = currentFieldName(field)
         val key = "${field.nodeId}:${field.inputName}"
         val cached = uploadPreviews[key]
-        if (name.isBlank() || cached == null) {
+        val source = maskSources[key]
+        if (name.isBlank() || cached == null || source == null) {
             // 只有本次从相册选过并上传的图片才有可编辑的本地原图；
             // 直接引用主机上已有文件名时不支持蒙版编辑，避免拿错底图。
             maskUnsupported = true
             return
         }
         maskTarget = field
-        maskSource = cached
+        maskSource = source
         maskInitial = maskCache[key]
     }
 
@@ -817,14 +826,28 @@ private fun DetailBody(
                 return@launch
             }
             val baseName = originalName.substringBeforeLast('.', originalName)
-            val filename = if (baseName.endsWith("_mask")) "$baseName.png" else "${baseName}_mask.png"
-            when (val result = ImageUpload.upload(uploader, lease.baseUrl, filename, bytes.getOrThrow())) {
+            val rawName = if (baseName.endsWith("_mask")) "$baseName.png" else "${baseName}_mask.png"
+            val filename = ImageUpload.uniqueFilename(
+                rawName,
+                System.currentTimeMillis(),
+                java.util.Random().nextInt(),
+            )
+            when (
+                val result = ImageUpload.upload(
+                    http = uploader,
+                    baseUrl = lease.baseUrl,
+                    filename = filename,
+                    bytes = bytes.getOrThrow(),
+                    timeoutMs = 180_000,
+                )
+            ) {
                 is ImageUploadResult.Success -> {
                     val preview = sourcePreview ?: withContext(Dispatchers.IO) { decodePreview(bytes.getOrThrow()) }
                     if (preview != null) {
                         uploadPreviews = uploadPreviews + ("${field.nodeId}:${field.inputName}" to preview)
                     }
                     applyOverride(field.nodeId, field.inputName, JsonPrimitive(result.reference))
+                    uploadNotice = "蒙版已上传：${result.reference}"
                 }
                 is ImageUploadResult.Failure -> uploadError = result.message
             }
@@ -1101,6 +1124,20 @@ private fun DetailBody(
                     fontSize = 11.sp,
                 )
                 TopBarAction(text = "知道了", onClick = { uploadError = null })
+            }
+        }
+        uploadNotice?.let { message ->
+            Row(
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = message,
+                    color = c.ok,
+                    fontSize = 11.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                TopBarAction(text = "知道了", onClick = { uploadNotice = null })
             }
         }
         if (fields.problems.isNotEmpty()) {
