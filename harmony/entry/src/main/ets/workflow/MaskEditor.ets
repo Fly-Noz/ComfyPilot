@@ -28,6 +28,7 @@ export struct MaskEditor {
   @Prop sourceName: string = '';
   @Prop baseUrl: string = '';
   @Prop initialBase64: string = '';
+  @Prop @Watch('onSessionChanged') sessionKey: number = 0;
   @Prop deriveMask: boolean = false;
   @Prop isDark: boolean = false;
   onClose: () => void = () => {};
@@ -70,6 +71,30 @@ export struct MaskEditor {
   private clearCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
 
   aboutToAppear(): void {
+    this.load();
+  }
+
+  private onSessionChanged(): void {
+    if (this.sessionKey <= 0) {
+      return;
+    }
+    if (this.basePm !== null) {
+      this.basePm.release();
+      this.basePm = null;
+    }
+    this.baseBitmap = null;
+    this.initialOverlay = null;
+    this.initialMaskBitmap = null;
+    this.offCanvas = null;
+    this.offCtx = null;
+    this.strokes = [];
+    this.active = null;
+    this.drawing = false;
+    this.zoom = 1;
+    this.panX = 0;
+    this.panY = 0;
+    this.loading = true;
+    this.error = '';
     this.load();
   }
 
@@ -492,6 +517,13 @@ export struct MaskEditor {
     try {
       if (this.offCtx === null) {
         throw new Error('画布还没准备好');
+      }
+      // 用户可能点保存时手指刚抬起，Touch Up 尚未派发；先把当前笔画落盘。
+      if (this.active !== null) {
+        this.applyStroke(this.active);
+        this.strokes.push(this.active);
+        this.active = null;
+        this.drawing = false;
       }
       const exported = this.offCtx.getPixelMap(0, 0, this.sourceW, this.sourceH);
       const info = await exported.getImageInfo();

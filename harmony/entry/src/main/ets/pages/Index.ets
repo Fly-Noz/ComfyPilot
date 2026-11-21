@@ -426,6 +426,7 @@ struct Index {
   @State maskEditorUri: string = '';
   @State maskEditorName: string = '';
   @State maskEditorBase64: string = '';
+  @State maskEditorSession: number = 0;
 
   @State nodeNotesVersion: number = 0;
   @State previewVersion: number = 0;
@@ -2467,6 +2468,7 @@ struct Index {
     this.maskEditorUri = this.previewUri(field);
     const cached = this.maskEditorCache.get(key);
     this.maskEditorBase64 = cached === undefined ? '' : new util.Base64Helper().encodeToStringSync(cached);
+    this.maskEditorSession++;
     this.maskEditorOpen = true;
   }
 
@@ -11891,7 +11893,8 @@ struct Index {
           sourceName: this.maskEditorName,
           baseUrl: this.normalizedBaseUrl(),
           initialBase64: this.maskEditorBase64,
-          deriveMask: this.maskEditorBase64.length > 0 || this.maskEditorName.endsWith('_mask.png'),
+          sessionKey: this.maskEditorSession,
+          deriveMask: this.maskEditorBase64.length > 0 || this.maskEditorName.indexOf('_mask') >= 0,
           isDark: this.isDark,
           onClose: () => {
             this.closeMaskEditor();
