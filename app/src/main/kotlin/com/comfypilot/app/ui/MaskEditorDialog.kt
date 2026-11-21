@@ -207,7 +207,7 @@ fun MaskEditorDialog(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(ComposeColor.Black.copy(alpha = 0.35f))
+                    .background(ComposeColor.Black.copy(alpha = 0.18f))
                     .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(10.dp),
                 contentAlignment = Alignment.Center,
@@ -377,26 +377,54 @@ private fun MaskIconButton(
                     drawPath(path, tint, style = Stroke(width = stroke, cap = StrokeCap.Round))
                 }
                 MaskTool.Brush -> {
-                    drawLine(tint, Offset(size.width * 0.30f, size.height * 0.72f), Offset(size.width * 0.70f, size.height * 0.30f), strokeWidth = stroke, cap = StrokeCap.Round)
-                    val tip = Path().apply {
-                        moveTo(size.width * 0.24f, size.height * 0.78f)
-                        lineTo(size.width * 0.34f, size.height * 0.76f)
-                        lineTo(size.width * 0.26f, size.height * 0.68f)
+                    // 铅笔：笔身 + 笔尖 + 顶部橡皮箍，比一条斜线更容易辨认。
+                    val body = Path().apply {
+                        moveTo(size.width * 0.28f, size.height * 0.74f)
+                        lineTo(size.width * 0.58f, size.height * 0.22f)
+                        lineTo(size.width * 0.78f, size.height * 0.34f)
+                        lineTo(size.width * 0.48f, size.height * 0.86f)
                         close()
                     }
-                    drawPath(tip, tint)
+                    drawPath(body, tint, style = Stroke(width = stroke, cap = StrokeCap.Round))
+                    drawLine(
+                        tint,
+                        Offset(size.width * 0.28f, size.height * 0.74f),
+                        Offset(size.width * 0.48f, size.height * 0.86f),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round,
+                    )
+                    drawLine(
+                        tint,
+                        Offset(size.width * 0.56f, size.height * 0.28f),
+                        Offset(size.width * 0.70f, size.height * 0.36f),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round,
+                    )
                 }
                 MaskTool.Eraser -> {
-                    rotate(-35f) {
-                        drawRoundRect(
-                            color = tint,
-                            topLeft = Offset(size.width * 0.18f, size.height * 0.40f),
-                            size = Size(size.width * 0.64f, size.height * 0.26f),
-                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.width * 0.07f),
-                            style = Stroke(width = stroke),
-                        )
-                        drawLine(tint, Offset(size.width * 0.34f, size.height * 0.62f), Offset(size.width * 0.66f, size.height * 0.62f), strokeWidth = stroke, cap = StrokeCap.Round)
+                    // 斜放的橡皮：两段梯形 + 中间分界线。
+                    val body = Path().apply {
+                        moveTo(size.width * 0.18f, size.height * 0.58f)
+                        lineTo(size.width * 0.48f, size.height * 0.22f)
+                        lineTo(size.width * 0.82f, size.height * 0.40f)
+                        lineTo(size.width * 0.52f, size.height * 0.76f)
+                        close()
                     }
+                    drawPath(body, tint, style = Stroke(width = stroke, cap = StrokeCap.Round))
+                    drawLine(
+                        tint,
+                        Offset(size.width * 0.30f, size.height * 0.58f),
+                        Offset(size.width * 0.66f, size.height * 0.39f),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round,
+                    )
+                    drawLine(
+                        tint,
+                        Offset(size.width * 0.38f, size.height * 0.80f),
+                        Offset(size.width * 0.70f, size.height * 0.80f),
+                        strokeWidth = stroke,
+                        cap = StrokeCap.Round,
+                    )
                 }
                 MaskTool.Undo -> {
                     drawArc(
@@ -409,9 +437,9 @@ private fun MaskIconButton(
                         style = Stroke(width = stroke, cap = StrokeCap.Round),
                     )
                     val arrow = Path().apply {
-                        moveTo(size.width * 0.18f, size.height * 0.50f)
-                        lineTo(size.width * 0.33f, size.height * 0.36f)
-                        lineTo(size.width * 0.33f, size.height * 0.64f)
+                        moveTo(size.width * 0.10f, size.height * 0.50f)
+                        lineTo(size.width * 0.32f, size.height * 0.31f)
+                        lineTo(size.width * 0.32f, size.height * 0.69f)
                         close()
                     }
                     drawPath(arrow, tint)
