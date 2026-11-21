@@ -622,7 +622,7 @@ export struct MaskEditor {
     try {
       ctx.clearRect(0, 0, 22, 22);
       ctx.save();
-      const iconScale = 22 / 24;
+      const iconScale = vp2px(22) / 24;
       ctx.scale(iconScale, iconScale);
       ctx.fillStyle = active ? this.palette().accent : this.palette().textMuted;
       ctx.fill(new Path2D(path));
@@ -648,13 +648,7 @@ export struct MaskEditor {
         .width(22)
         .height(22)
         .onReady(() => {
-          ctx.clearRect(0, 0, 22, 22);
-          ctx.save();
-          const iconScale = vp2px(22) / 24;
-          ctx.scale(iconScale, iconScale);
-          ctx.fillStyle = active ? this.palette().accent : this.palette().textMuted;
-          ctx.fill(new Path2D(path));
-          ctx.restore();
+          this.paintIcon(ctx, path, active);
         })
     }
     .width(40)
