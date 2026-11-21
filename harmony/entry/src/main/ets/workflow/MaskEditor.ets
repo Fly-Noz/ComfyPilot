@@ -23,6 +23,8 @@ const ICON_ERASER = 'M17.25 18H22v2h-6.75zm-12.5 2l-2.125-2.125q-.575-.575-.587-
 const ICON_UNDO = 'M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z';
 const ICON_CLEAR = 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z';
 
+enum MaskTool { Back, Save, Brush, Eraser, Undo, Clear }
+
 @Component
 export struct MaskEditor {
   @Prop sourceUri: string = '';
@@ -641,27 +643,37 @@ export struct MaskEditor {
     this.paintIcon(this.clearCtx, ICON_CLEAR, false);
   }
 
+  private toolActive(tool: MaskTool): boolean {
+    if (tool === MaskTool.Brush) {
+      return !this.erasing;
+    }
+    if (tool === MaskTool.Eraser) {
+      return this.erasing;
+    }
+    return tool === MaskTool.Save;
+  }
+
   @Builder
-  IconButton(ctx: CanvasRenderingContext2D, path: string, active: boolean, action: () => void) {
+  IconButton(ctx: CanvasRenderingContext2D, path: string, tool: MaskTool, action: () => void) {
     Stack({ alignContent: Alignment.Center }) {
       Canvas(ctx)
         .width(22)
         .height(22)
         .onReady(() => {
-          this.paintIcon(ctx, path, active);
+          this.paintIcon(ctx, path, this.toolActive(tool));
         })
     }
     .width(40)
     .height(40)
     .borderRadius(20)
-    .backgroundColor(active ? this.palette().accentSoft : this.palette().card)
-    .border({ width: 1, color: active ? this.palette().accentBorder : this.palette().border })
+    .backgroundColor(this.toolActive(tool) ? this.palette().accentSoft : this.palette().card)
+    .border({ width: 1, color: this.toolActive(tool) ? this.palette().accentBorder : this.palette().border })
     .onClick(() => action())
   }
 
   @Builder
-  ToolButton(ctx: CanvasRenderingContext2D, path: string, active: boolean, action: () => void) {
-    this.IconButton(ctx, path, active, action)
+  ToolButton(ctx: CanvasRenderingContext2D, path: string, tool: MaskTool, action: () => void) {
+    this.IconButton(ctx, path, tool, action)
   }
 
   build() {
@@ -673,14 +685,14 @@ export struct MaskEditor {
         .onClick(() => this.onClose())
       Column() {
         Row() {
-          this.IconButton(this.backCtx, ICON_BACK, false, () => this.onClose())
+          this.IconButton(this.backCtx, ICON_BACK, MaskTool.Back, () => this.onClose())
           Text('编辑蒙版')
             .fontSize(16)
             .fontWeight(FontWeight.Medium)
             .fontColor(this.palette().text)
             .layoutWeight(1)
             .margin({ left: 8 })
-          this.IconButton(this.checkCtx, ICON_CHECK, true, () => {
+          this.IconButton(this.checkCtx, ICON_CHECK, MaskTool.Save, () => {
             this.save();
           })
         }
@@ -728,16 +740,16 @@ export struct MaskEditor {
         }
 
         Row({ space: 8 }) {
-          this.ToolButton(this.brushCtx, ICON_BRUSH, !this.erasing, () => { this.erasing = false; this.overlayTick++; })
-          this.ToolButton(this.eraserCtx, ICON_ERASER, this.erasing, () => { this.erasing = true; this.overlayTick++; })
-          this.ToolButton(this.undoCtx, ICON_UNDO, false, () => {
+          this.ToolButton(this.brushCtx, ICON_BRUSH, MaskTool.Brush, () => { this.erasing = false; this.overlayTick++; })
+          this.ToolButton(this.eraserCtx, ICON_ERASER, MaskTool.Eraser, () => { this.erasing = true; this.overlayTick++; })
+          this.ToolButton(this.undoCtx, ICON_UNDO, MaskTool.Undo, () => {
             if (this.strokes.length > 0) {
               this.strokes.pop();
               this.rebuildOffscreen();
               this.drawOverlay();
             }
           })
-          this.ToolButton(this.clearCtx, ICON_CLEAR, false, () => {
+          this.ToolButton(this.clearCtx, ICON_CLEAR, MaskTool.Clear, () => {
             this.strokes = [];
             this.rebuildOffscreen();
             this.drawOverlay();
