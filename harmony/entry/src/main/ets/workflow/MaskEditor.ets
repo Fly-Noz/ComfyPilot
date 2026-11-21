@@ -510,6 +510,7 @@ export struct MaskEditor {
         }
         result = await image.createPixelMap(croppedPixels.buffer, {
           size: { width: this.sourceW, height: this.sourceH },
+          srcPixelFormat: image.PixelMapFormat.RGBA_8888,
           pixelFormat: image.PixelMapFormat.RGBA_8888,
           editable: false,
         });
