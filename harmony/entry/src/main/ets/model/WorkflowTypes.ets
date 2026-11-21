@@ -58,6 +58,8 @@ export interface WorkflowNodeView {
   reachable: boolean;
   needsInput: boolean;
   pinned: boolean;
+  /** 该节点可输出 MASK（LoadImage 等），参数页可编辑蒙版。 */
+  maskEditable?: boolean;
   fields: WorkflowFieldView[];
   /** 子图展开出来的节点：来自哪个子图（`名称 (#实例id)`）。 */
   subgraph?: string;

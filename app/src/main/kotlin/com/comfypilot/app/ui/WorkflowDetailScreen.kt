@@ -837,7 +837,7 @@ private fun DetailBody(
                 return@launch
             }
             val baseName = originalName.substringBeforeLast('.', originalName)
-            val filename = "${baseName}_mask.png"
+            val filename = if (baseName.endsWith("_mask")) "$baseName.png" else "${baseName}_mask.png"
             when (val result = ImageUpload.upload(uploader, lease.baseUrl, filename, bytes.getOrThrow())) {
                 is ImageUploadResult.Success -> {
                     val preview = sourcePreview ?: withContext(Dispatchers.IO) { decodePreview(bytes.getOrThrow()) }

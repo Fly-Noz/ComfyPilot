@@ -42,6 +42,7 @@ import { ClientIdStore } from '../bridge/ClientIdStore';
 import { TaskNotifier } from '../notify/TaskNotifier';
 import { emptyServerStats, fetchServerStats, sameServerStats, ServerStats } from '../bridge/ServerStats';
 import { Palette, Spectrum } from '../theme/Spectrum';
+import { MaskEditor } from '../workflow/MaskEditor';
 import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/ArtifactDownloader';
 import { VideoThumb } from '../artifact/VideoThumb';
 import { VideoPlayer } from '../artifact/VideoPlayer';
@@ -420,6 +421,11 @@ struct Index {
   @State uploadError: string = '';
   @State uploadNoticeKey: string = '';
   @State uploadNotice: string = '';
+  @State maskEditorOpen: boolean = false;
+  @State maskEditorField: WorkflowFieldView | null = null;
+  @State maskEditorUri: string = '';
+  @State maskEditorName: string = '';
+  @State maskEditorBase64: string = '';
 
   @State nodeNotesVersion: number = 0;
   @State previewVersion: number = 0;
@@ -619,6 +625,8 @@ struct Index {
   private statsPaused: boolean = false;
   private notes: Map<number, string> = new Map();
   private previewUris: Map<string, string> = new Map();
+  /** 本次会话保存过的蒙版 PNG；再次进入时优先恢复。 */
+  private maskEditorCache: Map<string, Uint8Array> = new Map();
   private uiContext: common.UIAbilityContext | null = null;
   private edits: Map<string, string | number | boolean | null> = new Map();
   private editRefreshTimer: number = -1;
@@ -2444,6 +2452,72 @@ struct Index {
     }
   }
 
+  private openMaskEditor(field: WorkflowFieldView): void {
+    if (!this.running || this.uploadingField.length > 0) {
+      return;
+    }
+    const name = this.fieldText(field);
+    if (name.length === 0) {
+      this.setUploadError(field, '先选择一张图片，再编辑蒙版');
+      return;
+    }
+    const key = this.editKey(field.nodeId, field.inputName);
+    this.maskEditorField = field;
+    this.maskEditorName = name;
+    this.maskEditorUri = this.previewUri(field);
+    const cached = this.maskEditorCache.get(key);
+    this.maskEditorBase64 = cached === undefined ? '' : new util.Base64Helper().encodeToStringSync(cached);
+    this.maskEditorOpen = true;
+  }
+
+  private closeMaskEditor(): void {
+    this.maskEditorOpen = false;
+    this.maskEditorField = null;
+  }
+
+  private maskFilename(name: string): string {
+    const dot = name.lastIndexOf('.');
+    const base = dot > 0 ? name.substring(0, dot) : name;
+    return base.endsWith('_mask') ? `${base}.png` : `${base}_mask.png`;
+  }
+
+  private async saveMaskBytes(bytes: Uint8Array): Promise<void> {
+    const field = this.maskEditorField;
+    const name = this.maskEditorName;
+    if (field === null || name.length === 0) {
+      return;
+    }
+    const base = this.normalizedBaseUrl();
+    const key = this.editKey(field.nodeId, field.inputName);
+    this.maskEditorCache.set(key, bytes);
+    this.closeMaskEditor();
+    if (base.length === 0) {
+      this.setUploadError(field, '未连接 ComfyUI');
+      return;
+    }
+    this.uploadingField = key;
+    this.uploadErrorKey = '';
+    this.uploadNoticeKey = '';
+    try {
+      const result = await this.imageUploader.upload(base, {
+        filename: this.maskFilename(name),
+        bytes: bytes,
+        uri: '',
+      });
+      if (!result.ok) {
+        this.setUploadError(field, result.message);
+        return;
+      }
+      this.setFieldText(field, result.reference);
+      this.uploadNoticeKey = key;
+      this.uploadNotice = result.message;
+    } catch (err) {
+      this.setUploadError(field, this.errorText(err));
+    } finally {
+      this.uploadingField = '';
+    }
+  }
+
   private setUploadError(field: WorkflowFieldView, message: string): void {
     this.uploadErrorKey = this.editKey(field.nodeId, field.inputName);
     this.uploadError = message;
@@ -3917,7 +3991,7 @@ struct Index {
           // 关闭的节点整块字段降透明度，控件同时 enabled(false)：看得见、改不了。 
           Column({ space: 10 }) {
             ForEach(node.fields, (field: WorkflowFieldView, index: number) => {
-              this.FieldRow(field, index)
+              this.FieldRow(field, index, node.maskEditable === true)
             }, (field: WorkflowFieldView) =>
               `${node.id}:${field.inputName}:${field.linked}:${field.widget}:${field.needsInput}:${field.type}`)
             if (node.fields.length === 0) {
@@ -4014,7 +4088,7 @@ struct Index {
 
   /** 字段行，对应 Android FieldEditor：标签 + 类型 + 控件 + 必填提示。 */
   @Builder
-  FieldRow(field: WorkflowFieldView, index: number) {
+  FieldRow(field: WorkflowFieldView, index: number, maskEditable: boolean) {
     Column({ space: 4 }) {
       Row() {
         Text(field.label.length > 0 ? field.label : field.inputName)
@@ -4041,7 +4115,7 @@ struct Index {
           .fontSize(11)
           .fontColor(field.required ? this.c().err : this.c().textDim)
       } else if (this.isUploadField(field)) {
-        this.ImageField(field)
+        this.ImageField(field, maskEditable)
       } else if (field.options.length > 0) {
         this.OptionField(field)
       } else if (field.type === 'BOOLEAN') {
@@ -4104,7 +4178,7 @@ struct Index {
 
   /** LoadImage 的 image 控件：缩略图 + 上传按钮 + 上传结果提示。 */
   @Builder
-  ImageField(field: WorkflowFieldView) {
+  ImageField(field: WorkflowFieldView, maskEditable: boolean) {
     Column({ space: 6 }) {
       Row({ space: 10 }) {
         if (field.uploadKind !== 'audio' && this.previewUri(field).length > 0) {
@@ -4126,6 +4200,16 @@ struct Index {
             this.pickAndUpload(field);
           },
         )
+        if (maskEditable && field.uploadKind !== 'audio') {
+          this.GhostAction(
+            '编辑蒙版',
+            this.running && this.uploadingField.length === 0 &&
+              this.nodeFieldEnabled(field.nodeId) && this.fieldText(field).length > 0,
+            () => {
+              this.openMaskEditor(field);
+            },
+          )
+        }
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
@@ -11800,6 +11884,24 @@ struct Index {
       }
       if (this.aiChatsOpen) {
         this.AiSessionsPanel()
+      }
+      if (this.maskEditorOpen) {
+        MaskEditor({
+          sourceUri: this.maskEditorUri,
+          sourceName: this.maskEditorName,
+          baseUrl: this.normalizedBaseUrl(),
+          initialBase64: this.maskEditorBase64,
+          deriveMask: this.maskEditorBase64.length > 0 || this.maskEditorName.endsWith('_mask.png'),
+          isDark: this.isDark,
+          onClose: () => {
+            this.closeMaskEditor();
+          },
+          onSave: (bytes: Uint8Array) => {
+            this.saveMaskBytes(bytes);
+          },
+        })
+          .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 80 })))
+          .zIndex(100)
       }
     }
     .width('100%')
