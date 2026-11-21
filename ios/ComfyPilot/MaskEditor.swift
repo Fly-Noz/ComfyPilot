@@ -342,6 +342,7 @@ struct MaskEditorSheet: View {
                 Text("编辑蒙版")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(palette.text)
+                    .accessibilityIdentifier("mask-editor-title")
                 Spacer(minLength: 0)
                 Button("保存") {
                     if let data = state.exportPNG() { onSave(data) }
@@ -393,7 +394,8 @@ struct MaskEditorSheet: View {
             .padding(.vertical, 14)
         }
         .background(palette.background)
-        .accessibilityIdentifier("mask-editor")
+        // 不要在父容器上加 accessibilityIdentifier：SwiftUI 会把它向下传播，
+        // 覆盖画布 UIView 自己的 mask-canvas 标识（CI 查不到画布的根因）。
     }
 
     @ViewBuilder

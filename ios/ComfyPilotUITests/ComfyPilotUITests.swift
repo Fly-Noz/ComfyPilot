@@ -322,9 +322,9 @@ final class ComfyPilotUITests: XCTestCase {
         scrollToHittable(edit, in: app)
         edit.tap()
 
-        let editor = app.otherElements["mask-editor"]
+        let editorTitle = app.staticTexts["mask-editor-title"]
         XCTAssertTrue(
-            editor.waitForExistence(timeout: 15),
+            editorTitle.waitForExistence(timeout: 15),
             "点「编辑蒙版」后编辑器没有出现。界面树：\n\(app.debugDescription)"
         )
         let canvas = app.otherElements["mask-canvas"]
