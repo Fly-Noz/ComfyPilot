@@ -2016,7 +2016,7 @@ private fun ChildGraphRow(
             .fillMaxWidth()
             .padding(start = 6.dp)
             .clip(shape)
-            .background(c.card.copy(alpha = 0.5f))
+            .background(if (row.enabled) c.card else c.background)
             .border(1.dp, c.border, shape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -2030,7 +2030,7 @@ private fun ChildGraphRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = if (row.enabled) "✓ └ ${row.graph.title}" else "└ ${row.graph.title}",
-                color = if (row.enabled) c.text else c.textMuted,
+                color = if (row.enabled) c.text else c.textDim,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -2085,7 +2085,7 @@ private fun RestHeader(row: InputRow.RestRow, onClick: () -> Unit) {
             .fillMaxWidth()
             .padding(top = 8.dp)
             .clip(shape)
-            .background(c.card.copy(alpha = 0.4f))
+            .background(c.card)
             .border(1.dp, c.border, shape)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 9.dp),
@@ -2128,7 +2128,7 @@ private fun HiddenHeader(row: InputRow.HiddenRow, onClick: () -> Unit) {
             .fillMaxWidth()
             .padding(top = 8.dp)
             .clip(shape)
-            .background(c.card.copy(alpha = 0.4f))
+            .background(c.card)
             .border(1.dp, c.border, shape)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 9.dp),
