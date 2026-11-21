@@ -48,7 +48,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color as ComposeColor
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -358,96 +358,17 @@ private fun MaskIconButton(
     ) {
         Canvas(modifier = Modifier.size(22.dp)) {
             val tint = if (active || emphasized) c.accent else c.textMuted
-            val stroke = 1.9.dp.toPx()
-            when (tool) {
-                MaskTool.Back -> {
-                    val path = Path().apply {
-                        moveTo(size.width * 0.64f, size.height * 0.22f)
-                        lineTo(size.width * 0.38f, size.height * 0.50f)
-                        lineTo(size.width * 0.64f, size.height * 0.78f)
-                    }
-                    drawPath(path, tint, style = Stroke(width = stroke, cap = StrokeCap.Round))
-                }
-                MaskTool.Save -> {
-                    val path = Path().apply {
-                        moveTo(size.width * 0.22f, size.height * 0.52f)
-                        lineTo(size.width * 0.43f, size.height * 0.73f)
-                        lineTo(size.width * 0.80f, size.height * 0.28f)
-                    }
-                    drawPath(path, tint, style = Stroke(width = stroke, cap = StrokeCap.Round))
-                }
-                MaskTool.Brush -> {
-                    // 铅笔：笔身 + 笔尖 + 顶部橡皮箍，比一条斜线更容易辨认。
-                    val body = Path().apply {
-                        moveTo(size.width * 0.28f, size.height * 0.74f)
-                        lineTo(size.width * 0.58f, size.height * 0.22f)
-                        lineTo(size.width * 0.78f, size.height * 0.34f)
-                        lineTo(size.width * 0.48f, size.height * 0.86f)
-                        close()
-                    }
-                    drawPath(body, tint, style = Stroke(width = stroke, cap = StrokeCap.Round))
-                    drawLine(
-                        tint,
-                        Offset(size.width * 0.28f, size.height * 0.74f),
-                        Offset(size.width * 0.48f, size.height * 0.86f),
-                        strokeWidth = stroke,
-                        cap = StrokeCap.Round,
-                    )
-                    drawLine(
-                        tint,
-                        Offset(size.width * 0.56f, size.height * 0.28f),
-                        Offset(size.width * 0.70f, size.height * 0.36f),
-                        strokeWidth = stroke,
-                        cap = StrokeCap.Round,
-                    )
-                }
-                MaskTool.Eraser -> {
-                    // 斜放的橡皮：两段梯形 + 中间分界线。
-                    val body = Path().apply {
-                        moveTo(size.width * 0.18f, size.height * 0.58f)
-                        lineTo(size.width * 0.48f, size.height * 0.22f)
-                        lineTo(size.width * 0.82f, size.height * 0.40f)
-                        lineTo(size.width * 0.52f, size.height * 0.76f)
-                        close()
-                    }
-                    drawPath(body, tint, style = Stroke(width = stroke, cap = StrokeCap.Round))
-                    drawLine(
-                        tint,
-                        Offset(size.width * 0.30f, size.height * 0.58f),
-                        Offset(size.width * 0.66f, size.height * 0.39f),
-                        strokeWidth = stroke,
-                        cap = StrokeCap.Round,
-                    )
-                    drawLine(
-                        tint,
-                        Offset(size.width * 0.38f, size.height * 0.80f),
-                        Offset(size.width * 0.70f, size.height * 0.80f),
-                        strokeWidth = stroke,
-                        cap = StrokeCap.Round,
-                    )
-                }
-                MaskTool.Undo -> {
-                    drawArc(
-                        color = tint,
-                        startAngle = 35f,
-                        sweepAngle = 265f,
-                        useCenter = false,
-                        topLeft = Offset(size.width * 0.18f, size.height * 0.18f),
-                        size = Size(size.width * 0.64f, size.height * 0.64f),
-                        style = Stroke(width = stroke, cap = StrokeCap.Round),
-                    )
-                    val arrow = Path().apply {
-                        moveTo(size.width * 0.10f, size.height * 0.50f)
-                        lineTo(size.width * 0.32f, size.height * 0.31f)
-                        lineTo(size.width * 0.32f, size.height * 0.69f)
-                        close()
-                    }
-                    drawPath(arrow, tint)
-                }
-                MaskTool.Clear -> {
-                    drawLine(tint, Offset(size.width * 0.28f, size.height * 0.28f), Offset(size.width * 0.72f, size.height * 0.72f), strokeWidth = stroke, cap = StrokeCap.Round)
-                    drawLine(tint, Offset(size.width * 0.72f, size.height * 0.28f), Offset(size.width * 0.28f, size.height * 0.72f), strokeWidth = stroke, cap = StrokeCap.Round)
-                }
+            val data = when (tool) {
+                MaskTool.Back -> "M17.77 3.77L16 2 6 12l10 10 1.77-1.77L9.54 12z"
+                MaskTool.Save -> "M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"
+                MaskTool.Brush -> "M7 14c-1.66 0-3 1.34-3 3 0 1.31-1.16 2-2 2 .92 1.22 2.49 2 4 2 2.21 0 4-1.79 4-4 0-1.66-1.34-3-3-3zm13.71-9.37l-1.34-1.34a.996.996 0 00-1.41 0L9 12.25 11.75 15l8.96-8.96a.996.996 0 000-1.41z"
+                MaskTool.Eraser -> "M17.25 18H22v2h-6.75zm-12.5 2l-2.125-2.125q-.575-.575-.587-1.425T2.6 15l11-11.4q.575-.6 1.413-.6t1.412.575L21.4 8.55q.575.575.575 1.425T21.4 11.4L13 20z"
+                MaskTool.Undo -> "M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"
+                MaskTool.Clear -> "M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"
+            }
+            val icon = PathParser().parsePathString(data).toPath()
+            withTransform({ scale(size.width / 24f, size.height / 24f, pivot = Offset.Zero) }) {
+                drawPath(icon, tint)
             }
         }
     }
