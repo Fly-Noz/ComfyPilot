@@ -531,7 +531,8 @@ internal class UiGraphResolver(private val graph: UiGraph) {
             VirtualNodeBehavior.GET_BUS -> {
                 val name = busName(node)
                 val source = graph.nodes.firstOrNull { candidate ->
-                    candidate.type == "SetNode" && busName(candidate) == name
+                    VirtualNodes.behaviorOf(candidate.type) == VirtualNodeBehavior.SET_BUS &&
+                        busName(candidate) == name
                 } ?: return null
                 val sourceSlot = source.inputs.indexOfFirst { it.linkId != null }
                 if (sourceSlot < 0) return null

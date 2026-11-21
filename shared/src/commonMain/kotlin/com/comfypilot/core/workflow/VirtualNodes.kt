@@ -34,6 +34,11 @@ internal object VirtualNodes {
         // rgthree / KJNodes 常用前端节点
         "SetNode" to VirtualNodeBehavior.SET_BUS,
         "GetNode" to VirtualNodeBehavior.GET_BUS,
+
+        // ComfyUI-Easy-Use 的 Set/Get 前端总线（基于 diffus3 的实现）
+        "easy setNode" to VirtualNodeBehavior.SET_BUS,
+        "easy getNode" to VirtualNodeBehavior.GET_BUS,
+        "easy bookmark" to VirtualNodeBehavior.SKIP,
         "Label (rgthree)" to VirtualNodeBehavior.SKIP,
         "Fast Groups Bypasser (rgthree)" to VirtualNodeBehavior.SKIP,
         "Fast Groups Muter (rgthree)" to VirtualNodeBehavior.SKIP,
