@@ -328,7 +328,10 @@ final class ComfyPilotUITests: XCTestCase {
             "点「编辑蒙版」后编辑器没有出现。界面树：\n\(app.debugDescription)"
         )
         let canvas = app.otherElements["mask-canvas"]
-        XCTAssertTrue(canvas.exists, "蒙版画布不存在")
+        XCTAssertTrue(
+            canvas.waitForExistence(timeout: 5),
+            "蒙版画布不存在。界面树：\n\(app.debugDescription)"
+        )
 
         canvas.swipeRight()
         Thread.sleep(forTimeInterval: 0.3)

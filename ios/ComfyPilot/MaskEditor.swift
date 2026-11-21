@@ -212,6 +212,10 @@ final class MaskDrawView: UIView, UIGestureRecognizerDelegate {
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = UIColor.black.withAlphaComponent(0.85)
+        // SwiftUI 加在 UIViewRepresentable 上的 accessibilityIdentifier 不会传到
+        // 内层 UIView；直接在视图上设，XCUITest 才查得到画布。
+        isAccessibilityElement = true
+        accessibilityIdentifier = "mask-canvas"
 
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         pan.delegate = self
