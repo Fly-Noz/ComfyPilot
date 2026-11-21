@@ -41,7 +41,7 @@ export struct MaskEditor {
   @State panX: number = 0;
   @State panY: number = 0;
   @State brush: number = 32;
-  @State erasing: boolean = false;
+  @State @Watch('onToolChanged') erasing: boolean = false;
   @State overlayTick: number = 0;
   @State saving: boolean = false;
 
@@ -102,7 +102,7 @@ export struct MaskEditor {
       const source = image.createImageSource(bytes.buffer as ArrayBuffer);
       const info = await source.getImageInfo();
       const maxSide = Math.max(info.size.width, info.size.height);
-      const scale = maxSide > 2048 ? 2048 / maxSide : 1;
+      const scale = maxSide > 1600 ? 1600 / maxSide : 1;
       const width = Math.max(1, Math.round(info.size.width * scale));
       const height = Math.max(1, Math.round(info.size.height * scale));
       const pm = await source.createPixelMap({
@@ -128,6 +128,7 @@ export struct MaskEditor {
       }
       this.basePm = await image.createPixelMap(baseData.buffer, {
         size: { width: width, height: height },
+        srcPixelFormat: image.PixelMapFormat.RGBA_8888,
         pixelFormat: image.PixelMapFormat.RGBA_8888,
         editable: true,
       });
@@ -148,6 +149,7 @@ export struct MaskEditor {
         }
         const maskPm = await image.createPixelMap(maskData.buffer, {
           size: { width: width, height: height },
+          srcPixelFormat: image.PixelMapFormat.RGBA_8888,
           pixelFormat: image.PixelMapFormat.RGBA_8888,
           editable: false,
         });
@@ -269,6 +271,22 @@ export struct MaskEditor {
     }
   }
 
+  private paintOverlaySegment(from: MaskPoint, to: MaskPoint, size: number, erase: boolean): void {
+    const s = this.fitScale();
+    const dx = this.imageX();
+    const dy = this.imageY();
+    const ctx = this.overlayCtx;
+    ctx.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
+    ctx.strokeStyle = this.palette().accent;
+    ctx.lineWidth = Math.max(1, size * s);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(dx + from.x * s, dy + from.y * s);
+    ctx.lineTo(dx + to.x * s, dy + to.y * s);
+    ctx.stroke();
+  }
+
   private toImage(x: number, y: number): MaskPoint {
     const s = this.fitScale();
     return {
@@ -293,8 +311,8 @@ export struct MaskEditor {
     const last = this.active.points[this.active.points.length - 1];
     this.active.points.push(p);
     this.applySegment(last, p, this.active.size, this.active.erase);
+    this.paintOverlaySegment(last, p, this.active.size, this.active.erase);
     this.overlayTick++;
-    this.drawOverlay();
   }
 
   private endStroke(): void {
@@ -456,6 +474,36 @@ export struct MaskEditor {
     }
   }
 
+  private onToolChanged(): void {
+    this.drawToolbar();
+  }
+
+  private paintIcon(ctx: CanvasRenderingContext2D, path: string, active: boolean): void {
+    if (ctx === undefined || ctx === null) {
+      return;
+    }
+    try {
+      ctx.clearRect(0, 0, 22, 22);
+      ctx.save();
+      const iconScale = vp2px(22) / 24;
+      ctx.scale(iconScale, iconScale);
+      ctx.fillStyle = active ? this.palette().accent : this.palette().textMuted;
+      ctx.fill(new Path2D(path));
+      ctx.restore();
+    } catch (err) {
+      console.info(`CP> mask icon draw failed ${(err as Error).message}`);
+    }
+  }
+
+  private drawToolbar(): void {
+    this.paintIcon(this.backCtx, ICON_BACK, false);
+    this.paintIcon(this.checkCtx, ICON_CHECK, true);
+    this.paintIcon(this.brushCtx, ICON_BRUSH, !this.erasing);
+    this.paintIcon(this.eraserCtx, ICON_ERASER, this.erasing);
+    this.paintIcon(this.undoCtx, ICON_UNDO, false);
+    this.paintIcon(this.clearCtx, ICON_CLEAR, false);
+  }
+
   @Builder
   IconButton(ctx: CanvasRenderingContext2D, path: string, active: boolean, action: () => void) {
     Stack({ alignContent: Alignment.Center }) {
@@ -554,8 +602,8 @@ export struct MaskEditor {
         }
 
         Row({ space: 8 }) {
-          this.ToolButton(this.brushCtx, ICON_BRUSH, !this.erasing, () => { this.erasing = false; })
-          this.ToolButton(this.eraserCtx, ICON_ERASER, this.erasing, () => { this.erasing = true; })
+          this.ToolButton(this.brushCtx, ICON_BRUSH, !this.erasing, () => { this.erasing = false; this.overlayTick++; })
+          this.ToolButton(this.eraserCtx, ICON_ERASER, this.erasing, () => { this.erasing = true; this.overlayTick++; })
           this.ToolButton(this.undoCtx, ICON_UNDO, false, () => {
             if (this.strokes.length > 0) {
               this.strokes.pop();
