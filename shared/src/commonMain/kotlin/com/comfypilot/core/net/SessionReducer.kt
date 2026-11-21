@@ -528,9 +528,9 @@ class SessionReducer(
             // 换文档就清空单节点开关；它们只属于当前打开的工作流。
             bypassedNodeIds = emptySet(),
             enabledNodeIds = emptySet(),
-            // 每次打开工作流都重新拉一遍节点定义：服务器换过模型/节点版本时，
-            // 旧候选会让提交前的校验误判（把有效值当成失效）。
-            nodeInfoRequested = emptySet(),
+            // 普通打开重新拉定义；缓存打开保留已请求集合，避免第二次打开重复请求
+            // 已在加载的类，表现为一直卡在“正在加载节点定义”。
+            nodeInfoRequested = if (cached != null) state.nodeInfoRequested else emptySet(),
             pendingWorkflowUpdate = state.pendingWorkflowUpdate
                 ?.takeIf { it.path == input.path },
             workflowUpdateDismissed = state.workflowUpdateDismissed
