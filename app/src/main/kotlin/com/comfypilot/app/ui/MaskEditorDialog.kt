@@ -387,6 +387,9 @@ private fun composeMask(image: Bitmap, mask: Bitmap): Bitmap {
         src[i] = (src[i] and 0x00FFFFFF) or (alpha shl 24)
     }
     out.setPixels(src, 0, image.width, 0, 0, image.width, image.height)
+    // 源图常是 JPEG（hasAlpha=false）。setPixels 改了 alpha 后必须显式打开，
+    // 否则 PNG 编码器可能按不透明图写出，ComfyUI 就收不到蒙版。
+    out.setHasAlpha(true)
     return out
 }
 

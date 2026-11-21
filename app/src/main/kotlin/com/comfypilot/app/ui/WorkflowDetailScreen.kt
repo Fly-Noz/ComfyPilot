@@ -673,6 +673,7 @@ private fun DetailBody(
     var maskSources by remember { mutableStateOf<Map<String, Bitmap>>(emptyMap()) }
     var uploadError by remember { mutableStateOf<String?>(null) }
     var uploadNotice by remember { mutableStateOf<String?>(null) }
+    var uploadNoticeKey by remember { mutableStateOf<String?>(null) }
     // 蒙版编辑：source 是当前图片（本地缩略图或从主机 input 重新拉取）。
     var maskTarget by remember { mutableStateOf<WorkflowField?>(null) }
     var maskSource by remember { mutableStateOf<Bitmap?>(null) }
@@ -748,6 +749,7 @@ private fun DetailBody(
                             maskSources = maskSources + (key to maskSource)
                         }
                     }
+                    uploadNoticeKey = "${target.nodeId}:${target.inputName}"
                     uploadNotice = "图片已上传"
                     applyOverride(
                         target.nodeId,
@@ -847,6 +849,7 @@ private fun DetailBody(
                         uploadPreviews = uploadPreviews + ("${field.nodeId}:${field.inputName}" to preview)
                     }
                     applyOverride(field.nodeId, field.inputName, JsonPrimitive(result.reference))
+                    uploadNoticeKey = "${field.nodeId}:${field.inputName}"
                     uploadNotice = "蒙版已上传：${result.reference}"
                 }
                 is ImageUploadResult.Failure -> uploadError = result.message
@@ -1126,20 +1129,6 @@ private fun DetailBody(
                 TopBarAction(text = "知道了", onClick = { uploadError = null })
             }
         }
-        uploadNotice?.let { message ->
-            Row(
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = message,
-                    color = c.ok,
-                    fontSize = 11.sp,
-                    modifier = Modifier.weight(1f),
-                )
-                TopBarAction(text = "知道了", onClick = { uploadNotice = null })
-            }
-        }
         if (fields.problems.isNotEmpty()) {
             Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)) {
                 GlassCard(padding = PaddingValues(11.dp)) {
@@ -1212,6 +1201,8 @@ private fun DetailBody(
                     onOverride = ::applyOverride,
                     onPickImage = ::pickImage,
                     onEditMask = ::openMaskEditor,
+                    uploadNoticeKey = uploadNoticeKey,
+                    uploadNotice = uploadNotice,
                 )
             } else {
                 PreviewPane(
@@ -1661,6 +1652,8 @@ private fun InputPane(
     onOverride: (Int, String, JsonElement) -> Unit,
     onPickImage: (WorkflowField) -> Unit,
     onEditMask: (WorkflowField) -> Unit,
+    uploadNoticeKey: String?,
+    uploadNotice: String?,
 ) {
     val c = Spectrum.colors
     val rows = remember(
@@ -1799,6 +1792,8 @@ private fun InputPane(
                     } else {
                         null
                     },
+                    uploadNoticeKey = uploadNoticeKey,
+                    uploadNotice = uploadNotice,
                 )
             }
             }
@@ -2396,6 +2391,8 @@ private fun NodeInputCard(
     onChange: (Int, String, JsonElement) -> Unit,
     onPickImage: (WorkflowField) -> Unit,
     onEditMask: ((WorkflowField) -> Unit)? = null,
+    uploadNoticeKey: String? = null,
+    uploadNotice: String? = null,
 ) {
     val c = Spectrum.colors
     val shape = RoundedCornerShape(18.dp)
@@ -2522,6 +2519,7 @@ private fun NodeInputCard(
                         } else {
                             null
                         },
+                        notice = if (uploadNoticeKey == "${node.id}:${field.inputName}") uploadNotice else null,
                         onChange = { value -> onChange(node.id, field.inputName, value) },
                     )
                     }
@@ -3160,6 +3158,7 @@ private fun FieldEditor(
     preview: Bitmap? = null,
     onPickImage: (() -> Unit)? = null,
     onEditMask: (() -> Unit)? = null,
+    notice: String? = null,
     onChange: (JsonElement) -> Unit,
 ) {
     val c = Spectrum.colors
@@ -3293,6 +3292,15 @@ private fun FieldEditor(
                 if (onEditMask != null) {
                     GhostButton(text = "编辑蒙版", onClick = onEditMask, height = 36.dp)
                 }
+            }
+            if (notice != null) {
+                Text(
+                    text = notice,
+                    color = c.ok,
+                    fontSize = 10.5.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
 
             // 音频上传完成后直接试听：从主机的 input 目录拉（type=input）。
