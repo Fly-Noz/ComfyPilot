@@ -90,7 +90,6 @@ object PromptBuilder {
      * 前端专用、没有服务端实现的节点。它们不参与执行，画布上只是标签/开关/备注。
      * 其余"服务端没有定义"的活动节点一律当成缺自定义节点报错。
      */
-    private val UI_ONLY_NODE_TYPES = WorkflowCodec.UI_ONLY_NODE_TYPES
 
     fun build(
         document: WorkflowDocument,
@@ -172,7 +171,7 @@ object PromptBuilder {
         for (node in ordered) {
             val definition = definitions[node.type]
             if (definition == null || definition.missing) {
-                if (node.type in UI_ONLY_NODE_TYPES) continue
+                if (VirtualNodes.isVirtual(node.type)) continue
                 converted[node.id] = ConvertedNode(
                     node = node,
                     json = null,
@@ -518,24 +517,30 @@ internal class UiGraphResolver(private val graph: UiGraph) {
         // Reroute 是纯视觉转接点：1 进 1 出、类型直通，API 图里不存在。
         // 桌面端 graphToPrompt 也把它折到上游，这里必须同样穿透，否则下游会
         // 把 Reroute 当成真实来源，报「服务端没有该节点的定义」。
-        if (node.type == "Reroute") {
-            return resolveInput(node, 0, seen)
-        }
-        // rgthree 的 SetNode / GetNode 是前端总线：SetNode 收一条值，GetNode
-        // 按名字取回。服务端没有这两个类，必须在这里穿透，否则下游会把
-        // GetNode 当成真实来源并报「服务端没有该节点的定义」。
-        if (node.type == "SetNode") {
-            val slotIndex = if (slot in node.inputs.indices) slot else 0
-            return resolveInput(node, slotIndex, seen)
-        }
-        if (node.type == "GetNode") {
-            val name = busName(node)
-            val source = graph.nodes.firstOrNull { candidate ->
-                candidate.type == "SetNode" && busName(candidate) == name
-            } ?: return null
-            val sourceSlot = source.inputs.indexOfFirst { it.linkId != null }
-            if (sourceSlot < 0) return null
-            return resolveInput(source, sourceSlot, seen)
+        when (VirtualNodes.behaviorOf(node.type)) {
+            VirtualNodeBehavior.PASSTHROUGH -> return resolveInput(
+                node,
+                if (slot in node.inputs.indices) slot else 0,
+                seen,
+            )
+            VirtualNodeBehavior.SET_BUS -> return resolveInput(
+                node,
+                if (slot in node.inputs.indices) slot else 0,
+                seen,
+            )
+            VirtualNodeBehavior.GET_BUS -> {
+                val name = busName(node)
+                val source = graph.nodes.firstOrNull { candidate ->
+                    candidate.type == "SetNode" && busName(candidate) == name
+                } ?: return null
+                val sourceSlot = source.inputs.indexOfFirst { it.linkId != null }
+                if (sourceSlot < 0) return null
+                return resolveInput(source, sourceSlot, seen)
+            }
+            // Primitive 的字面量在 convertNode 里读取，这里保留 origin 节点。
+            VirtualNodeBehavior.PRIMITIVE -> return ResolvedLink(node.id, slot)
+            VirtualNodeBehavior.SKIP -> return null
+            null -> Unit
         }
         return when (node.mode) {
             UiWorkflowParser.MODE_MUTED -> null

@@ -166,8 +166,20 @@ object WorkflowDecisions {
             linkOverrides = selection.linkOverrides,
         )
 
-        val allClasses = document.nodeClasses.distinct()
-        val missingClasses = allClasses.filter { definitions[it]?.missing != false }
+        // 只有"会进入本次提交"的缺失节点才阻断：未启用图、被旁路节点、
+        // 没连到输出的孤立节点都不该因为缺自定义节点把整张工作流卡死。
+        // 如果输出节点定义本身还没到齐，无法计算 roots，退回按普通模式节点判断，
+        // 否则启动首帧会把 pending 类误报成空列表。
+        val hasKnownOutputDefinition = definitions.values.any { it.isOutputNode && !it.missing }
+        val blockingMissing = fields.nodes
+            .filter { node ->
+                node.missing &&
+                    node.mode == UiWorkflowParser.MODE_NORMAL &&
+                    (node.reachable || !hasKnownOutputDefinition)
+            }
+            .map { it.type }
+            .distinct()
+        val missingClasses = blockingMissing.filter { definitions[it]?.missing != false }
         val pendingClasses = missingClasses.filter { it !in nodeInfoRequested }
         return WorkflowAnalysis(
             document = document,

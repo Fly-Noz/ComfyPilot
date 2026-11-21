@@ -23,17 +23,7 @@ object WorkflowCodec {
      * 转换层与解析层共用这一份：以前两处各写一份，结果 rgthree 的两个节点
      * 每次都被无意义地请求一遍、还背上「提交会被拒绝」的假错误。
      */
-    internal val UI_ONLY_NODE_TYPES = setOf(
-        "Note",
-        "MarkdownNote",
-        "Reroute",
-        "SetNode",
-        "GetNode",
-        "PrimitiveNode",
-        "Label (rgthree)",
-        "Fast Groups Bypasser (rgthree)",
-        "Image Comparer (rgthree)",
-    )
+    internal val UI_ONLY_NODE_TYPES: Set<String> = VirtualNodes.types
 
     private val FRONTEND_ONLY = UI_ONLY_NODE_TYPES
 

@@ -254,7 +254,7 @@ object WorkflowFields {
         if (definition == null || definition.missing) {
             // 前端专用节点（Reroute / Note / Label …）本来就服务端没有定义，
             // 它们不参与执行，不该显示成"提交会被拒绝"。
-            val uiOnly = node.type in WorkflowCodec.UI_ONLY_NODE_TYPES
+            val uiOnly = VirtualNodes.isVirtual(node.type)
             return WorkflowNodeView(
                 id = node.id,
                 type = node.type,
