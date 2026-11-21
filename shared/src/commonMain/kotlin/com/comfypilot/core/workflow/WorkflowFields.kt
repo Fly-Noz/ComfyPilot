@@ -72,6 +72,8 @@ data class WorkflowNodeView(
     val subgraphWidgets: String? = null,
     /** 排序用的“是否缺值”：同样忽略单节点开关，保持关闭前后的相对顺序。 */
     val orderNeedsInput: Boolean = reachable && fields.any { it.needsInput },
+    /** 该节点可输出 MASK（如 LoadImage），参数页可为它编辑蒙版。 */
+    val maskEditable: Boolean = false,
 ) {
     /**
      * 生效后的模式是否正常。保存为静音（2）/旁路（4）的节点，以及本次会话关闭的节点
@@ -363,6 +365,7 @@ object WorkflowFields {
             orderReachable = orderReachable,
             fields = fields,
             orderNeedsInput = orderNeedsInput ?: (reachable && fields.any { it.needsInput }),
+            maskEditable = "MASK" in definition.outputs,
             subgraph = node.subgraph,
             subgraphWidgets = node.subgraphWidgets,
         )

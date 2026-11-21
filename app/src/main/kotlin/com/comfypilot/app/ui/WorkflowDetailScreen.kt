@@ -111,6 +111,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.comfypilot.android.transport.OkHttpHttpTransport
 import com.comfypilot.app.ui.theme.Dot
 import com.comfypilot.app.ui.theme.GhostButton
@@ -169,6 +170,7 @@ import com.comfypilot.core.workflow.WorkflowDocument
 import com.comfypilot.core.workflow.WorkflowField
 import com.comfypilot.core.workflow.WorkflowGraph
 import com.comfypilot.core.workflow.WorkflowNodeView
+import java.io.ByteArrayOutputStream
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -669,6 +671,11 @@ private fun DetailBody(
     var uploading by remember { mutableStateOf(false) }
     var uploadPreviews by remember { mutableStateOf<Map<String, Bitmap>>(emptyMap()) }
     var uploadError by remember { mutableStateOf<String?>(null) }
+    // 蒙版编辑：source 是当前图片（本地缩略图或从主机 input 重新拉取）。
+    var maskTarget by remember { mutableStateOf<WorkflowField?>(null) }
+    var maskSource by remember { mutableStateOf<Bitmap?>(null) }
+    var maskLoading by remember { mutableStateOf(false) }
+    var maskError by remember { mutableStateOf<String?>(null) }
 
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         val target = uploadTarget
@@ -750,6 +757,91 @@ private fun DetailBody(
         }
         uploadTarget = field
         picker.launch(if (field.uploadKind == "audio") "audio/*" else "image/*")
+    }
+
+    fun currentFieldName(field: WorkflowField): String =
+        (overrides[field.nodeId]?.get(field.inputName) as? JsonPrimitive)?.contentOrNull
+            ?: (field.value as? JsonPrimitive)?.contentOrNull
+            ?: ""
+
+    fun openMaskEditor(field: WorkflowField) {
+        if (uploading || maskLoading) return
+        val name = currentFieldName(field)
+        if (name.isBlank()) {
+            uploadError = "先选择一张图片，再编辑蒙版"
+            return
+        }
+        maskError = null
+        val cached = uploadPreviews["${field.nodeId}:${field.inputName}"]
+        if (cached != null) {
+            maskTarget = field
+            maskSource = cached
+            return
+        }
+        val base = state.lease?.baseUrl
+        val url = inputFileUrl(base.orEmpty(), name)
+        if (url == null) {
+            uploadError = "未连接 ComfyUI，无法读取原图"
+            return
+        }
+        maskTarget = field
+        maskSource = null
+        maskLoading = true
+        scope.launch {
+            val loaded = withContext(Dispatchers.IO) { loadMaskSource(url) }
+            maskLoading = false
+            if (loaded == null) {
+                maskError = "原图读取失败，请先重新选择图片"
+                maskTarget = null
+            } else {
+                maskSource = loaded
+            }
+        }
+    }
+
+    fun saveMask(image: Bitmap) {
+        val field = maskTarget ?: return
+        val originalName = currentFieldName(field)
+        val sourcePreview = maskSource
+        maskTarget = null
+        maskSource = null
+        val lease = state.lease
+        if (lease == null) {
+            uploadError = "未连接 ComfyUI"
+            return
+        }
+        scope.launch {
+            uploading = true
+            uploadError = null
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching {
+                    ByteArrayOutputStream().use { output ->
+                        if (!image.compress(Bitmap.CompressFormat.PNG, 100, output)) {
+                            error("蒙版图片编码失败")
+                        }
+                        output.toByteArray()
+                    }
+                }
+            }
+            if (bytes.isFailure) {
+                uploadError = bytes.exceptionOrNull()?.message ?: "蒙版图片编码失败"
+                uploading = false
+                return@launch
+            }
+            val baseName = originalName.substringBeforeLast('.', originalName)
+            val filename = "${baseName}_mask.png"
+            when (val result = ImageUpload.upload(uploader, lease.baseUrl, filename, bytes.getOrThrow())) {
+                is ImageUploadResult.Success -> {
+                    val preview = sourcePreview ?: withContext(Dispatchers.IO) { decodePreview(bytes.getOrThrow()) }
+                    if (preview != null) {
+                        uploadPreviews = uploadPreviews + ("${field.nodeId}:${field.inputName}" to preview)
+                    }
+                    applyOverride(field.nodeId, field.inputName, JsonPrimitive(result.reference))
+                }
+                is ImageUploadResult.Failure -> uploadError = result.message
+            }
+            uploading = false
+        }
     }
 
     fun submit(force: Boolean = false) {
@@ -1094,6 +1186,7 @@ private fun DetailBody(
                     onToggleRest = { restExpanded = !restExpanded },
                     onOverride = ::applyOverride,
                     onPickImage = ::pickImage,
+                    onEditMask = ::openMaskEditor,
                 )
             } else {
                 PreviewPane(
@@ -1274,6 +1367,31 @@ private fun DetailBody(
             }
         }
     }
+    if (maskLoading) {
+        Dialog(onDismissRequest = {}) {
+            GlassCard(padding = PaddingValues(18.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = c.accent)
+                    Text("正在读取原图…", color = c.textMuted, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+    maskSource?.let { source ->
+        MaskEditorDialog(
+            image = source,
+            onDismiss = {
+                maskTarget = null
+                maskSource = null
+                maskError = null
+            },
+            onSave = ::saveMask,
+        )
+    }
+
     if (sheetVisible) {
         val sheetNodes = remember(fields.nodes, sheetQuery, sheetTraits, nodeNotes) {
             val typeFilters = sheetTraits - NodeTrait.NeedsInput
@@ -1499,6 +1617,7 @@ private fun InputPane(
     onToggleRest: () -> Unit,
     onOverride: (Int, String, JsonElement) -> Unit,
     onPickImage: (WorkflowField) -> Unit,
+    onEditMask: (WorkflowField) -> Unit,
 ) {
     val c = Spectrum.colors
     val rows = remember(
@@ -1632,6 +1751,11 @@ private fun InputPane(
                     onEditNote = { onEditNote(row.node) },
                     onChange = onOverride,
                     onPickImage = onPickImage,
+                    onEditMask = if (row.node.maskEditable && row.node.reachable && row.node.enabled) {
+                        onEditMask
+                    } else {
+                        null
+                    },
                 )
             }
             }
@@ -2228,6 +2352,7 @@ private fun NodeInputCard(
     onEditNote: () -> Unit,
     onChange: (Int, String, JsonElement) -> Unit,
     onPickImage: (WorkflowField) -> Unit,
+    onEditMask: ((WorkflowField) -> Unit)? = null,
 ) {
     val c = Spectrum.colors
     val shape = RoundedCornerShape(18.dp)
@@ -2342,6 +2467,15 @@ private fun NodeInputCard(
                             field.uploadKind != null
                         ) {
                             { onPickImage(field) }
+                        } else {
+                            null
+                        },
+                        onEditMask = if (
+                            node.reachable && enabled &&
+                            field.uploadKind == "image" &&
+                            onEditMask != null
+                        ) {
+                            { onEditMask(field) }
                         } else {
                             null
                         },
@@ -2982,6 +3116,7 @@ private fun FieldEditor(
     editable: Boolean,
     preview: Bitmap? = null,
     onPickImage: (() -> Unit)? = null,
+    onEditMask: (() -> Unit)? = null,
     onChange: (JsonElement) -> Unit,
 ) {
     val c = Spectrum.colors
@@ -3112,6 +3247,9 @@ private fun FieldEditor(
                     onClick = onPickImage,
                     height = 36.dp,
                 )
+                if (onEditMask != null) {
+                    MaskIconButton(glyph = "◉", onClick = onEditMask)
+                }
             }
 
             // 音频上传完成后直接试听：从主机的 input 目录拉（type=input）。
