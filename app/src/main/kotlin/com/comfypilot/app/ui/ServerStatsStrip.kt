@@ -197,15 +197,16 @@ fun ServerStatsStrip(
         // 没有数据的连接页不占地方。
         if (cells.isEmpty()) return@ServerStatsStrip
 
-        // 收起时只留一行：标题 + 两条最有用的数字；展开才铺开两列明细。
+        // 收起时只留一行：优先 CPU/GPU，因为内存/显存通常很稳，看起来像卡住。
+        // 没有 Crystools 的服务器再退回内存/显存。
         val summary = buildList {
-            cells.firstOrNull { it.label == "内存" }?.let { add("内存 ${it.value}") }
-            cells.firstOrNull { it.label == "显存" }?.let { add("显存 ${it.value}") }
+            listOf("CPU", "GPU", "内存", "显存").forEach { label ->
+                cells.firstOrNull { it.label == label }?.let { add("$label ${it.value}") }
+            }
             if (isEmpty()) {
-                cells.firstOrNull { it.label == "CPU" }?.let { add("CPU ${it.value}") }
                 cells.firstOrNull { it.label == "温度" }?.let { add(it.value) }
             }
-        }.joinToString(" · ")
+        }.take(4).joinToString(" · ")
 
         Column(
             modifier = Modifier

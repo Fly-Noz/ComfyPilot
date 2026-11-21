@@ -1734,7 +1734,14 @@ struct Index {
    * 一个数都没有就返回空字符串，标题行只留箭头（不写 --，也不补 0）。 
    */
   private statsSummary(): string {
+    // CPU/GPU 变化快；内存/显存通常很稳，收起时只显示它们会看起来像卡住。
     const parts: string[] = [];
+    if (this.stripCpu() >= 0) {
+      parts.push(`CPU ${this.statPercentText(this.shownStats.cpu)}`);
+    }
+    if (this.stripGpu() >= 0) {
+      parts.push(`GPU ${this.statPercentText(this.shownStats.gpu)}`);
+    }
     if (this.stripRam() >= 0) {
       parts.push(`内存 ${this.statPercentText(this.shownStats.ram)}`);
     }
@@ -1742,15 +1749,12 @@ struct Index {
       parts.push(`显存 ${this.statPercentText(this.shownStats.vram)}`);
     }
     if (parts.length === 0) {
-      if (this.stripCpu() >= 0) {
-        parts.push(`CPU ${this.statPercentText(this.shownStats.cpu)}`);
-      }
       const temperature = this.stripTemp();
       if (temperature >= 0) {
         parts.push(`温度 ${Math.round(temperature)}°C`);
       }
     }
-    return parts.join(' · ');
+    return parts.slice(0, 4).join(' · ');
   }
 
   private statPercentText(value: number): string {
