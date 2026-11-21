@@ -2,6 +2,7 @@ import { image } from '@kit.ImageKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
+import { LengthMetricsUnit } from '@ohos.arkui.node';
 import { Palette, Spectrum } from '../theme/Spectrum';
 
 interface MaskPoint {
@@ -55,8 +56,8 @@ export struct MaskEditor {
   private initialMaskBitmap: ImageBitmap | null = null;
   private offCanvas: OffscreenCanvas | null = null;
   private offCtx: OffscreenCanvasRenderingContext2D | null = null;
-  private baseCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
-  private overlayCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
+  private baseCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true), LengthMetricsUnit.DEFAULT);
+  private overlayCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true), LengthMetricsUnit.DEFAULT);
   private strokes: MaskStroke[] = [];
   private active: MaskStroke | null = null;
   private drawing: boolean = false;
@@ -65,12 +66,12 @@ export struct MaskEditor {
   private pinchStartDist: number = 0;
   private pinchLastX: number = 0;
   private pinchLastY: number = 0;
-  private backCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
-  private checkCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
-  private brushCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
-  private eraserCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
-  private undoCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
-  private clearCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
+  private backCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true), LengthMetricsUnit.DEFAULT);
+  private checkCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true), LengthMetricsUnit.DEFAULT);
+  private brushCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true), LengthMetricsUnit.DEFAULT);
+  private eraserCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true), LengthMetricsUnit.DEFAULT);
+  private undoCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true), LengthMetricsUnit.DEFAULT);
+  private clearCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true), LengthMetricsUnit.DEFAULT);
 
   aboutToAppear(): void {
     this.load();
@@ -179,7 +180,7 @@ export struct MaskEditor {
       this.basePixels = baseData;
       this.sourceW = width;
       this.sourceH = height;
-      this.offCanvas = new OffscreenCanvas(width, height);
+      this.offCanvas = new OffscreenCanvas(width, height, LengthMetricsUnit.PX);
       this.offCtx = this.offCanvas.getContext('2d', new RenderingContextSettings(true));
       this.offCtx.drawImage(this.baseBitmap, 0, 0);
       if (hasAlpha && (maskPixels !== null || this.deriveMask)) {
@@ -198,7 +199,7 @@ export struct MaskEditor {
           editable: false,
         });
         const maskBitmap = new ImageBitmap(maskPm);
-        const redCanvas = new OffscreenCanvas(width, height);
+        const redCanvas = new OffscreenCanvas(width, height, LengthMetricsUnit.PX);
         const redCtx = redCanvas.getContext('2d', new RenderingContextSettings(true));
         redCtx.drawImage(maskBitmap, 0, 0);
         redCtx.globalCompositeOperation = 'source-in';
@@ -621,7 +622,7 @@ export struct MaskEditor {
     try {
       ctx.clearRect(0, 0, 22, 22);
       ctx.save();
-      const iconScale = vp2px(22) / 24;
+      const iconScale = 22 / 24;
       ctx.scale(iconScale, iconScale);
       ctx.fillStyle = active ? this.palette().accent : this.palette().textMuted;
       ctx.fill(new Path2D(path));

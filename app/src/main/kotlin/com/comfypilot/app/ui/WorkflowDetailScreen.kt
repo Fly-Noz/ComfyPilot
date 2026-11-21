@@ -733,6 +733,8 @@ private fun DetailBody(
             ) {
                 is ImageUploadResult.Success -> {
                     if (target.uploadKind != "audio") {
+                        // 新图片是新的蒙版起点，清掉旧图的笔画缓存。
+                        maskCache = maskCache - "${target.nodeId}:${target.inputName}"
                         val preview = withContext(Dispatchers.IO) { decodePreview(bytes) }
                         if (preview != null) {
                             uploadPreviews = uploadPreviews + ("${target.nodeId}:${target.inputName}" to preview)
