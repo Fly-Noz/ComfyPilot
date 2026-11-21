@@ -322,8 +322,6 @@ struct Index {
    * 不会触发 refreshView()，工作流视图不会被每秒重建。 
    */
   @State monitor: BridgeMonitor | null = null;
-  /** 即使读数没变、@State 复用旧对象，也要记录最近一次监控帧时间。 */
-  private lastMonitorAtMs: number = 0;
   /** 性能条展开/收起；收起时只剩一行标题，纯界面状态，不进 summaryKey。 */
   @State statsExpanded: boolean = false;
   /** 本地导入工作流列表与待删除路径。 */
@@ -1190,9 +1188,6 @@ struct Index {
     this.queuePending = state.queuePending ?? 0;
     // 监控采样只喂性能条：单独一份 @State，summaryKey 不读它，工作流视图不受影响。 
     const monitor: BridgeMonitor | null = state.monitor ?? null;
-    if (monitor !== null && Number.isFinite(monitor.receivedAtMs)) {
-      this.lastMonitorAtMs = monitor.receivedAtMs;
-    }
     this.monitor = sameMonitor(this.monitor, monitor) ? this.monitor : monitor;
     // 监控帧或 HTTP 轮询都可能更新百分比：每次状态帧后对齐一次补间目标。
     this.syncStatsTargets();
@@ -1673,14 +1668,9 @@ struct Index {
       stats.gpuPercent >= 0 || stats.temperature >= 0 || stats.version.length > 0;
   }
 
-  /** Crystools WebSocket 停了以后，不能用旧监控帧盖住 HTTP 新读数。 */
+  /** 监控帧优先；保持原有的实时显示。 */
   private monitorFresh(): boolean {
-    const live = this.monitor;
-    if (live === null || !Number.isFinite(this.lastMonitorAtMs)) {
-      return false;
-    }
-    const age = Date.now() - this.lastMonitorAtMs;
-    return age >= 0 && age <= 15000;
+    return this.monitor !== null;
   }
 
   /** 监控帧里的一个数；缺失或非法返回 -1，性能条据此省掉这一格（绝不补 0）。 */

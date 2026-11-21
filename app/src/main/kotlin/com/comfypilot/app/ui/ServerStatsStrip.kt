@@ -134,12 +134,8 @@ fun ServerStatsStrip(
 
     val current = stats
     val metrics = crystools
-    // Crystools 的 WebSocket 可能先停、HTTP /system_stats 仍在更新：监控帧超过 15 秒
-    // 就视为过期，回退到 HTTP 兜底，避免主机状态停在旧数字。
-    val live = monitor?.takeIf {
-        val age = System.currentTimeMillis() - it.receivedAtMs
-        age in 0..15_000
-    }
+    // 监控帧优先；保持原有的实时显示。HTTP /system_stats 只在监控字段缺失时兜底。
+    val live = monitor
     var expanded by rememberSaveable { mutableStateOf(false) }
     var freeDialog by remember { mutableStateOf(false) }
     var freeing by remember { mutableStateOf(false) }
