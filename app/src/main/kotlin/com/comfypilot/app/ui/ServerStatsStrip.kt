@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -206,7 +207,7 @@ fun ServerStatsStrip(
             if (isEmpty()) {
                 cells.firstOrNull { it.label == "温度" }?.let { add(it.value) }
             }
-        }.take(4).joinToString(" · ")
+        }.take(3).joinToString(" · ")
 
         Column(
             modifier = Modifier
@@ -228,17 +229,20 @@ fun ServerStatsStrip(
                     fontSize = 11.5.sp,
                     letterSpacing = 0.6.sp,
                 )
-                Spacer(Modifier.weight(1f))
                 if (summary.isNotEmpty()) {
                     Text(
                         text = summary,
                         color = c.textDim,
                         fontSize = 10.5.sp,
                         fontFamily = SpectrumMono,
+                        textAlign = TextAlign.End,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                     )
                     Spacer(Modifier.width(8.dp))
+                } else {
+                    Spacer(Modifier.weight(1f))
                 }
                 Text(
                     text = if (expanded) "收起 ▾" else "展开 ▸",
