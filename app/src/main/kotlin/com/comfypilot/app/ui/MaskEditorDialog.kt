@@ -207,7 +207,7 @@ fun MaskEditorDialog(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(ComposeColor.Black.copy(alpha = 0.18f))
+                    .background(ComposeColor.Black.copy(alpha = 0.05f))
                     .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(10.dp),
                 contentAlignment = Alignment.Center,
