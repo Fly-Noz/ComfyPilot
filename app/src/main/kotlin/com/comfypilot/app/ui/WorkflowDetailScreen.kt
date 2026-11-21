@@ -3248,7 +3248,7 @@ private fun FieldEditor(
                     height = 36.dp,
                 )
                 if (onEditMask != null) {
-                    MaskIconButton(glyph = "◉", onClick = onEditMask)
+                    GhostButton(text = "编辑蒙版", onClick = onEditMask, height = 36.dp)
                 }
             }
 

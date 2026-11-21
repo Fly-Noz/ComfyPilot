@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.WindowInsets
@@ -36,6 +37,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color as ComposeColor
@@ -237,8 +240,8 @@ fun MaskEditorDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     MaskIconButton(glyph = "✎", active = !erasing, onClick = { erasing = false })
-                    MaskIconButton(glyph = "⌫", active = erasing, onClick = { erasing = true })
-                    MaskIconButton(glyph = "↺", onClick = {
+                    MaskIconButton(glyph = "eraser", active = erasing, onClick = { erasing = true })
+                    MaskIconButton(glyph = "↩", onClick = {
                         if (strokes.isNotEmpty()) {
                             strokes = strokes.dropLast(1)
                             rebuild()
@@ -287,12 +290,35 @@ internal fun MaskIconButton(
             .pointerInput(Unit) { detectTapGestures { onClick() } },
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = glyph,
-            color = if (active || emphasized) c.accent else c.textMuted,
-            fontSize = 20.sp,
-            fontFamily = SpectrumMono,
-        )
+        if (glyph == "eraser") {
+            Canvas(modifier = Modifier.size(22.dp)) {
+                val color = if (active || emphasized) c.accent else c.textMuted
+                rotate(-32f) {
+                    drawRoundRect(
+                        color = color,
+                        topLeft = Offset(size.width * 0.18f, size.height * 0.38f),
+                        size = Size(size.width * 0.64f, size.height * 0.28f),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.width * 0.08f),
+                        style = Stroke(width = 1.8.dp.toPx()),
+                    )
+                    drawLine(
+                        color = color,
+                        start = Offset(size.width * 0.20f, size.height * 0.68f),
+                        end = Offset(size.width * 0.80f, size.height * 0.68f),
+                        strokeWidth = 1.8.dp.toPx(),
+                    )
+                }
+            }
+        } else {
+            Text(
+                text = glyph,
+                color = if (active || emphasized) c.accent else c.textMuted,
+                fontSize = 20.sp,
+                fontFamily = SpectrumMono,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.offset(y = (-1).dp),
+            )
+        }
     }
 }
 
