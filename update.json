@@ -1,8 +1,8 @@
 {
-  "versionCode": 11,
-  "versionName": "0.3.7",
-  "publishedAt": "2026-11-18",
-  "notes": "• 三端支持音频上传、试听与产物播放\n• 修复共享上游的多个输出分组只识别一个的问题",
+  "versionCode": 12,
+  "versionName": "0.3.8",
+  "publishedAt": "2026-11-22",
+  "notes": "• 三端支持图片蒙版编辑：画笔、橡皮、撤销、清空、双指缩放\n• 蒙版重开恢复、换图清空旧蒙版，未上传原图时提示先上传\n• 工作流会话缓存、后台更新提示、主机状态实时 CPU/GPU\n• 修复安卓蒙版 PNG alpha、鸿蒙蒙版坐标/通道/图标问题",
   "android": {
     "github": "https://github.com/Fly-Noz/ComfyPilot/releases/latest",
     "gitee": "https://gitee.com/Fly-Noz/ComfyPilot/releases"
