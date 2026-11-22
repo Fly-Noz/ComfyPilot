@@ -122,11 +122,13 @@ struct ArtifactViewer: View {
     }
 
     /// 产物间切换：与安卓/鸿蒙同款「上一个 / 下一个」，首尾禁用。
+    private var activeGroupIndex: Int {
+        groups.firstIndex(where: { $0.id == activeTask.id }) ?? 0
+    }
+
     private var switchBar: some View {
         HStack(spacing: 16) {
-            let list = groups
-            let groupIndex = list.firstIndex(where: { $0.id == activeTask.id }) ?? 0
-            switchButton(left: true, enabled: index > 0 || groupIndex > 0) {
+            switchButton(left: true, enabled: index > 0 || activeGroupIndex > 0) {
                 moveArtifact(-1)
             }
             Text("\(min(index, max(0, activeTask.artifacts.count - 1)) + 1) / \(activeTask.artifacts.count)")
@@ -134,7 +136,7 @@ struct ArtifactViewer: View {
                 .foregroundStyle(palette.textMuted)
             switchButton(left: false,
                          enabled: index < activeTask.artifacts.count - 1 ||
-                            groupIndex < list.count - 1) {
+                            activeGroupIndex < groups.count - 1) {
                 moveArtifact(1)
             }
         }
