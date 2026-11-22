@@ -11,6 +11,8 @@ struct ArtifactViewer: View {
     let task: TaskRow
     let baseUrl: String
     let palette: SpectrumPalette
+    /// 任务页当前全部任务：用于越过当前任务边界继续看其他任务的产物。
+    var tasks: [TaskRow] = []
 
     @Environment(\.dismiss) private var dismiss
     /// 正在下载/保存的产物 id，以及每个产物旁边的结果提示。
@@ -25,6 +27,14 @@ struct ArtifactViewer: View {
             VStack(spacing: 10) {
                 header
 
+                if let crossNotice {
+                    Text(crossNotice)
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(palette.ok)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20)
+                }
+
                 ScrollView {
                     VStack(spacing: 14) {
                         if let artifact = currentArtifact {
@@ -38,12 +48,15 @@ struct ArtifactViewer: View {
                     .padding(.bottom, 26)
                 }
 
-                if task.artifacts.count > 1 {
+                if groups.count > 1 || activeTask.artifacts.count > 1 {
                     switchBar
                 }
             }
         }
-        .onChange(of: task.artifacts.count) { _, count in
+        .onAppear {
+            if activeTaskId == nil { activeTaskId = task.id }
+        }
+        .onChange(of: activeTask.artifacts.count) { _, count in
             // 任务刷新导致产物变少时把下标夹回范围内。
             if count > 0, index > count - 1 {
                 index = count - 1
@@ -55,23 +68,74 @@ struct ArtifactViewer: View {
     }
 
     @State private var index = 0
+    @State private var activeTaskId: String?
+    @State private var crossNotice: String?
+
+    private var groups: [TaskRow] {
+        var list = tasks
+            .filter { !$0.artifacts.isEmpty }
+            .sorted { $0.updatedAtMs > $1.updatedAtMs }
+        if !list.contains(where: { $0.id == task.id }), !task.artifacts.isEmpty {
+            list.insert(task, at: 0)
+        }
+        return list
+    }
+
+    private var activeTask: TaskRow {
+        if let id = activeTaskId,
+           let found = tasks.first(where: { $0.id == id }) ?? (task.id == id ? task : nil) {
+            return found
+        }
+        return task
+    }
 
     private var currentArtifact: ArtifactRef? {
-        guard !task.artifacts.isEmpty else { return nil }
-        return task.artifacts[max(0, min(index, task.artifacts.count - 1))]
+        let artifacts = activeTask.artifacts
+        guard !artifacts.isEmpty else { return nil }
+        return artifacts[max(0, min(index, artifacts.count - 1))]
+    }
+
+    private func moveArtifact(_ delta: Int) {
+        let artifacts = activeTask.artifacts
+        guard !artifacts.isEmpty else { return }
+        let next = index + delta
+        if next >= 0, next < artifacts.count {
+            index = next
+            crossNotice = nil
+            return
+        }
+        let list = groups
+        guard let groupIndex = list.firstIndex(where: { $0.id == activeTask.id }) else { return }
+        let targetIndex = groupIndex + delta
+        guard targetIndex >= 0, targetIndex < list.count else { return }
+        let target = list[targetIndex]
+        guard !target.artifacts.isEmpty else { return }
+        activeTaskId = target.id
+        index = delta < 0 ? target.artifacts.count - 1 : 0
+        crossNotice = delta < 0
+            ? "已切到上一任务 · \(target.name.isEmpty ? target.id : target.name)"
+            : "已切到下一任务 · \(target.name.isEmpty ? target.id : target.name)"
+        let notice = crossNotice
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+            if crossNotice == notice { crossNotice = nil }
+        }
     }
 
     /// 产物间切换：与安卓/鸿蒙同款「上一个 / 下一个」，首尾禁用。
     private var switchBar: some View {
         HStack(spacing: 16) {
-            switchButton(left: true, enabled: index > 0) {
-                index = max(0, index - 1)
+            let list = groups
+            let groupIndex = list.firstIndex(where: { $0.id == activeTask.id }) ?? 0
+            switchButton(left: true, enabled: index > 0 || groupIndex > 0) {
+                moveArtifact(-1)
             }
-            Text("\(min(index, task.artifacts.count - 1) + 1) / \(task.artifacts.count)")
+            Text("\(min(index, max(0, activeTask.artifacts.count - 1)) + 1) / \(activeTask.artifacts.count)")
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(palette.textMuted)
-            switchButton(left: false, enabled: index < task.artifacts.count - 1) {
-                index = min(task.artifacts.count - 1, index + 1)
+            switchButton(left: false,
+                         enabled: index < activeTask.artifacts.count - 1 ||
+                            groupIndex < list.count - 1) {
+                moveArtifact(1)
             }
         }
         .padding(.bottom, 12)
@@ -94,13 +158,13 @@ struct ArtifactViewer: View {
     private var header: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(task.name.isEmpty ? "产物" : task.name)
+                Text(activeTask.name.isEmpty ? "产物" : activeTask.name)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(palette.text)
                     .lineLimit(1)
-                Text(task.artifacts.count > 1
-                     ? "\(min(index, max(0, task.artifacts.count - 1)) + 1) / \(task.artifacts.count) 个文件"
-                     : "\(task.artifacts.count) 个文件")
+                Text(activeTask.artifacts.count > 1
+                     ? "\(min(index, max(0, activeTask.artifacts.count - 1)) + 1) / \(activeTask.artifacts.count) 个文件"
+                     : "\(activeTask.artifacts.count) 个文件")
                     .font(.system(size: 10.5))
                     .foregroundStyle(palette.textDim)
             }

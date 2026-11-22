@@ -144,6 +144,8 @@ private val videoPosterCache = object : LruCache<String, Bitmap>(8 * 1024 * 1024
 fun ArtifactDialog(
     task: PromptTask,
     baseUrl: String?,
+    /** 任务页/详情页的当前任务列表；用于越过当前任务边界继续浏览其他任务产物。 */
+    tasks: List<PromptTask> = emptyList(),
     onDismiss: () -> Unit,
     /** 打开时直接进入某个产物的预览（详情页点视频首帧用）。 */
     initialOutput: TaskOutput? = null,
@@ -155,6 +157,8 @@ fun ArtifactDialog(
     val scope = rememberCoroutineScope()
     val downloader = remember { ArtifactDownloader() }
     var selected by remember(task.id) { mutableStateOf<TaskOutput?>(initialOutput) }
+    var activeTaskId by remember(task.id) { mutableStateOf(task.id) }
+    var crossNotice by remember(task.id) { mutableStateOf<String?>(null) }
     var downloadStates by remember(task.id) { mutableStateOf<Map<String, DownloadUiState>>(emptyMap()) }
     // 预览区文件大小：HEAD 结果按文件名缓存，退回列表再进来不用重复请求。
     var knownSizes by remember(task.id) { mutableStateOf<Map<String, Long>>(emptyMap()) }
@@ -243,19 +247,51 @@ fun ArtifactDialog(
                     .background(c.dialog.copy(alpha = if (c.isDark) 0.88f else 0.84f))
                     .border(1.dp, c.borderStrong, panelShape),
             ) {
+                // 只保留有产物的任务；顺序与任务页一致（新任务在前）。
+                val groups = remember(tasks, task) {
+                    (tasks.ifEmpty { listOf(task) })
+                        .filter { it.outputs.isNotEmpty() }
+                        .let { list -> if (list.any { it.id == task.id }) list else listOf(task) + list }
+                }
+                val activeGroupIndex = groups.indexOfFirst { it.id == activeTaskId }
+                    .takeIf { it >= 0 } ?: 0
+                val activeTask = groups.getOrNull(activeGroupIndex) ?: task
+                val outputs = activeTask.outputs
                 val current = selected
-                val outputs = task.outputs
                 val currentIndex = current?.let { output ->
                     outputs.indexOfFirst { artifactKey(it) == artifactKey(output) }
                 } ?: -1
+                fun taskName(item: PromptTask): String =
+                    item.displayName ?: item.promptId ?: item.id
+
                 fun moveOutput(delta: Int) {
                     if (currentIndex < 0) return
-                    val next = (currentIndex + delta).coerceIn(0, outputs.lastIndex)
-                    if (next != currentIndex) selected = outputs[next]
+                    val nextIndex = currentIndex + delta
+                    if (nextIndex in outputs.indices) {
+                        selected = outputs[nextIndex]
+                        crossNotice = null
+                        return
+                    }
+                    val nextGroup = activeGroupIndex + delta
+                    if (nextGroup !in groups.indices) return
+                    val target = groups[nextGroup]
+                    activeTaskId = target.id
+                    selected = if (delta < 0) target.outputs.last() else target.outputs.first()
+                    crossNotice = if (delta < 0) {
+                        "已切到上一任务 · ${taskName(target)}"
+                    } else {
+                        "已切到下一任务 · ${taskName(target)}"
+                    }
+                }
+                LaunchedEffect(crossNotice) {
+                    if (crossNotice != null) {
+                        kotlinx.coroutines.delay(1_800)
+                        crossNotice = null
+                    }
                 }
                 if (current == null) {
                     ArtifactList(
-                        task = task,
+                        task = activeTask,
                         baseUrl = baseUrl,
                         downloadStates = downloadStates,
                         onPreview = { selected = it },
@@ -289,9 +325,12 @@ fun ArtifactDialog(
                             },
                             downloadState = stateOf(current),
                             autoStartVideo = autoStartVideo,
-                            showNavigation = outputs.size > 1,
-                            canPrevious = currentIndex > 0,
-                            canNext = currentIndex >= 0 && currentIndex < outputs.lastIndex,
+                            taskLabel = taskName(activeTask),
+                            crossNotice = crossNotice,
+                            showNavigation = groups.size > 1 || outputs.size > 1,
+                            canPrevious = currentIndex > 0 || activeGroupIndex > 0,
+                            canNext = (currentIndex >= 0 && currentIndex < outputs.lastIndex) ||
+                                activeGroupIndex < groups.lastIndex,
                             onPrevious = { moveOutput(-1) },
                             onNext = { moveOutput(1) },
                             onBack = { selected = null },
@@ -607,6 +646,8 @@ private fun ArtifactPreview(
     onBack: () -> Unit,
     onDownload: () -> Unit,
     onDismiss: () -> Unit,
+    taskLabel: String? = null,
+    crossNotice: String? = null,
     showNavigation: Boolean = false,
     canPrevious: Boolean = false,
     canNext: Boolean = false,
@@ -652,7 +693,8 @@ private fun ArtifactPreview(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = artifactMeta(output, knownSizes[output.filename]),
+                    text = listOfNotNull(taskLabel, artifactMeta(output, knownSizes[output.filename]))
+                        .joinToString(" · "),
                     color = c.textDim,
                     fontSize = 10.sp,
                     fontFamily = SpectrumMono,
@@ -667,6 +709,15 @@ private fun ArtifactPreview(
                 )
             }
             TopBarAction(text = "关闭", onClick = onDismiss, emphasized = true)
+        }
+
+        crossNotice?.let { notice ->
+            Text(
+                text = notice,
+                color = c.ok,
+                fontSize = 10.5.sp,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+            )
         }
 
         // 内容区：高度沿用原有 weight(1f)，统一哑光底 + 16dp 圆角。

@@ -502,7 +502,7 @@ struct TasksScreen: View {
         .sheet(item: $sheet) { item in
             switch item {
             case .artifacts(let task):
-                ArtifactViewer(task: task, baseUrl: store.snapshot.baseUrl, palette: palette)
+                ArtifactViewer(task: task, baseUrl: store.snapshot.baseUrl, palette: palette, tasks: store.snapshot.tasks)
             case .diagnostics:
                 DiagnosticsSheet(palette: palette)
             }

@@ -2800,6 +2800,7 @@ private fun PreviewPane(
         ArtifactDialog(
             task = latest,
             baseUrl = state.lease?.baseUrl,
+            tasks = state.tasks.values.sortedByDescending { it.createdAtMs },
             onDismiss = {
                 showArtifacts = false
                 focusOutput = null

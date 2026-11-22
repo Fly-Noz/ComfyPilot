@@ -483,6 +483,7 @@ struct Index {
   @State previewCursor: number = 0;
   @State previewCanPrev: boolean = false;
   @State previewCanNext: boolean = false;
+  @State artifactCrossNotice: string = '';
   @State previewError: boolean = false;
   /** 底栏提示的自动收起定时器句柄（-1 表示没有在计时）。 */
   private submitNoticeTimer: number = -1;
@@ -3534,6 +3535,7 @@ struct Index {
     this.previewError = false;
     this.downloadNotice = '';
     this.downloadFailedKey = '';
+    this.artifactCrossNotice = '';
   }
 
   private closeArtifacts(): void {
@@ -6945,11 +6947,38 @@ struct Index {
     return Math.max(0, Math.min(this.previewCursor, count - 1));
   }
 
+  /** 有产物的任务，按任务页的新旧顺序；当前任务不在列表时补到最前。 */
+  private artifactGroups(): BridgeTask[] {
+    const groups: BridgeTask[] = this.tasksNewestFirst(
+      this.tasks.filter((task: BridgeTask) => task.outputRefs.length > 0),
+    );
+    if (!groups.some((task: BridgeTask) => task.id === this.artifactTask.id) &&
+      this.artifactTask.outputRefs.length > 0) {
+      groups.unshift(this.artifactTask);
+    }
+    return groups;
+  }
+
+  private currentArtifactGroupIndex(): number {
+    const groups: BridgeTask[] = this.artifactGroups();
+    const index = groups.findIndex((task: BridgeTask) => task.id === this.artifactTask.id);
+    return index >= 0 ? index : 0;
+  }
+
   private refreshPreviewNav(): void {
+    const groups: BridgeTask[] = this.artifactGroups();
+    const groupIndex = this.currentArtifactGroupIndex();
     const count: number = this.artifactTask.outputRefs.length;
     const index = this.currentPreviewIndex();
-    this.previewCanPrev = index > 0;
-    this.previewCanNext = index >= 0 && index < count - 1;
+    this.previewCanPrev = index > 0 || groupIndex > 0;
+    this.previewCanNext = index < count - 1 || groupIndex < groups.length - 1;
+  }
+
+  private showCrossNotice(target: BridgeTask, previous: boolean): void {
+    this.artifactCrossNotice = `${previous ? '已切到上一任务' : '已切到下一任务'} · ${this.taskLabel(target)}`;
+    setTimeout(() => {
+      this.artifactCrossNotice = '';
+    }, 1800);
   }
 
   private switchPreview(delta: number): void {
@@ -6958,12 +6987,29 @@ struct Index {
       return;
     }
     const index = this.currentPreviewIndex();
-    const next = Math.max(0, Math.min(outputs.length - 1, index + delta));
-    if (next === index) {
-      return;
+    const next = index + delta;
+    if (next >= 0 && next < outputs.length) {
+      this.previewCursor = next;
+      this.previewOutput = outputs[next];
+      this.artifactCrossNotice = '';
+    } else {
+      // 到达当前任务边界：进入相邻任务的最后一个/第一个产物。
+      const groups: BridgeTask[] = this.artifactGroups();
+      const groupIndex = this.currentArtifactGroupIndex();
+      const targetGroup = groupIndex + delta;
+      if (targetGroup < 0 || targetGroup >= groups.length) {
+        return;
+      }
+      const target = groups[targetGroup];
+      const targetOutputs: BridgeOutput[] = target.outputRefs;
+      if (targetOutputs.length === 0) {
+        return;
+      }
+      this.artifactTask = target;
+      this.previewCursor = delta < 0 ? targetOutputs.length - 1 : 0;
+      this.previewOutput = targetOutputs[this.previewCursor];
+      this.showCrossNotice(target, delta < 0);
     }
-    this.previewCursor = next;
-    this.previewOutput = outputs[next];
     this.refreshPreviewNav();
     this.previewError = false;
     this.videoInlineKey = '';
@@ -6976,6 +7022,7 @@ struct Index {
     this.artifactTask = task;
     this.previewOutput = output;
     this.previewCursor = this.indexOfPreview(task, output);
+    this.artifactCrossNotice = '';
     this.refreshPreviewNav();
     this.previewError = false;
     this.videoInlineKey = this.artifactUrl(output);
@@ -7003,6 +7050,7 @@ struct Index {
     this.artifactTask = task;
     this.previewOutput = output;
     this.previewCursor = this.indexOfPreview(task, output);
+    this.artifactCrossNotice = '';
     this.refreshPreviewNav();
     this.previewError = false;
     this.videoInlineKey = '';
@@ -7016,6 +7064,7 @@ struct Index {
     this.videoInlineKey = '';
     this.previewOutput = output;
     this.previewCursor = this.indexOfPreview(this.artifactTask, output);
+    this.artifactCrossNotice = '';
     this.refreshPreviewNav();
     animateTo({ duration: 220, curve: Curve.EaseOut }, () => {
       this.previewOpen = true;
@@ -7302,7 +7351,7 @@ struct Index {
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
-        Text(this.artifactMetaLine(this.previewOutput))
+        Text(`${this.taskLabel(this.artifactTask)} · ${this.artifactMetaLine(this.previewOutput)}`)
           .fontSize(10)
           .fontFamily('monospace')
           .fontColor(this.c().textDim)
@@ -7321,6 +7370,14 @@ struct Index {
     }
     .width('100%')
     .alignItems(VerticalAlign.Center)
+
+    if (this.artifactCrossNotice.length > 0) {
+      Text(this.artifactCrossNotice)
+        .fontSize(10.5)
+        .fontColor(this.c().ok)
+        .padding({ left: 4, right: 4, top: 2, bottom: 2 })
+        .width('100%')
+    }
 
     Column() {
       if (this.artifactUrl(this.previewOutput).length === 0) {
@@ -7442,7 +7499,7 @@ struct Index {
       .alignItems(VerticalAlign.Center)
     } else {
       Row({ space: 8 }) {
-        if (this.artifactTask.outputRefs.length > 1) {
+        if (this.artifactGroups().length > 1 || this.artifactTask.outputRefs.length > 1) {
           Button({ type: ButtonType.Circle, stateEffect: true }) {
             Text('‹')
               .fontSize(26)

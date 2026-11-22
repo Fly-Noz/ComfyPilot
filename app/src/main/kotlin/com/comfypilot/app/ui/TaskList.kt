@@ -85,7 +85,7 @@ fun TaskList(
     viewing?.let { selected ->
         // 任务运行中产物会继续增加；对话框里要显示列表里的最新快照，而不是打开时的旧对象。
         val latest = tasks.firstOrNull { it.id == selected.id } ?: selected
-        ArtifactDialog(task = latest, baseUrl = viewBaseUrl, onDismiss = { viewing = null })
+        ArtifactDialog(task = latest, baseUrl = viewBaseUrl, tasks = tasks, onDismiss = { viewing = null })
     }
 }
 
