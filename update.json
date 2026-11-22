@@ -2,7 +2,7 @@
   "versionCode": 12,
   "versionName": "0.3.8",
   "publishedAt": "2026-11-22",
-  "notes": "• 三端支持图片蒙版编辑：画笔、橡皮、撤销、清空、双指缩放\n• 蒙版重开恢复、换图清空旧蒙版，未上传原图时提示先上传\n• 工作流会话缓存、后台更新提示、主机状态实时 CPU/GPU\n• 修复安卓蒙版 PNG alpha、鸿蒙蒙版坐标/通道/图标问题",
+  "notes": "• 新增三端图片蒙版编辑：画笔、橡皮、撤销、清空、双指缩放\n• 预览页支持左右切换多个产物，采样预览可手动刷新\n• 修复节点关闭状态重启后无法保存、主机状态偶尔不刷新等用户可见问题\n• iOS 蒙版尚未真机验证，如有问题欢迎反馈",
   "android": {
     "github": "https://github.com/Fly-Noz/ComfyPilot/releases/latest",
     "gitee": "https://gitee.com/Fly-Noz/ComfyPilot/releases"
