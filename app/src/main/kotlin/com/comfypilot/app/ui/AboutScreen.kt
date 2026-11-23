@@ -213,6 +213,30 @@ fun AboutScreen(onBack: () -> Unit) {
                     value = LICENSE,
                     onClick = { licenseOpen = true },
                 )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp)
+                        .height(1.dp)
+                        .background(c.border),
+                )
+                SpectrumLinkRow(
+                    label = "隐私政策",
+                    value = "查看",
+                    onClick = { openExternalUrl(context, PRIVACY_POLICY_URL) },
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp)
+                        .height(1.dp)
+                        .background(c.border),
+                )
+                SpectrumLinkRow(
+                    label = "用户协议",
+                    value = "查看",
+                    onClick = { openExternalUrl(context, USER_AGREEMENT_URL) },
+                )
             }
 
             // 固定高度：提示出现/消失时下面的脚注不跳动。
@@ -239,6 +263,19 @@ fun AboutScreen(onBack: () -> Unit) {
                 lineHeight = 17.sp,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
+            )
+
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = ICP_NUMBER,
+                color = c.textDim,
+                fontSize = 10.5.sp,
+                fontFamily = SpectrumMono,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable { openExternalUrl(context, ICP_LINK) }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
             )
         }
     }

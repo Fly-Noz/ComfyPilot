@@ -10,6 +10,7 @@ struct AboutScreen: View {
     @EnvironmentObject private var store: SessionStore
     @EnvironmentObject private var updates: UpdateStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @State private var licenseOpen = false
 
     private static let projectURL = "https://github.com/Fly-Noz/ComfyPilot"
@@ -88,6 +89,24 @@ struct AboutScreen: View {
                                 value: Self.licenseName,
                                 action: { licenseOpen = true }
                             )
+
+                            divider
+
+                            AboutRow(
+                                palette: palette,
+                                label: "隐私政策",
+                                value: "查看",
+                                action: { openURL(LegalLinks.privacy) }
+                            )
+
+                            divider
+
+                            AboutRow(
+                                palette: palette,
+                                label: "用户协议",
+                                value: "查看",
+                                action: { openURL(LegalLinks.terms) }
+                            )
                         }
                         .padding(.top, 22)
 
@@ -95,6 +114,11 @@ struct AboutScreen: View {
                             .font(.system(size: 10.5))
                             .foregroundStyle(palette.textDim)
                             .padding(.top, 18)
+
+                        Link(LegalLinks.icp, destination: LegalLinks.miit)
+                            .font(.system(size: 10))
+                            .foregroundStyle(palette.textDim)
+                            .padding(.top, 10)
                     }
                     .padding(.horizontal, 18)
                     .padding(.bottom, 28)

@@ -43,6 +43,7 @@ import { TaskNotifier } from '../notify/TaskNotifier';
 import { emptyServerStats, fetchServerStats, sameServerStats, ServerStats } from '../bridge/ServerStats';
 import { Palette, Spectrum } from '../theme/Spectrum';
 import { MaskEditor } from '../workflow/MaskEditor';
+import { PrivacyConsentStore } from '../bridge/PrivacyConsentStore';
 import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/ArtifactDownloader';
 import { VideoThumb } from '../artifact/VideoThumb';
 import { VideoPlayer } from '../artifact/VideoPlayer';
@@ -63,6 +64,10 @@ import {
 
 /** 项目地址：作者署名改成仓库链接，复制出去就能打开。 */
 const PROJECT_URL: string = 'https://github.com/Fly-Noz/ComfyPilot';
+const PRIVACY_POLICY_URL: string = 'http://123.249.88.232/privacy.html';
+const USER_AGREEMENT_URL: string = 'http://123.249.88.232/terms.html';
+const ICP_NUMBER: string = '豫ICP备2026059527号';
+const ICP_LINK: string = 'https://beian.miit.gov.cn/';
 
 /**
  * 版本号从包信息读，别在页面上再写死一份——之前「关于」页就停在 0.2.0 没跟上。
@@ -447,6 +452,8 @@ struct Index {
   @State aboutOpen: boolean = false;
   /** 关于页内的许可证说明浮层。 */
   @State licenseOpen: boolean = false;
+  @State privacyAccepted: boolean = false;
+  @State privacyReady: boolean = false;
   /** 更新检查结果；available 为 false 时 updateOpen 不会打开。 */
   @State update: UpdateResult = new UpdateResult();
   /** 新版本提示浮层。 */
@@ -510,6 +517,7 @@ struct Index {
   private noteStore: NodeNoteStore = new NodeNoteStore();
   private addressStore: AddressStore = new AddressStore();
   private appearanceStore: AppearanceStore = new AppearanceStore();
+  private privacyStore: PrivacyConsentStore = new PrivacyConsentStore();
   private submitPrefs: SubmitPrefs = new SubmitPrefs();
   private weakPrefs: WeakNetworkPrefs = new WeakNetworkPrefs();
   private updatePrefs: UpdatePrefs = new UpdatePrefs();
@@ -1117,6 +1125,8 @@ struct Index {
       this.applyAppearance();
     }
     // 强制提交开关也落盘：默认关闭，恢复原来的严格校验。
+    this.privacyAccepted = await this.privacyStore.load(context);
+    this.privacyReady = true;
     this.forceSubmit = await this.submitPrefs.load(context);
     this.weakNetwork = await this.weakPrefs.load(context);
     this.updateMode = await this.updatePrefs.loadMode(context);
@@ -11649,6 +11659,89 @@ struct Index {
     .border({ width: 1, color: this.c().borderStrong })
   }
 
+  private acceptPrivacy(): void {
+    this.privacyAccepted = true;
+    this.privacyStore.save(getContext(this) as common.Context);
+  }
+
+  private declinePrivacy(): void {
+    const context = getContext(this) as common.UIAbilityContext;
+    context.terminateSelf();
+  }
+
+  /** 首次启动隐私确认；不同意直接退出，不进入联网流程。 */
+  @Builder
+  PrivacyConsentDialog() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#99000000')
+      Column({ space: 10 }) {
+        Text('隐私政策与用户协议')
+          .fontSize(17)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.c().text)
+        Text('首次使用前，请阅读并同意《隐私政策》和《用户协议》。')
+          .fontSize(12)
+          .lineHeight(18)
+          .fontColor(this.c().textMuted)
+        Text('连接信息、工作流参数和任务记录只保存在本机；连接 ComfyUI 时，图片、工作流和任务数据会发送到你填写的服务器。')
+          .fontSize(12)
+          .lineHeight(18)
+          .fontColor(this.c().textMuted)
+        Row({ space: 18 }) {
+          Text('隐私政策')
+            .fontSize(12.5)
+            .fontColor(this.c().accent)
+            .padding({ top: 6, bottom: 6 })
+            .onClick(() => { this.openUpdate(PRIVACY_POLICY_URL); })
+          Text('用户协议')
+            .fontSize(12.5)
+            .fontColor(this.c().accent)
+            .padding({ top: 6, bottom: 6 })
+            .onClick(() => { this.openUpdate(USER_AGREEMENT_URL); })
+        }
+        .width('100%')
+        Text(ICP_NUMBER)
+          .fontSize(10.5)
+          .fontFamily('monospace')
+          .fontColor(this.c().textDim)
+          .onClick(() => { this.openUpdate(ICP_LINK); })
+        Row({ space: 10 }) {
+          Text('暂不同意')
+            .fontSize(12.5)
+            .fontColor(this.c().textMuted)
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .backgroundColor(this.c().card)
+            .borderRadius(10)
+            .onClick(() => { this.declinePrivacy(); })
+          Blank()
+          Text('同意并继续')
+            .fontSize(12.5)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#FFFFFF')
+            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
+            .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+            .borderRadius(10)
+            .onClick(() => { this.acceptPrivacy(); })
+        }
+        .width('100%')
+        .margin({ top: 4 })
+        .alignItems(VerticalAlign.Center)
+      }
+      .width('86%')
+      .padding(18)
+      .backgroundColor(this.c().dialog)
+      .borderRadius(20)
+      .border({ width: 1, color: this.c().border })
+      .alignItems(HorizontalAlign.Start)
+    }
+    .width('100%')
+    .height('100%')
+    .position({ x: 0, y: 0 })
+  }
+
   /** 许可证说明浮层：居中卡片，点「关闭」收起。 */
   @Builder
   LicensePanel() {
@@ -11784,6 +11877,20 @@ struct Index {
               this.AboutRow('开源许可证', 'GPL-3.0', () => {
                 this.licenseOpen = true;
               })
+              Divider()
+                .strokeWidth(1)
+                .color(this.c().border)
+                .margin({ left: 16, right: 16 })
+              this.AboutRow('隐私政策', '查看', () => {
+                this.openUpdate(PRIVACY_POLICY_URL);
+              })
+              Divider()
+                .strokeWidth(1)
+                .color(this.c().border)
+                .margin({ left: 16, right: 16 })
+              this.AboutRow('用户协议', '查看', () => {
+                this.openUpdate(USER_AGREEMENT_URL);
+              })
             }
             .width('100%')
             .backgroundColor(this.c().card)
@@ -11797,6 +11904,14 @@ struct Index {
               .textAlign(TextAlign.Center)
               .width('100%')
               .padding({ left: 12, right: 12 })
+            Text(ICP_NUMBER)
+              .fontSize(10)
+              .fontFamily('monospace')
+              .fontColor(this.c().textDim)
+              .textAlign(TextAlign.Center)
+              .width('100%')
+              .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+              .onClick(() => { this.openUpdate(ICP_LINK); })
           }
           .width('100%')
           .padding({ left: 4, right: 4, top: 4, bottom: 16 })
@@ -11981,6 +12096,9 @@ struct Index {
       }
       if (this.maskUnsupportedOpen) {
         this.MaskUnsupportedDialog()
+      }
+      if (this.privacyReady && !this.privacyAccepted) {
+        this.PrivacyConsentDialog()
       }
       if (this.updateOpen) {
         this.UpdateOverlay()

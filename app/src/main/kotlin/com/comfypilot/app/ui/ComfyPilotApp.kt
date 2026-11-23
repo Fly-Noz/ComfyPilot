@@ -72,6 +72,7 @@ fun ComfyPilotApp(
 ) {
     val context = LocalContext.current
     val appearance = remember(context) { AppearanceStore(context.applicationContext) }
+    var privacyAccepted by remember { mutableStateOf(PrivacyConsentStore.accepted(context)) }
     LaunchedEffect(Unit) {
         AiRuntime.attach(context.applicationContext)
         // 启动时静默查一次更新：有新版才弹，失败不打扰。用户点过「稍后」的版本不再提。
@@ -265,6 +266,17 @@ fun ComfyPilotApp(
                     onDismiss = { UpdateCenter.dismiss(context) },
                     onLater = { UpdateCenter.dismiss(context) },
                     onOpen = { UpdateCenter.open(context, it) },
+                )
+            }
+
+            // 首次启动必须先完成隐私确认；拒绝则退出应用。
+            if (!privacyAccepted) {
+                PrivacyConsentDialog(
+                    onAgree = {
+                        PrivacyConsentStore.accept(context)
+                        privacyAccepted = true
+                    },
+                    onDecline = { exitApplication(context) },
                 )
             }
         }
