@@ -62,7 +62,7 @@ private val CONNECT_STEPS = listOf(
     ),
     TutorialStep(
         title = "4. 手机填写地址",
-        body = "在控制台找到 http://IP:8188，填回本页并点连接。同一 Wi-Fi 选 192.168.x.x；用 Tailscale 就选 100.x，手机也要装 Tailscale。",
+        body = "在控制台找到 http://IP:8188，填回本页并点连接。同一 Wi-Fi 选 192.168.x.x；不在同一网络时，电脑和手机都要安装 Tailscale（或 ZeroTier 等）并登录同一账号，再选 100.x 地址。只装一端连不上。",
         image = R.drawable.tutorial_connect_address,
     ),
     TutorialStep(
@@ -115,7 +115,7 @@ fun ConnectTutorialDialog(onDismiss: () -> Unit) {
                 item {
                     GlassCard(padding = PaddingValues(14.dp)) {
                         Text(
-                            text = "不用改 ComfyUI 配置，也不用装插件。先确认手机和电脑在同一 Wi-Fi，或者都连上 Tailscale。",
+                            text = "不用改 ComfyUI 配置，也不用装插件。手机和电脑在同一 Wi-Fi 可直接访问；如果要走公网，必须使用 Tailscale、ZeroTier 等组网工具，并且电脑和手机两端都要安装并登录同一账号。",
                             color = c.textMuted,
                             fontSize = 12.5.sp,
                             lineHeight = 19.sp,
@@ -158,7 +158,7 @@ fun ConnectTutorialDialog(onDismiss: () -> Unit) {
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            text = "① 手机和主机是否在同一 Wi-Fi 或同一 Tailscale 网络；\n" +
+                            text = "① 手机和主机是否在同一 Wi-Fi；公网访问时两端是否都装了 Tailscale 等工具并登录同一账号；\n" +
                                 "② 控制台列出的 IP 是否抄全，末尾是否有 :8188；\n" +
                                 "③ Windows 防火墙是否允许了 run_remote.bat；\n" +
                                 "④ 是否误用了 run_local.bat。",

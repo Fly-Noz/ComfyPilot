@@ -23,7 +23,7 @@ struct ConnectTutorialView: View {
              body: "首次运行 Windows 防火墙弹窗时点「允许访问」，建议勾选专用网络。黑色控制台窗口不要关，关了 ComfyUI 就停了。",
              image: "TutorialConnectRun"),
         Step(id: 4, title: "4. 手机填写地址",
-             body: "在控制台找到 http://IP:8188，填回本页并点连接。同一 Wi-Fi 选 192.168.x.x；用 Tailscale 就选 100.x，手机也要装 Tailscale。",
+             body: "在控制台找到 http://IP:8188，填回本页并点连接。同一 Wi-Fi 选 192.168.x.x；不在同一网络时，电脑和手机都要安装 Tailscale（或 ZeroTier 等）并登录同一账号，再选 100.x 地址。只装一端连不上。",
              image: "TutorialConnectAddress"),
         Step(id: 5, title: "5. 看到工作流列表",
              body: "手机显示「已连接」，并且能刷新服务器工作流，就成功了。连不上先检查：同一网络、防火墙、地址是否包含 http:// 和 :8188。",
@@ -34,7 +34,7 @@ struct ConnectTutorialView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    Text("不用改 ComfyUI 配置，也不用装插件。先确认手机和电脑在同一 Wi-Fi，或者都连上 Tailscale。")
+                    Text("不用改 ComfyUI 配置，也不用装插件。手机和电脑在同一 Wi-Fi 可直接访问；如果要走公网，必须使用 Tailscale、ZeroTier 等组网工具，并且电脑和手机两端都要安装并登录同一账号。")
                         .font(.system(size: 12.5))
                         .lineSpacing(5)
                         .foregroundStyle(palette.textMuted)
@@ -67,7 +67,7 @@ struct ConnectTutorialView: View {
                         Text("连不上时按顺序检查")
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(palette.text)
-                        Text("① 手机和主机是否在同一 Wi-Fi 或同一 Tailscale 网络；\n② 控制台列出的 IP 是否抄全，末尾是否有 :8188；\n③ Windows 防火墙是否允许了 run_remote.bat；\n④ 是否误用了 run_local.bat。")
+                        Text("① 手机和主机是否在同一 Wi-Fi；公网访问时两端是否都装了 Tailscale 等工具并登录同一账号；\n② 控制台列出的 IP 是否抄全，末尾是否有 :8188；\n③ Windows 防火墙是否允许了 run_remote.bat；\n④ 是否误用了 run_local.bat。")
                             .font(.system(size: 12))
                             .lineSpacing(5)
                             .foregroundStyle(palette.textMuted)
