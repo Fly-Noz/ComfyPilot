@@ -10009,6 +10009,9 @@ struct Index {
     }
     .width('100%')
     .height('100%')
+    .transition(TransitionEffect.OPACITY
+      .combine(TransitionEffect.translate({ y: 120 }))
+      .animation({ duration: 260, curve: Curve.EaseOut }))
   }
 
   @Builder

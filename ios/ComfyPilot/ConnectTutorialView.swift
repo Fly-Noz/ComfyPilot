@@ -3,7 +3,7 @@ import SwiftUI
 /// 连接页的图文教程。图片来自随包的 5 张教程幻灯片。
 struct ConnectTutorialView: View {
     let palette: SpectrumPalette
-    @Environment(\.dismiss) private var dismiss
+    let onClose: () -> Void
 
     private struct Step: Identifiable {
         let id: Int
@@ -31,62 +31,85 @@ struct ConnectTutorialView: View {
     ]
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("不用改 ComfyUI 配置，也不用装插件。手机和电脑在同一 Wi-Fi 可直接访问；如果要走公网，必须使用 Tailscale、ZeroTier 等组网工具，并且电脑和手机两端都要安装并登录同一账号。")
-                        .font(.system(size: 12.5))
-                        .lineSpacing(5)
-                        .foregroundStyle(palette.textMuted)
-                        .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 14).fill(palette.card))
-                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(palette.border, lineWidth: 1))
-
-                    ForEach(Self.steps) { step in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(step.title)
-                                .font(.system(size: 14, weight: .semibold))
+        GeometryReader { proxy in
+            ZStack {
+                Color.black.opacity(0.45)
+                    .ignoresSafeArea()
+                    .onTapGesture { onClose() }
+                VStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("连接 ComfyUI 教程")
+                                .font(.system(size: 18, weight: .bold))
                                 .foregroundStyle(palette.text)
-                            Text(step.body)
-                                .font(.system(size: 12))
+                            Text("主机端 4 步，约 2 分钟")
+                                .font(.system(size: 10.5, design: .monospaced))
+                                .foregroundStyle(palette.textDim)
+                        }
+                        Spacer(minLength: 0)
+                        Button("关闭") { onClose() }
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(palette.accent)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+                    .padding(.bottom, 6)
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Text("不用改 ComfyUI 配置，也不用装插件。手机和电脑在同一 Wi-Fi 可直接访问；如果要走公网，必须使用 Tailscale、ZeroTier 等组网工具，并且电脑和手机两端都要安装并登录同一账号。")
+                                .font(.system(size: 12.5))
                                 .lineSpacing(5)
                                 .foregroundStyle(palette.textMuted)
-                            Image(step.image)
-                                .resizable()
-                                .aspectRatio(16 / 9, contentMode: .fit)
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                        .stroke(palette.border, lineWidth: 1)
-                                )
-                        }
-                    }
+                                .padding(14)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(RoundedRectangle(cornerRadius: 14).fill(palette.card))
+                                .overlay(RoundedRectangle(cornerRadius: 14).stroke(palette.border, lineWidth: 1))
 
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("连不上时按顺序检查")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(palette.text)
-                        Text("① 手机和主机是否在同一 Wi-Fi；公网访问时两端是否都装了 Tailscale 等工具并登录同一账号；\n② 控制台列出的 IP 是否抄全，末尾是否有 :8188；\n③ Windows 防火墙是否允许了 run_remote.bat；\n④ 是否误用了 run_local.bat。")
-                            .font(.system(size: 12))
-                            .lineSpacing(5)
-                            .foregroundStyle(palette.textMuted)
+                            ForEach(Self.steps) { step in
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(step.title)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(palette.text)
+                                    Text(step.body)
+                                        .font(.system(size: 12))
+                                        .lineSpacing(5)
+                                        .foregroundStyle(palette.textMuted)
+                                    Image(step.image)
+                                        .resizable()
+                                        .aspectRatio(16 / 9, contentMode: .fit)
+                                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                .stroke(palette.border, lineWidth: 1)
+                                        )
+                                }
+                            }
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text("连不上时按顺序检查")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(palette.text)
+                                Text("① 手机和主机是否在同一 Wi-Fi；公网访问时两端是否都装了 Tailscale 等工具并登录同一账号；\n② 控制台列出的 IP 是否抄全，末尾是否有 :8188；\n③ Windows 防火墙是否允许了 run_remote.bat；\n④ 是否误用了 run_local.bat。")
+                                    .font(.system(size: 12))
+                                    .lineSpacing(5)
+                                    .foregroundStyle(palette.textMuted)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(14)
+                            .background(RoundedRectangle(cornerRadius: 14).fill(palette.card))
+                            .overlay(RoundedRectangle(cornerRadius: 14).stroke(palette.border, lineWidth: 1))
+                        }
+                        .padding(16)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(14)
-                    .background(RoundedRectangle(cornerRadius: 14).fill(palette.card))
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(palette.border, lineWidth: 1))
                 }
-                .padding(18)
-            }
-            .background(palette.background.ignoresSafeArea())
-            .navigationTitle("连接教程")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") { dismiss() }
-                        .foregroundStyle(palette.accent)
-                }
+                .frame(width: proxy.size.width * 0.94, height: proxy.size.height * 0.92)
+                .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(palette.dialog))
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 22, style: .continuous)
+                        .stroke(palette.borderStrong, lineWidth: 1)
+                )
             }
         }
     }

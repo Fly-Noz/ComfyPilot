@@ -217,8 +217,13 @@ struct ConnectScreen: View {
         .sheet(isPresented: $diagnostics) {
             DiagnosticsSheet(palette: palette)
         }
-        .sheet(isPresented: $tutorialOpen) {
-            ConnectTutorialView(palette: palette)
+        .overlay {
+            if tutorialOpen {
+                ConnectTutorialView(palette: palette) {
+                    withAnimation(.easeIn(duration: 0.18)) { tutorialOpen = false }
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
     }
 
@@ -365,7 +370,7 @@ struct ConnectScreen: View {
                     .foregroundStyle(palette.textDim)
             }
             Button {
-                tutorialOpen = true
+                withAnimation(.easeOut(duration: 0.24)) { tutorialOpen = true }
             } label: {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 3) {
