@@ -40,12 +40,6 @@ struct RootView: View {
     @State private var settingsReturn: AppRoute = .connect
     /// 设置里改外观后要立刻整体换色，所以主题读在这里而不是每个页面各读一份。
     @AppStorage("themeMode") private var themeMode = "system"
-    @AppStorage("privacyAccepted") private var privacyAccepted = false
-
-    private var skipPrivacyForAutomation: Bool {
-        let args = ProcessInfo.processInfo.arguments
-        return args.contains("-uiBaseUrl") || args.contains("-uiScreen") || args.contains("-uiSkipPrivacy")
-    }
 
     var body: some View {
         let palette = Spectrum.palette(for: forcedScheme ?? scheme)
@@ -79,11 +73,6 @@ struct RootView: View {
             }
             .onChange(of: store.pendingScreen) { _, target in
                 if target == "tasks" { route = .tasks }
-            }
-            .overlay {
-                if !privacyAccepted && !skipPrivacyForAutomation {
-                    PrivacyConsentView(palette: palette, accepted: $privacyAccepted)
-                }
             }
             // 连上后不再自动跳工作流列表：以前这样做，用户想改地址时会一直被拽走。
             // 连接成功后连接页本来就是「已连接 + 选择工作流」，点一下进去即可。

@@ -213,30 +213,6 @@ fun AboutScreen(onBack: () -> Unit) {
                     value = LICENSE,
                     onClick = { licenseOpen = true },
                 )
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp)
-                        .height(1.dp)
-                        .background(c.border),
-                )
-                SpectrumLinkRow(
-                    label = "隐私政策",
-                    value = "查看",
-                    onClick = { openExternalUrl(context, PRIVACY_POLICY_URL) },
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp)
-                        .height(1.dp)
-                        .background(c.border),
-                )
-                SpectrumLinkRow(
-                    label = "用户协议",
-                    value = "查看",
-                    onClick = { openExternalUrl(context, USER_AGREEMENT_URL) },
-                )
             }
 
             // 固定高度：提示出现/消失时下面的脚注不跳动。

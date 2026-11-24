@@ -1,16 +1,20 @@
 import SwiftUI
 import UIKit
 
+/// 备案与工信部查询地址。
+enum LegalLinks {
+    static let icp = "豫ICP备2026059527号"
+    static let miit = URL(string: "https://beian.miit.gov.cn/")!
+}
+
 /// 关于页：与 Android / 鸿蒙对齐——App 图标、名称、版本、简介，
 /// 以及「检查更新 / 项目地址 / 开源许可证」三行。
-/// 隐私政策入口等正式版本发布、政策有公网 URL 后再加。
 struct AboutScreen: View {
     let palette: SpectrumPalette
 
     @EnvironmentObject private var store: SessionStore
     @EnvironmentObject private var updates: UpdateStore
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
     @State private var licenseOpen = false
 
     private static let projectURL = "https://github.com/Fly-Noz/ComfyPilot"
@@ -90,23 +94,6 @@ struct AboutScreen: View {
                                 action: { licenseOpen = true }
                             )
 
-                            divider
-
-                            AboutRow(
-                                palette: palette,
-                                label: "隐私政策",
-                                value: "查看",
-                                action: { openURL(LegalLinks.privacy) }
-                            )
-
-                            divider
-
-                            AboutRow(
-                                palette: palette,
-                                label: "用户协议",
-                                value: "查看",
-                                action: { openURL(LegalLinks.terms) }
-                            )
                         }
                         .padding(.top, 22)
 
