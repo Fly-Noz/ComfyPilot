@@ -45,6 +45,13 @@ struct ConnectTutorialView: View {
 
                     ForEach(Self.steps) { step in
                         VStack(alignment: .leading, spacing: 8) {
+                            Text(step.title)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(palette.text)
+                            Text(step.body)
+                                .font(.system(size: 12))
+                                .lineSpacing(5)
+                                .foregroundStyle(palette.textMuted)
                             Image(step.image)
                                 .resizable()
                                 .aspectRatio(16 / 9, contentMode: .fit)
@@ -53,13 +60,6 @@ struct ConnectTutorialView: View {
                                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                                         .stroke(palette.border, lineWidth: 1)
                                 )
-                            Text(step.title)
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(palette.text)
-                            Text(step.body)
-                                .font(.system(size: 12))
-                                .lineSpacing(5)
-                                .foregroundStyle(palette.textMuted)
                         }
                     }
 

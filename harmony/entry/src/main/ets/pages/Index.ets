@@ -9891,12 +9891,6 @@ struct Index {
   @Builder
   TutorialStep(title: string, body: string, image: Resource) {
     Column({ space: 8 }) {
-      Image(image)
-        .width('100%')
-        .aspectRatio(16 / 9)
-        .objectFit(ImageFit.Cover)
-        .borderRadius(14)
-        .border({ width: 1, color: this.c().border })
       Text(title)
         .fontSize(14)
         .fontWeight(FontWeight.Medium)
@@ -9907,6 +9901,12 @@ struct Index {
         .lineHeight(18)
         .fontColor(this.c().textMuted)
         .width('100%')
+      Image(image)
+        .width('100%')
+        .aspectRatio(16 / 9)
+        .objectFit(ImageFit.Cover)
+        .borderRadius(14)
+        .border({ width: 1, color: this.c().border })
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)

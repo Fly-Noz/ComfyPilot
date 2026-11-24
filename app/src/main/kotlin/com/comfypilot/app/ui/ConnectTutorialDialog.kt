@@ -124,16 +124,6 @@ fun ConnectTutorialDialog(onDismiss: () -> Unit) {
                 }
                 items(CONNECT_STEPS) { step ->
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Image(
-                            painter = painterResource(step.image),
-                            contentDescription = step.title,
-                            contentScale = ContentScale.FillWidth,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(16f / 9f)
-                                .clip(RoundedCornerShape(14.dp))
-                                .border(1.dp, c.border, RoundedCornerShape(14.dp)),
-                        )
                         Text(
                             text = step.title,
                             color = c.text,
@@ -145,6 +135,16 @@ fun ConnectTutorialDialog(onDismiss: () -> Unit) {
                             color = c.textMuted,
                             fontSize = 12.sp,
                             lineHeight = 18.sp,
+                        )
+                        Image(
+                            painter = painterResource(step.image),
+                            contentDescription = step.title,
+                            contentScale = ContentScale.FillWidth,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(16f / 9f)
+                                .clip(RoundedCornerShape(14.dp))
+                                .border(1.dp, c.border, RoundedCornerShape(14.dp)),
                         )
                     }
                 }
