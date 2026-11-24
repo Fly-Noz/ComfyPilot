@@ -1,5 +1,8 @@
 package com.comfypilot.app.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -21,6 +25,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -54,6 +59,7 @@ fun ConnectScreen(
     val historyStore = remember(context) { ConnectionHistoryStore(context.applicationContext) }
     var history by remember(context) { mutableStateOf(historyStore.history()) }
     var url by rememberSaveable { mutableStateOf(historyStore.last().ifBlank { initialUrl }) }
+    var tutorialOpen by rememberSaveable { mutableStateOf(false) }
     val connected = state.phase is SessionPhase.Connected
     val hasLease = state.lease != null
 
@@ -178,6 +184,33 @@ fun ConnectScreen(
                 )
             }
 
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(c.card)
+                    .border(1.dp, c.border, RoundedCornerShape(14.dp))
+                    .clickable { tutorialOpen = true }
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        text = "连接教程",
+                        color = c.text,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(
+                        text = "4 步把手机连上 ComfyUI，附常见问题",
+                        color = c.textDim,
+                        fontSize = 10.5.sp,
+                    )
+                }
+                Text(text = "›", color = c.textDim, fontSize = 18.sp)
+            }
+
             Text(
                 text = "后台可能暂停监控，回来自动同步。",
                 color = c.textDim,
@@ -185,6 +218,10 @@ fun ConnectScreen(
                 modifier = Modifier.padding(top = 2.dp, bottom = 24.dp),
             )
         }
+    }
+
+    if (tutorialOpen) {
+        ConnectTutorialDialog(onDismiss = { tutorialOpen = false })
     }
 }
 

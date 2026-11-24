@@ -442,6 +442,7 @@ struct Index {
   @State isDark: boolean = true;
   @State tasksOpen: boolean = false;
   @State connectView: boolean = false;
+  @State tutorialOpen: boolean = false;
   @State settingsOpen: boolean = false;
   /** 诊断日志独立一页，不再并进设置/高级。 */
   @State diagnosticsOpen: boolean = false;
@@ -9843,6 +9844,31 @@ struct Index {
               .width('100%')
           }
 
+          Row({ space: 10 }) {
+            Column({ space: 3 }) {
+              Text('连接教程')
+                .fontSize(13.5)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.c().text)
+                .width('100%')
+              Text('4 步把手机连上 ComfyUI，附常见问题')
+                .fontSize(10.5)
+                .fontColor(this.c().textDim)
+                .width('100%')
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+            Text('›')
+              .fontSize(18)
+              .fontColor(this.c().textDim)
+          }
+          .width('100%')
+          .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+          .backgroundColor(this.c().card)
+          .borderRadius(14)
+          .border({ width: 1, color: this.c().border })
+          .onClick(() => { this.tutorialOpen = true; })
+
           Text('后台可能暂停监控，回来自动同步。')
             .fontSize(11)
             .fontColor(this.c().textDim)
@@ -9857,6 +9883,129 @@ struct Index {
       .layoutWeight(1)
       .width('100%')
       .scrollBar(BarState.Off)
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  @Builder
+  TutorialStep(title: string, body: string, image: Resource) {
+    Column({ space: 8 }) {
+      Image(image)
+        .width('100%')
+        .aspectRatio(16 / 9)
+        .objectFit(ImageFit.Cover)
+        .borderRadius(14)
+        .border({ width: 1, color: this.c().border })
+      Text(title)
+        .fontSize(14)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.c().text)
+        .width('100%')
+      Text(body)
+        .fontSize(12)
+        .lineHeight(18)
+        .fontColor(this.c().textMuted)
+        .width('100%')
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  ConnectTutorialPanel() {
+    Stack() {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('#99000000')
+        .onClick(() => { this.tutorialOpen = false; })
+      Column() {
+        Row({ space: 8 }) {
+          Column({ space: 2 }) {
+            Text('连接 ComfyUI 教程')
+              .fontSize(18)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(this.c().text)
+              .width('100%')
+            Text('主机端 4 步，约 2 分钟')
+              .fontSize(10.5)
+              .fontFamily('monospace')
+              .fontColor(this.c().textDim)
+              .width('100%')
+          }
+          .layoutWeight(1)
+          .alignItems(HorizontalAlign.Start)
+          Text('关闭')
+            .fontSize(12.5)
+            .fontColor(this.c().accent)
+            .padding({ left: 10, right: 10, top: 8, bottom: 8 })
+            .onClick(() => { this.tutorialOpen = false; })
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Top)
+        .padding({ left: 16, right: 12, top: 14, bottom: 6 })
+
+        Scroll() {
+          Column({ space: 14 }) {
+            Text('不用改 ComfyUI 配置，也不用装插件。先确认手机和电脑在同一 Wi-Fi，或者都连上 Tailscale。')
+              .fontSize(12.5)
+              .lineHeight(19)
+              .fontColor(this.c().textMuted)
+              .width('100%')
+              .padding(14)
+              .backgroundColor(this.c().card)
+              .borderRadius(14)
+              .border({ width: 1, color: this.c().border })
+
+            this.TutorialStep('1. 下载启动脚本',
+              '打开 GitHub Release 的 Assets，下载 run_remote.bat。不要用 run_local.bat：它只监听 127.0.0.1，手机连不上。',
+              $r('app.media.tutorial_connect_download'))
+            this.TutorialStep('2. 放进 ComfyUI 根目录',
+              '和 ComfyUI、python_embedded 两个文件夹放在同一层，不是放进 ComfyUI 文件夹里面。放错会提示找不到 Python 或 main.py。',
+              $r('app.media.tutorial_connect_place'))
+            this.TutorialStep('3. 双击运行',
+              '首次运行 Windows 防火墙弹窗时点「允许访问」，建议勾选专用网络。黑色控制台窗口不要关，关了 ComfyUI 就停了。',
+              $r('app.media.tutorial_connect_run'))
+            this.TutorialStep('4. 手机填写地址',
+              '在控制台找到 http://IP:8188，填回本页并点连接。同一 Wi-Fi 选 192.168.x.x；用 Tailscale 就选 100.x，手机也要装 Tailscale。',
+              $r('app.media.tutorial_connect_address'))
+            this.TutorialStep('5. 看到工作流列表',
+              '手机显示「已连接」，并且能刷新服务器工作流，就成功了。连不上先检查：同一网络、防火墙、地址是否包含 http:// 和 :8188。',
+              $r('app.media.tutorial_connect_success'))
+
+            Column({ space: 6 }) {
+              Text('连不上时按顺序检查')
+                .fontSize(13)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.c().text)
+                .width('100%')
+              Text('① 手机和主机是否在同一 Wi-Fi 或同一 Tailscale 网络；\n② 控制台列出的 IP 是否抄全，末尾是否有 :8188；\n③ Windows 防火墙是否允许了 run_remote.bat；\n④ 是否误用了 run_local.bat。')
+                .fontSize(12)
+                .lineHeight(19)
+                .fontColor(this.c().textMuted)
+                .width('100%')
+            }
+            .width('100%')
+            .padding(14)
+            .backgroundColor(this.c().card)
+            .borderRadius(14)
+            .border({ width: 1, color: this.c().border })
+            .alignItems(HorizontalAlign.Start)
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16, top: 6, bottom: 18 })
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .scrollBar(BarState.Off)
+      }
+      .width('94%')
+      .height('92%')
+      .backgroundColor(this.c().dialog)
+      .borderRadius(22)
+      .border({ width: 1, color: this.c().borderStrong })
+      .clip(true)
     }
     .width('100%')
     .height('100%')
@@ -11991,6 +12140,9 @@ struct Index {
       }
       if (this.maskUnsupportedOpen) {
         this.MaskUnsupportedDialog()
+      }
+      if (this.tutorialOpen) {
+        this.ConnectTutorialPanel()
       }
       if (this.updateOpen) {
         this.UpdateOverlay()

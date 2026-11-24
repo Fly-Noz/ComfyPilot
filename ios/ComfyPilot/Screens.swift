@@ -184,6 +184,7 @@ struct ConnectScreen: View {
     let onCatalog: () -> Void
     @EnvironmentObject private var store: SessionStore
     @State private var diagnostics = LaunchOptions.showDiagnostics
+    @State private var tutorialOpen = false
 
     var body: some View {
         ScreenScaffold(palette: palette) {
@@ -215,6 +216,9 @@ struct ConnectScreen: View {
         }
         .sheet(isPresented: $diagnostics) {
             DiagnosticsSheet(palette: palette)
+        }
+        .sheet(isPresented: $tutorialOpen) {
+            ConnectTutorialView(palette: palette)
         }
     }
 
@@ -360,6 +364,31 @@ struct ConnectScreen: View {
                     .font(.system(size: 11))
                     .foregroundStyle(palette.textDim)
             }
+            Button {
+                tutorialOpen = true
+            } label: {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("连接教程")
+                            .font(.system(size: 13.5, weight: .medium))
+                            .foregroundStyle(palette.text)
+                        Text("4 步把手机连上 ComfyUI，附常见问题")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(palette.textDim)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(palette.textDim)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(RoundedRectangle(cornerRadius: 14).fill(palette.card))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(palette.border, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("btnConnectTutorial")
+
             Text("后台可能暂停监控，回来自动同步。")
                 .font(.system(size: 11))
                 .foregroundStyle(palette.textDim)
