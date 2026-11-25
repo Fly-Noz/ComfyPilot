@@ -43,6 +43,7 @@ import { TaskNotifier } from '../notify/TaskNotifier';
 import { emptyServerStats, fetchServerStats, sameServerStats, ServerStats } from '../bridge/ServerStats';
 import { Palette, Spectrum } from '../theme/Spectrum';
 import { MaskEditor } from '../workflow/MaskEditor';
+import { PrivacyConsentService, PrivacyConsentStatus } from '../bridge/PrivacyConsentService';
 import { ArtifactDownloader, ArtifactDownloadResult } from '../artifact/ArtifactDownloader';
 import { VideoThumb } from '../artifact/VideoThumb';
 import { VideoPlayer } from '../artifact/VideoPlayer';
@@ -513,6 +514,9 @@ struct Index {
   private noteStore: NodeNoteStore = new NodeNoteStore();
   private addressStore: AddressStore = new AddressStore();
   private appearanceStore: AppearanceStore = new AppearanceStore();
+  private privacyService: PrivacyConsentService = new PrivacyConsentService();
+  private privacyChecking: boolean = false;
+  private privacyRequested: boolean = false;
   private submitPrefs: SubmitPrefs = new SubmitPrefs();
   private weakPrefs: WeakNetworkPrefs = new WeakNetworkPrefs();
   private updatePrefs: UpdatePrefs = new UpdatePrefs();
@@ -744,6 +748,9 @@ struct Index {
   onPageShow(): void {
     this.pageVisible = true;
     this.statsPaused = false;
+    if (this.storageReady) {
+      this.checkPrivacyConsent();
+    }
     if (this.running) {
       this.startStatsPolling();
     }
@@ -1070,10 +1077,37 @@ struct Index {
     return before === undefined ? '' : this.taskRailColor(before);
   }
 
+  /**
+   * 应用市场托管隐私协议：只查询状态；版本升级需要重新签署时拉起官方弹窗。
+   * 首次启动的标准化弹窗由应用市场负责，不在应用内自绘。
+   */
+  private async checkPrivacyConsent(): Promise<void> {
+    if (this.privacyChecking) {
+      return;
+    }
+    this.privacyChecking = true;
+    try {
+      const status = this.privacyService.status();
+      if (status === PrivacyConsentStatus.NEED_RESIGN && !this.privacyRequested) {
+        this.privacyRequested = true;
+        const context = getContext(this) as common.UIAbilityContext;
+        const next = await this.privacyService.request(context);
+        this.log(`隐私协议重新签署结果：${next}`);
+      } else if (status === PrivacyConsentStatus.DISAGREED) {
+        this.log('隐私协议当前未同意；首次启动弹窗由应用市场处理');
+      }
+    } catch (err) {
+      this.log(`隐私协议状态查询失败：${this.errorText(err)}`);
+    } finally {
+      this.privacyChecking = false;
+    }
+  }
+
   private async bootstrap(): Promise<void> {
     const host = this.getUIContext().getHostContext();
     if (host === undefined) {
       this.storageReady = true;
+    this.checkPrivacyConsent();
       this.storageLabel = '拿不到 Ability 上下文，任务只在内存里';
       return;
     }
