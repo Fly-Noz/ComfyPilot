@@ -283,7 +283,7 @@ interface AiBridgeResult {
   openWorkflow?: string;
 }
 
-/** 主流 AI 服务商预设：选完自动填地址与模型；模型名以厂商文档为准，仍可手改。 */
+/** 国内 AI 服务商预设：选完自动填地址与模型；模型名以厂商文档为准，仍可手改。 */
 interface AiProviderPreset {
   name: string;
   baseUrl: string;
@@ -297,9 +297,6 @@ const AI_PROVIDER_PRESETS: AiProviderPreset[] = [
   { name: '通义千问 Flash', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen3.8-flash' },
   { name: 'Kimi', baseUrl: 'https://api.moonshot.cn/v1', model: 'kimi-k3' },
   { name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-5.3' },
-  { name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-6-astra' },
-  { name: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3-pro' },
-  { name: '自定义', baseUrl: '', model: '' },
 ];
 
 @Entry
@@ -612,7 +609,7 @@ struct Index {
   @State aiAutoSubmit: boolean = false;
   @State aiMaxRounds: number = 8;
   @State aiModelCompression: boolean = false;
-  @State aiProviderIndex: number = AI_PROVIDER_PRESETS.length - 1;
+  @State aiProviderIndex: number = 0;
   @State aiProviderMenuOpen: boolean = false;
   // 下拉候选菜单（替代 ArkUI Select：它的弹层底色跟系统走，深色下会发白）
   @State optionMenuOpen: boolean = false;
@@ -8374,8 +8371,8 @@ struct Index {
   /** 服务商预设：名字、选项列表、按当前地址反查、应用选中项。 */
   private aiProviderName(): string {
     const index: number = this.aiProviderIndex >= 0 && this.aiProviderIndex < AI_PROVIDER_PRESETS.length
-      ? this.aiProviderIndex : AI_PROVIDER_PRESETS.length - 1;
-    return AI_PROVIDER_PRESETS[index].name;
+      ? this.aiProviderIndex : -1;
+    return index >= 0 ? AI_PROVIDER_PRESETS[index].name : '请选择服务商';
   }
 
   private aiProviderOptions(): SelectOption[] {
@@ -8392,7 +8389,7 @@ struct Index {
         return i;
       }
     }
-    return AI_PROVIDER_PRESETS.length - 1;
+    return -1;
   }
 
   private applyAiProvider(index: number): void {
