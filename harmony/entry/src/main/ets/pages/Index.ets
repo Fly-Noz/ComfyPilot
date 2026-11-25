@@ -65,6 +65,9 @@ import {
 const PROJECT_URL: string = 'https://github.com/Fly-Noz/ComfyPilot';
 const ICP_NUMBER: string = '豫ICP备2026059527号';
 const ICP_LINK: string = 'https://beian.miit.gov.cn/';
+/** 未接入应用市场隐私服务（如本地调试包）时，打开已托管的政策正文。 */
+const PRIVACY_POLICY_FALLBACK_URL: string =
+  'https://agreement-drcn.hispace.dbankcloud.cn/index.html?lang=zh&agreementId=2090195770002119424';
 
 /**
  * 版本号从包信息读，别在页面上再写死一份——之前「关于」页就停在 0.2.0 没跟上。
@@ -1044,11 +1047,8 @@ struct Index {
 
   /** 关于页隐私政策：打开应用市场托管信息里的政策正文，不再次拉起同意弹窗。 */
   private async openPrivacyPolicy(): Promise<void> {
-    const url = this.privacyService.privacyPolicyUrl();
-    if (url.length === 0) {
-      promptAction.showToast({ message: '隐私政策地址暂不可用', duration: 2000 });
-      return;
-    }
+    const managedUrl = this.privacyService.privacyPolicyUrl();
+    const url = managedUrl.length > 0 ? managedUrl : PRIVACY_POLICY_FALLBACK_URL;
     await this.openExternalUrl(url);
   }
 
