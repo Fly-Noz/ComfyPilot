@@ -61,8 +61,8 @@ import {
   WorkflowViewResponse,
 } from '../model/WorkflowTypes';
 
-/** 官网地址：关于页只展示官网，不再链接代码托管平台。 */
-const OFFICIAL_SITE_URL: string = 'http://123.249.88.232/';
+/** 项目地址：GitHub 仓库首页，不带 /releases 路径。 */
+const PROJECT_URL: string = 'https://github.com/Fly-Noz/ComfyPilot';
 const ICP_NUMBER: string = '豫ICP备2026059527号';
 const ICP_LINK: string = 'https://beian.miit.gov.cn/';
 
@@ -3766,13 +3766,13 @@ struct Index {
     this.bridge.reconnect();
   }
 
-  /** 关于页：复制官网地址。 */
-  private copyOfficialSite(): void {
+  /** 关于页：复制项目仓库首页，不指向 Release。 */
+  private copyProjectUrl(): void {
     try {
       const data: pasteboard.PasteData =
-        pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, OFFICIAL_SITE_URL);
+        pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, PROJECT_URL);
       pasteboard.getSystemPasteboard().setDataSync(data);
-      promptAction.showToast({ message: '已复制官网地址', duration: 1600 });
+      promptAction.showToast({ message: '已复制项目地址', duration: 1600 });
     } catch (err) {
       promptAction.showToast({ message: this.errorText(err), duration: 1600 });
     }
@@ -11733,8 +11733,8 @@ struct Index {
                 .strokeWidth(1)
                 .color(this.c().border)
                 .margin({ left: 16, right: 16 })
-              this.AboutRow('官方网站', OFFICIAL_SITE_URL, () => {
-                this.copyOfficialSite();
+              this.AboutRow('项目地址', PROJECT_URL, () => {
+                this.copyProjectUrl();
               })
               Divider()
                 .strokeWidth(1)
