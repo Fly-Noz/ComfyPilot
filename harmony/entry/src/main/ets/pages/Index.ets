@@ -4850,7 +4850,7 @@ struct Index {
         .alignItems(VerticalAlign.Top)
       }
       if (this.viewLoading) {
-        this.InlineNote('正在生成字段视图…')
+        this.InlineNote('正在准备字段视图…')
       }
 
       // ---- 图选择器：每个父图一个药丸，点药丸切换是否纳入提交；
@@ -6707,6 +6707,11 @@ struct Index {
       .width('100%')
       .alignItems(VerticalAlign.Center)
 
+      Text('来自用户 ComfyUI')
+        .fontSize(9)
+        .fontColor(this.c().textDim)
+        .width('100%')
+
       if (this.liveCardTask() !== null) {
         Row({ space: 8 }) {
           Text(this.liveCardWaiting() ? '··' : `${this.liveCardPercent()}%`)
@@ -7412,6 +7417,10 @@ struct Index {
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
+        Text('来自用户 ComfyUI')
+          .fontSize(9)
+          .fontColor(this.c().textDim)
+          .width('100%')
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
@@ -7634,6 +7643,9 @@ struct Index {
                 .fontColor(this.c().textDim)
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text('来自用户 ComfyUI')
+                .fontSize(9)
+                .fontColor(this.c().textDim)
             }
             .layoutWeight(1)
             .alignItems(HorizontalAlign.Start)
@@ -8655,7 +8667,7 @@ struct Index {
   AiQuestionCard() {
     Column({ space: 9 }) {
         Row({ space: 6 }) {
-          Text('AI 生成')
+          Text('AI')
             .fontSize(8.5)
             .fontWeight(FontWeight.Medium)
             .fontColor(this.c().accent)
@@ -8753,7 +8765,7 @@ struct Index {
           Column({ space: 1 }) {
             Row({ space: 6 }) {
               Text('AI 助手').fontSize(14).fontColor(this.c().text)
-              Text('AI 生成')
+              Text('AI')
                 .fontSize(8.5)
                 .fontWeight(FontWeight.Medium)
                 .fontColor(this.c().accent)
@@ -8862,7 +8874,7 @@ struct Index {
                 .padding({ left: 26 })
               }
               if (message.role !== 'user' && message.content.length > 0) {
-                Text('AI 生成 · 请核实')
+                Text('AI 助手 · 请核实')
                   .fontSize(8.5)
                   .fontColor(this.c().textDim)
                   .padding({ left: 26, top: 1 })
@@ -8872,7 +8884,7 @@ struct Index {
 
             if (this.aiPending !== null) {
               Column({ space: 5 }) {
-                Text('AI 生成 · 待确认')
+                Text('AI 助手 · 待确认')
                   .fontSize(8.5)
                   .fontColor(this.c().textDim)
                 Text(aiPlainText(this.aiPending.summary)).fontSize(12).fontColor(this.c().text)
@@ -11113,7 +11125,7 @@ struct Index {
         Text('释放主机显存？').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.c().text)
         Text('会卸载 ComfyUI 当前加载的模型、LoRA、VAE 等，释放显存和内存。')
           .fontSize(12).fontColor(this.c().text)
-        Text('不会影响已保存的工作流、参数和产物。下次生成需要重新加载模型，第一轮会明显变慢。')
+        Text('不会影响已保存的工作流、参数和产物。下次运行需要重新加载模型，第一轮会明显变慢。')
           .fontSize(11.5).fontColor(this.c().textMuted)
         Text('如果主机上还有别的客户端在用，也会受影响。')
           .fontSize(11.5).fontColor(this.c().textMuted)
@@ -11821,7 +11833,7 @@ struct Index {
             .border({ width: 1, color: this.c().border })
             .clip(true)
 
-            Text('本项目的部分界面、文案与图标由 AI 辅助生成。')
+            Text('本项目的部分界面、文案与图标由 AI 辅助制作。')
               .fontSize(10.5)
               .fontColor(this.c().textDim)
               .textAlign(TextAlign.Center)
