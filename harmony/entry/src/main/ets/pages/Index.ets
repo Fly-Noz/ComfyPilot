@@ -8667,7 +8667,7 @@ struct Index {
   AiQuestionCard() {
     Column({ space: 9 }) {
         Row({ space: 6 }) {
-          Text('AI')
+          Text('AI 生成')
             .fontSize(8.5)
             .fontWeight(FontWeight.Medium)
             .fontColor(this.c().accent)
@@ -8765,7 +8765,7 @@ struct Index {
           Column({ space: 1 }) {
             Row({ space: 6 }) {
               Text('AI 助手').fontSize(14).fontColor(this.c().text)
-              Text('AI')
+              Text('AI 生成')
                 .fontSize(8.5)
                 .fontWeight(FontWeight.Medium)
                 .fontColor(this.c().accent)
@@ -8874,7 +8874,7 @@ struct Index {
                 .padding({ left: 26 })
               }
               if (message.role !== 'user' && message.content.length > 0) {
-                Text('AI 助手 · 请核实')
+                Text('AI 生成 · 请核实')
                   .fontSize(8.5)
                   .fontColor(this.c().textDim)
                   .padding({ left: 26, top: 1 })
@@ -8884,7 +8884,7 @@ struct Index {
 
             if (this.aiPending !== null) {
               Column({ space: 5 }) {
-                Text('AI 助手 · 待确认')
+                Text('AI 生成 · 待确认')
                   .fontSize(8.5)
                   .fontColor(this.c().textDim)
                 Text(aiPlainText(this.aiPending.summary)).fontSize(12).fontColor(this.c().text)
@@ -11833,7 +11833,7 @@ struct Index {
             .border({ width: 1, color: this.c().border })
             .clip(true)
 
-            Text('本项目的部分界面、文案与图标由 AI 辅助制作。')
+            Text('本项目的部分界面、文案与图标由 AI 辅助生成。')
               .fontSize(10.5)
               .fontColor(this.c().textDim)
               .textAlign(TextAlign.Center)
