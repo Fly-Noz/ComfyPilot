@@ -25,7 +25,7 @@ import { WorkflowDraftStore } from '../bridge/WorkflowDraftStore';
 import { AiAssistant, AiApplyOutcome, AiChatMessage, AiConfig, AiHost, AiImage, AiPending, AiQuestion, AiSessionInfo, AI_AVAILABLE, AI_NOTICE } from '../ai/AiAssistant';
 
 import { aiPlainText, isToolResult } from '../ai/AiText';
-import { checkUpdate, UpdateResult } from '../update/UpdateChecker';
+import { AppUpdateService, AppUpdateOutcome } from '../update/AppUpdateService';
 import { aiDetectGenModel, aiGenerationGuide } from '../ai/AiPrompt';
 import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
 import { NodeNoteStore } from '../bridge/NodeNoteStore';
@@ -34,7 +34,6 @@ import { DismissedErrorStore } from '../bridge/DismissedErrorStore';
 import { AppearanceStore } from '../bridge/AppearanceStore';
 import { SubmitPrefs } from '../bridge/SubmitPrefs';
 import { WeakNetworkPrefs } from '../bridge/WeakNetworkPrefs';
-import { UpdatePrefs, UPDATE_MODE_ONCE } from '../bridge/UpdatePrefs';
 import { LocalWorkflowItem, LocalWorkflowStore } from '../bridge/LocalWorkflowStore';
 import { BackupManager, BackupRestoreSummary } from '../backup/BackupManager';
 import { SeedPrefs } from '../bridge/SeedPrefs';
@@ -62,8 +61,8 @@ import {
   WorkflowViewResponse,
 } from '../model/WorkflowTypes';
 
-/** 项目地址：作者署名改成仓库链接，复制出去就能打开。 */
-const PROJECT_URL: string = 'https://github.com/Fly-Noz/ComfyPilot';
+/** 官网地址：关于页只展示官网，不再链接代码托管平台。 */
+const OFFICIAL_SITE_URL: string = 'http://123.249.88.232/';
 const ICP_NUMBER: string = '豫ICP备2026059527号';
 const ICP_LINK: string = 'https://beian.miit.gov.cn/';
 
@@ -451,12 +450,8 @@ struct Index {
   @State aboutOpen: boolean = false;
   /** 关于页内的许可证说明浮层。 */
   @State licenseOpen: boolean = false;
-  /** 更新检查结果；available 为 false 时 updateOpen 不会打开。 */
-  @State update: UpdateResult = new UpdateResult();
-  /** 新版本提示浮层。 */
-  @State updateOpen: boolean = false;
   @State updateChecking: boolean = false;
-  /** 关于页那一行的副标题。单独用基础类型存：@Builder 里读类实例的字段不会触发重绘。 */
+  /** 关于页「检查更新」的副标题。 */
   @State updateNote: string = '';
   @State noteDraft: string = '';
   @State nodeQuery: string = '';
@@ -519,7 +514,7 @@ struct Index {
   private privacyRequested: boolean = false;
   private submitPrefs: SubmitPrefs = new SubmitPrefs();
   private weakPrefs: WeakNetworkPrefs = new WeakNetworkPrefs();
-  private updatePrefs: UpdatePrefs = new UpdatePrefs();
+  private appUpdateService: AppUpdateService = new AppUpdateService();
   private localWorkflowStore: LocalWorkflowStore = new LocalWorkflowStore();
   private backupManager: BackupManager = new BackupManager();
   private seedPrefs: SeedPrefs = new SeedPrefs();
@@ -527,10 +522,6 @@ struct Index {
   @State forceSubmit: boolean = false;
   @State weakNetwork: boolean = false;
   @State weakDialogOpen: boolean = false;
-  /** 更新提醒模式：always（每次启动）/ once（每个版本一次）。 */
-  @State updateMode: string = 'always';
-  @State updateModeOpen: boolean = false;
-  @State updateModeDraft: string = 'always';
   @State backupExportOpen: boolean = false;
   @State backupImportOpen: boolean = false;
   @State backupBusy: boolean = false;
@@ -676,7 +667,6 @@ struct Index {
     // 从相册选择器或后台回来时页面重新可见：恢复性能轮询（此时连接可能还活着）。 
     this.statsPaused = false;
     // 每次打开都查一次：有新版才弹，没新版或网络失败一声不响。
-    this.checkUpdateSilently();
     if (this.running) {
       this.startStatsPolling();
     }
@@ -788,10 +778,6 @@ struct Index {
     }
     if (this.aiOpen) {
       this.aiOpen = false;
-      return true;
-    }
-    if (this.updateOpen) {
-      this.dismissUpdate();
       return true;
     }
     if (this.graphOpen) {
@@ -1167,7 +1153,6 @@ struct Index {
     // 强制提交开关也落盘：默认关闭，恢复原来的严格校验。
     this.forceSubmit = await this.submitPrefs.load(context);
     this.weakNetwork = await this.weakPrefs.load(context);
-    this.updateMode = await this.updatePrefs.loadMode(context);
     await this.seedPrefs.load(context);
     await this.localWorkflowStore.open(context);
     this.localWorkflows = await this.localWorkflowStore.list();
@@ -3781,70 +3766,52 @@ struct Index {
     this.bridge.reconnect();
   }
 
-  /** 关于页：点「项目地址」时复制仓库链接，并弹一个短暂提示。 */
-  private copyProjectUrl(): void {
+  /** 关于页：复制官网地址。 */
+  private copyOfficialSite(): void {
     try {
       const data: pasteboard.PasteData =
-        pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, PROJECT_URL);
+        pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, OFFICIAL_SITE_URL);
       pasteboard.getSystemPasteboard().setDataSync(data);
-      promptAction.showToast({ message: '已复制项目地址', duration: 1600 });
+      promptAction.showToast({ message: '已复制官网地址', duration: 1600 });
     } catch (err) {
       promptAction.showToast({ message: this.errorText(err), duration: 1600 });
     }
   }
 
-  /** 关于页手动检查：无论结果如何都要给一句话，不能点完没反应。 */
+  /**
+   * 关于页「检查更新」：只调用应用市场官方更新。
+   *
+   * showUpdateDialog 必须紧跟在 checkAppUpdate 之后；稍后提醒、版本记忆
+   * 都由官方弹窗处理，应用内不保存任何更新状态。
+   */
   private async checkUpdateManually(): Promise<void> {
     if (this.updateChecking) {
       return;
     }
     this.updateChecking = true;
     this.updateNote = '检查中…';
-    const result = await checkUpdate('harmony');
-    this.updateChecking = false;
-    this.update = result;
-    this.updateNote = result.message;
-    if (result.available) {
-      this.updateOpen = true;
-      return;
-    }
-    promptAction.showToast({ message: result.message, duration: 1800 });
-  }
-
-  /** 启动检查：有新版就弹，没有就完全安静（不 toast、不写状态）。 */
-  private async checkUpdateSilently(): Promise<void> {
-    if (this.updateChecking) {
-      return;
-    }
-    this.updateChecking = true;
-    const result = await checkUpdate('harmony');
-    this.updateChecking = false;
-    if (!result.available) {
-      return;
-    }
-    const context = getContext(this) as common.Context;
-    const mode = await this.updatePrefs.loadMode(context);
-    if (mode === UPDATE_MODE_ONCE) {
-      const dismissed = await this.updatePrefs.loadDismissed(context);
-      if (result.versionCode <= dismissed) {
-        return;
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const outcome = await this.appUpdateService.checkAndShow(context);
+      if (outcome === AppUpdateOutcome.NO_UPDATE) {
+        this.updateNote = '已是最新版本';
+        promptAction.showToast({ message: '当前已是最新版本', duration: 1800 });
+      } else if (outcome === AppUpdateOutcome.DIALOG_SHOWN) {
+        this.updateNote = `当前 ${APP_VERSION}`;
+      } else {
+        this.updateNote = '检查失败';
+        promptAction.showToast({ message: '更新检查失败，请稍后重试', duration: 2000 });
       }
+    } catch (err) {
+      this.updateNote = '检查失败';
+      promptAction.showToast({ message: '更新检查失败，请稍后重试', duration: 2000 });
+    } finally {
+      this.updateChecking = false;
     }
-    this.updateNote = result.message;
-    this.update = result;
-    this.updateOpen = true;
   }
 
-  /** 「稍后」：按设置决定是否记住这个版本；手动检查仍会重新弹出。 */
-  private dismissUpdate(): void {
-    if (this.updateMode === UPDATE_MODE_ONCE && this.update.versionCode > 0) {
-      this.updatePrefs.markDismissed(getContext(this) as common.Context, this.update.versionCode);
-    }
-    this.updateOpen = false;
-  }
-
-  /** 用系统浏览器打开下载页。鸿蒙装包仍需自行签名，提示写在面板里。 */
-  private async openUpdate(url: string): Promise<void> {
+  /** 用系统浏览器打开外部链接（例如备案查询页）。 */
+  private async openExternalUrl(url: string): Promise<void> {
     if (url.length === 0) {
       return;
     }
@@ -9463,7 +9430,6 @@ struct Index {
       this.imageUploader.weakNetwork = summary.weakNetwork;
       this.bridge.weakNetwork = summary.weakNetwork;
       this.ai.forceMechanical = summary.weakNetwork;
-      this.updateMode = summary.updateMode;
       await this.addressStore.load(context);
       this.localWorkflows = await this.localWorkflowStore.list();
       await this.bridge.reloadTasks();
@@ -10916,80 +10882,6 @@ struct Index {
   }
 
   @Builder
-  UpdateModeOption(value: string, title: string, desc: string) {
-    Row({ space: 8 }) {
-      Column({ space: 2 }) {
-        Text(title).fontSize(13).fontColor(this.c().text)
-        Text(desc).fontSize(10.5).lineHeight(15).fontColor(this.c().textDim)
-      }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-      Text(this.updateModeDraft === value ? '●' : '○')
-        .fontSize(14)
-        .fontColor(this.updateModeDraft === value ? this.c().accent : this.c().textDim)
-    }
-    .width('100%')
-    .padding({ left: 6, right: 6, top: 9, bottom: 9 })
-    .borderRadius(10)
-    .onClick(() => { this.updateModeDraft = value; })
-  }
-
-  @Builder
-  UpdateModeDialog() {
-    Stack() {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor('#99000000')
-        .onClick(() => { this.updateModeOpen = false; })
-      Column({ space: 8 }) {
-        Text('更新提醒').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.c().text)
-        Text('选择启动时如何提示新版本，手动检查始终会给出结果。')
-          .fontSize(11.5).fontColor(this.c().textMuted)
-        this.UpdateModeOption(
-          'always',
-          '每次启动都提示',
-          '有新版就弹',
-        )
-        this.UpdateModeOption(
-          'once',
-          '每个版本只提示一次',
-          '点过稍后后，同一版本不再提示；出现更新版本或手动检查仍会提示',
-        )
-        Row({ space: 10 }) {
-          Text('取消')
-            .fontSize(12.5).fontColor(this.c().textMuted)
-            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-            .backgroundColor(this.c().card).borderRadius(10)
-            .onClick(() => { this.updateModeOpen = false; })
-          Text('保存')
-            .fontSize(12.5).fontColor('#FFFFFF')
-            .padding({ left: 14, right: 14, top: 8, bottom: 8 })
-            .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
-            .borderRadius(10)
-            .onClick(() => {
-              this.updateMode = this.updateModeDraft;
-              this.updatePrefs.saveMode(getContext(this) as common.Context, this.updateModeDraft);
-              this.updateModeOpen = false;
-            })
-        }
-        .width('100%')
-        .margin({ top: 6 })
-        .justifyContent(FlexAlign.End)
-      }
-      .width('86%')
-      .padding(18)
-      .backgroundColor(this.c().dialog)
-      .borderRadius(20)
-      .border({ width: 1, color: this.c().border })
-      .alignItems(HorizontalAlign.Start)
-    }
-    .width('100%')
-    .height('100%')
-    .position({ x: 0, y: 0 })
-  }
-
-  @Builder
   BackupExportDialog() {
     Stack() {
       Column()
@@ -11615,27 +11507,6 @@ struct Index {
     .border({ width: 1, color: this.c().border })
     .onClick(() => { this.advancedOpen = true; })
 
-    Row({ space: 8 }) {
-      Column({ space: 3 }) {
-        Text('更新提醒').fontSize(14).fontColor(this.c().text)
-        Text(this.updateMode === UPDATE_MODE_ONCE ? '每个版本只提示一次' : '每次启动都提示')
-          .fontSize(10.5).fontColor(this.c().textDim)
-      }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-      Text('›').fontSize(16).fontColor(this.c().textDim)
-    }
-    .width('100%')
-    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-    .alignItems(VerticalAlign.Center)
-    .backgroundColor(this.c().card)
-    .borderRadius(16)
-    .border({ width: 1, color: this.c().border })
-    .onClick(() => {
-      this.updateModeDraft = this.updateMode;
-      this.updateModeOpen = true;
-    })
-
     Text('数据').fontSize(11).fontColor(this.c().textDim).width('100%').textAlign(TextAlign.Start)
 
     Row({ space: 8 }) {
@@ -11735,117 +11606,6 @@ struct Index {
     .padding({ left: 16, right: 16, top: 14, bottom: 14 })
     .alignItems(VerticalAlign.Center)
     .onClick(action)
-  }
-
-  /** 更新提示的遮罩与居中卡片：盖在所有页面之上。 */
-  @Builder
-  UpdateOverlay() {
-    Stack() {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor(this.c().background)
-        .opacity(0.72)
-      this.UpdatePanel()
-    }
-    .width('100%')
-    .height('100%')
-  }
-
-  /**
-   * 新版本提示。
-   *
-   * 与 Android 同一个弹窗，只有一处不同：鸿蒙没有「点安装包就装」的通道，
-   * 下载完也得在电脑上签名安装。这句提示必须写在按钮上方，否则用户点完
-   * 跳浏览器下载一个 HAP，回来发现打不开，会以为是包坏了。
-   */
-  @Builder
-  UpdatePanel() {
-    Column({ space: 12 }) {
-      Text(`发现新版本 ${this.update.versionName}`)
-        .fontSize(17)
-        .fontWeight(FontWeight.Bold)
-        .letterSpacing(-0.2)
-        .fontColor(this.c().text)
-      Text(`当前 ${APP_VERSION} · 最新 ${this.update.versionName}`)
-        .fontSize(10.5)
-        .fontColor(this.c().textDim)
-
-      if (this.update.notes.length > 0) {
-        Scroll() {
-          Text(this.update.notes)
-            .fontSize(12.5)
-            .lineHeight(19)
-            .fontColor(this.c().textMuted)
-            .width('100%')
-        }
-        .constraintSize({ maxHeight: 120 })
-        .width('100%')
-        .scrollBar(BarState.Off)
-        .align(Alignment.TopStart)
-      }
-
-      Column({ space: 4 }) {
-        Text('鸿蒙版需自行签名安装')
-          .fontSize(11.5)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.c().warn)
-        Text('下载后请自行签名安装；手机上直接点 HAP 不会有反应。')
-          .fontSize(10.5)
-          .lineHeight(16)
-          .fontColor(this.c().textDim)
-      }
-      .alignItems(HorizontalAlign.Start)
-      .width('100%')
-      .padding(10)
-      .backgroundColor(this.c().warnSoft)
-      .borderRadius(10)
-      .border({ width: 1, color: this.c().warn })
-
-      Row({ space: 8 }) {
-        Text('稍后')
-          .fontSize(13)
-          .fontColor(this.c().textDim)
-          .padding({ left: 14, right: 14, top: 9, bottom: 9 })
-          .borderRadius(10)
-          .border({ width: 1, color: this.c().border })
-          .onClick(() => {
-            this.dismissUpdate();
-          })
-        Blank()
-        if (this.update.github.length > 0) {
-          Text('GitHub')
-            .fontSize(13)
-            .fontColor(this.c().text)
-            .padding({ left: 14, right: 14, top: 9, bottom: 9 })
-            .borderRadius(10)
-            .border({ width: 1, color: this.c().border })
-            .onClick(() => {
-              this.openUpdate(this.update.github);
-            })
-        }
-        if (this.update.gitee.length > 0) {
-          Text('Gitee')
-            .fontSize(13)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.c().accentInk)
-            .padding({ left: 14, right: 14, top: 9, bottom: 9 })
-            .borderRadius(10)
-            .backgroundColor(this.c().accent)
-            .onClick(() => {
-              this.openUpdate(this.update.gitee);
-            })
-        }
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-    }
-    .padding(18)
-    .width('84%')
-    .alignItems(HorizontalAlign.Start)
-    .backgroundColor(this.c().dialog)
-    .borderRadius(18)
-    .border({ width: 1, color: this.c().borderStrong })
   }
 
   /** 许可证说明浮层：居中卡片，点「关闭」收起。 */
@@ -11973,8 +11733,8 @@ struct Index {
                 .strokeWidth(1)
                 .color(this.c().border)
                 .margin({ left: 16, right: 16 })
-              this.AboutRow('项目地址', PROJECT_URL, () => {
-                this.copyProjectUrl();
+              this.AboutRow('官方网站', OFFICIAL_SITE_URL, () => {
+                this.copyOfficialSite();
               })
               Divider()
                 .strokeWidth(1)
@@ -12010,7 +11770,7 @@ struct Index {
               .textAlign(TextAlign.Center)
               .width('100%')
               .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-              .onClick(() => { this.openUpdate(ICP_LINK); })
+              .onClick(() => { this.openExternalUrl(ICP_LINK); })
           }
           .width('100%')
           .padding({ left: 4, right: 4, top: 4, bottom: 16 })
@@ -12126,9 +11886,6 @@ struct Index {
       if (this.freeDialogOpen) {
         this.FreeMemoryDialog()
       }
-      if (this.updateModeOpen) {
-        this.UpdateModeDialog()
-      }
       if (this.backupExportOpen) {
         this.BackupExportDialog()
       }
@@ -12198,9 +11955,6 @@ struct Index {
       }
       if (this.tutorialOpen) {
         this.ConnectTutorialPanel()
-      }
-      if (this.updateOpen) {
-        this.UpdateOverlay()
       }
       if (this.running && this.aiEnabled) {
         this.AiBall()

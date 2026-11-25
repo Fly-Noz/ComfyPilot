@@ -8,7 +8,6 @@ import { LocalWorkflowItem, LocalWorkflowStore } from '../bridge/LocalWorkflowSt
 import { PinnedWorkflowStore } from '../bridge/PinnedWorkflowStore';
 import { SubmitPrefs } from '../bridge/SubmitPrefs';
 import { TaskStorage } from '../bridge/TaskStorage';
-import { UpdatePrefs } from '../bridge/UpdatePrefs';
 import { WeakNetworkPrefs } from '../bridge/WeakNetworkPrefs';
 
 const FORMAT: string = 'comfypilot-backup';
@@ -36,8 +35,6 @@ export interface BackupSettings {
   theme: string;
   forceSubmit: boolean;
   weakNetwork: boolean;
-  updateMode: string;
-  dismissedVersion: number;
 }
 
 export interface BackupDocument {
@@ -67,12 +64,11 @@ export interface BackupRestoreSummary {
   theme: string;
   forceSubmit: boolean;
   weakNetwork: boolean;
-  updateMode: string;
   localCount: number;
 }
 
 /**
- * 本地备份：Android 与鸿蒙共用同一份 JSON 结构。
+ * 本地备份：与 Android 格式保持兼容；更新提示相关字段不再导出。
  *
  * 纯本机记录；不包含 AI API Key、clientId、诊断日志。
  */
@@ -170,7 +166,6 @@ export class BackupManager {
     const appearance = await this.openStore(context, 'appearance');
     const submit = await this.openStore(context, 'submit');
     const weak = await this.openStore(context, 'weak_network');
-    const update = await this.openStore(context, 'comfypilot_update');
 
     return {
       format: FORMAT,
@@ -193,8 +188,6 @@ export class BackupManager {
         theme: appearance.getSync('mode', 'system') as string,
         forceSubmit: submit.getSync('force', false) as boolean,
         weakNetwork: weak.getSync('enabled', false) as boolean,
-        updateMode: update.getSync('prompt_mode', 'always') as string,
-        dismissedVersion: update.getSync('dismissed_version', 0) as number,
       },
     };
   }
@@ -251,19 +244,10 @@ export class BackupManager {
     await new AppearanceStore().save(context, doc.settings.theme);
     await new SubmitPrefs().save(context, doc.settings.forceSubmit);
     await new WeakNetworkPrefs().save(context, doc.settings.weakNetwork);
-    const updatePrefs = new UpdatePrefs();
-    await updatePrefs.saveMode(context, doc.settings.updateMode === 'once' ? 'once' : 'always');
-    if (doc.settings.dismissedVersion > 0) {
-      await updatePrefs.markDismissed(context, doc.settings.dismissedVersion);
-    } else {
-      await updatePrefs.clearDismissed(context);
-    }
-
     return {
       theme: doc.settings.theme,
       forceSubmit: doc.settings.forceSubmit,
       weakNetwork: doc.settings.weakNetwork,
-      updateMode: doc.settings.updateMode,
       localCount: items.length,
     };
   }
