@@ -1,5 +1,6 @@
 import { updateManager } from '@kit.AppGalleryKit';
 import { common } from '@kit.AbilityKit';
+import { BusinessError } from '@kit.BasicServicesKit';
 
 export enum AppUpdateOutcome {
   NO_UPDATE = 0,
@@ -15,16 +16,20 @@ export enum AppUpdateOutcome {
  */
 export class AppUpdateService {
   async checkAndShow(context: common.UIAbilityContext): Promise<AppUpdateOutcome> {
+    let stage: string = 'checkAppUpdate';
     try {
       const check = await updateManager.checkAppUpdate(context);
       if (check.updateAvailable !== updateManager.UpdateAvailableCode.LATER_VERSION_EXIST) {
         return AppUpdateOutcome.NO_UPDATE;
       }
+      stage = 'showUpdateDialog';
       const shown = await updateManager.showUpdateDialog(context);
       return shown === updateManager.ShowUpdateResultCode.SHOW_DIALOG_SUCCESS
         ? AppUpdateOutcome.DIALOG_SHOWN
         : AppUpdateOutcome.FAILED;
     } catch (err) {
+      const error = err as BusinessError;
+      console.error(`[ComfyPilot] ${stage} failed: ${error.code} ${error.message}`);
       return AppUpdateOutcome.FAILED;
     }
   }
