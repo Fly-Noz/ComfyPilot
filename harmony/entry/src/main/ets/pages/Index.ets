@@ -8702,7 +8702,16 @@ struct Index {
           .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
 
           Column({ space: 1 }) {
-            Text('AI 助手').fontSize(14).fontColor(this.c().text)
+            Row({ space: 6 }) {
+              Text('AI 助手').fontSize(14).fontColor(this.c().text)
+              Text('AI 生成')
+                .fontSize(8.5)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.c().accent)
+                .padding({ left: 5, right: 5, top: 2, bottom: 2 })
+                .backgroundColor(this.c().accentSoft)
+                .borderRadius(5)
+            }
             Text(this.aiModel.length > 0 ? this.aiModel : '未配置模型')
               .fontSize(9)
               .fontFamily('monospace')
@@ -8803,11 +8812,20 @@ struct Index {
                 }
                 .padding({ left: 26 })
               }
+              if (message.role !== 'user' && message.content.length > 0) {
+                Text('AI 生成 · 请核实')
+                  .fontSize(8.5)
+                  .fontColor(this.c().textDim)
+                  .padding({ left: 26, top: 1 })
+              }
               }
             }, (message: AiChatMessage, index: number) => `${index}:${message.content.substring(0, 24)}`)
 
             if (this.aiPending !== null) {
               Column({ space: 5 }) {
+                Text('AI 生成 · 待确认')
+                  .fontSize(8.5)
+                  .fontColor(this.c().textDim)
                 Text(aiPlainText(this.aiPending.summary)).fontSize(12).fontColor(this.c().text)
                 // 改动多时原来会把「应用并提交」挤出面板；限高滚动，按钮始终可见。
                 Scroll() {
