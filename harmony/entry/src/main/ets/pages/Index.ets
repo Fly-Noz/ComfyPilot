@@ -447,6 +447,9 @@ struct Index {
   @State aboutOpen: boolean = false;
   /** 关于页内的许可证说明浮层。 */
   @State licenseOpen: boolean = false;
+  /** 隐私协议同意后才放行 bootstrap（数据库、AI、桥接、通知权限）。 */
+  @State privacyReady: boolean = false;
+  @State privacyBlocked: boolean = false;
   @State updateChecking: boolean = false;
   /** 关于页「检查更新」的副标题。 */
   @State updateNote: string = '';
@@ -509,6 +512,7 @@ struct Index {
   private privacyService: PrivacyConsentService = new PrivacyConsentService();
   private privacyChecking: boolean = false;
   private privacyRequested: boolean = false;
+  private privacyStarting: boolean = false;
   private submitPrefs: SubmitPrefs = new SubmitPrefs();
   private weakPrefs: WeakNetworkPrefs = new WeakNetworkPrefs();
   private appUpdateService: AppUpdateService = new AppUpdateService();
@@ -663,7 +667,6 @@ struct Index {
   aboutToAppear(): void {
     // 从相册选择器或后台回来时页面重新可见：恢复性能轮询（此时连接可能还活着）。 
     this.statsPaused = false;
-    // 每次打开都查一次：有新版才弹，没新版或网络失败一声不响。
     if (this.running) {
       this.startStatsPolling();
     }
@@ -677,30 +680,8 @@ struct Index {
         return;
       }
     }
-    this.abi = nativeVersion();
-    this.bridge.onState = (state: BridgeState) => this.applyState(state);
-    this.bridge.onNotice = (text: string) => {
-      this.notice = text;
-      if (text.startsWith('提交被拒绝') || text.startsWith('已提交')) {
-        this.submitNotice = text;
-        // 成功/拒绝的提示都在几秒后自动收起，避免一直占据底栏。
-        if (this.submitNoticeTimer >= 0) {
-          clearTimeout(this.submitNoticeTimer);
-        }
-        this.submitNoticeTimer = setTimeout(() => {
-          this.submitNotice = '';
-          this.submitNoticeTimer = -1;
-        }, 4000);
-      }
-      // 共享层确认服务器已接受后才算成功：只有这条路径点亮「已提交 ✓」。
-      if (text.startsWith('已提交')) {
-        this.flashSubmitSuccess();
-      }
-      this.log(text);
-    };
-    this.bridge.onLog = (line: string) => this.log(line);
     this.startClock();
-    this.bootstrap();
+    this.startAfterPrivacy();
   }
 
   aboutToDisappear(): void {
@@ -735,15 +716,16 @@ struct Index {
   onPageShow(): void {
     this.pageVisible = true;
     this.statsPaused = false;
-    if (this.storageReady) {
+    if (!this.privacyReady && !this.privacyBlocked) {
+      this.startAfterPrivacy();
+    } else if (this.storageReady) {
       this.checkPrivacyConsent();
     }
     if (this.running) {
       this.startStatsPolling();
     }
-    // 回到应用：任务通知全部撤掉，连续任务也停掉
+    // 回到应用：任务通知全部撤掉。
     this.notifier.cancelTaskNotifications();
-    this.notifier.stopKeepAlive();
   }
 
   /** 页面不可见（切后台 / 跳走）：停掉轮询，回来再开。 */
@@ -751,7 +733,7 @@ struct Index {
     this.pageVisible = false;
     this.statsPaused = true;
     this.stopStatsPolling();
-    // 切后台：有任务在跑就开连续任务 + 进度通知
+    // 切后台：有任务在跑就更新进度通知（不申请连续任务）。
     this.updateTaskNotification();
   }
 
@@ -1060,15 +1042,76 @@ struct Index {
     return before === undefined ? '' : this.taskRailColor(before);
   }
 
-  /** 关于页手动入口：拉起应用市场托管的官方隐私协议弹窗。 */
-  private async requestPrivacyConsent(): Promise<void> {
-    const context = getContext(this) as common.UIAbilityContext;
-    const result = await this.privacyService.request(context);
-    if (result === PrivacyConsentStatus.UNSUPPORTED) {
-      promptAction.showToast({ message: '当前安装包未接入应用市场隐私服务', duration: 2000 });
-    } else {
-      this.log(`手动隐私协议结果：${result}`);
+  /** 关于页隐私政策：打开应用市场托管信息里的政策正文，不再次拉起同意弹窗。 */
+  private async openPrivacyPolicy(): Promise<void> {
+    const url = this.privacyService.privacyPolicyUrl();
+    if (url.length === 0) {
+      promptAction.showToast({ message: '隐私政策地址暂不可用', duration: 2000 });
+      return;
     }
+    await this.openExternalUrl(url);
+  }
+
+  /**
+   * 隐私协议通过后才初始化业务：数据库、AI、桥接和通知权限都在 bootstrap 内。
+   * 首次启动的标准化弹窗由应用市场负责；未同意时不启动任何业务。
+   */
+  private async startAfterPrivacy(): Promise<void> {
+    if (this.privacyStarting) {
+      return;
+    }
+    this.privacyStarting = true;
+    this.privacyBlocked = false;
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const initial = this.privacyService.status();
+      let status: PrivacyConsentStatus = initial;
+      if (initial === PrivacyConsentStatus.DISAGREED ||
+        initial === PrivacyConsentStatus.NEED_RESIGN) {
+        status = await this.privacyService.request(context);
+      }
+      const usable = status === PrivacyConsentStatus.AGREED ||
+        (initial === PrivacyConsentStatus.UNSUPPORTED && status === PrivacyConsentStatus.UNSUPPORTED);
+      if (!usable) {
+        this.privacyBlocked = true;
+        this.log('隐私协议未同意，暂不启动业务');
+        return;
+      }
+      this.privacyReady = true;
+      this.prepareBridge();
+      await this.bootstrap();
+    } catch (err) {
+      this.privacyBlocked = true;
+      this.log(`隐私协议启动失败：${this.errorText(err)}`);
+    } finally {
+      this.privacyStarting = false;
+    }
+  }
+
+  /** 隐私同意后才挂接桥接回调，避免同意前跑业务初始化。 */
+  private prepareBridge(): void {
+    this.abi = nativeVersion();
+    this.bridge.onState = (state: BridgeState) => this.applyState(state);
+    this.bridge.onNotice = (text: string) => {
+      this.notice = text;
+      if (text.startsWith('提交被拒绝') || text.startsWith('已提交')) {
+        this.submitNotice = text;
+        // 成功/拒绝的提示都在几秒后自动收起，避免一直占据底栏。
+        if (this.submitNoticeTimer >= 0) {
+          clearTimeout(this.submitNoticeTimer);
+        }
+        this.submitNoticeTimer = setTimeout(() => {
+          this.submitNotice = '';
+          this.submitNoticeTimer = -1;
+        }, 4000);
+      }
+      // 共享层确认服务器已接受后才算成功：只有这条路径点亮「已提交 ✓」。
+      if (text.startsWith('已提交')) {
+        this.flashSubmitSuccess();
+      }
+      this.log(text);
+    };
+    this.bridge.onLog = (line: string) => this.log(line);
   }
 
   /**
@@ -3216,7 +3259,6 @@ struct Index {
       .filter((task: BridgeTask) => !this.isTerminalState(task.state))
       .sort((a: BridgeTask, b: BridgeTask) => b.updatedAtMs - a.updatedAtMs)[0];
     if (active !== undefined) {
-      this.notifier.startKeepAlive();
       const name = active.name !== null && active.name.length > 0 ? active.name : `任务 ${active.id.substring(0, 8)}`;
       this.notifier.notifyProgress(name, this.taskNotificationText(active));
     } else {
@@ -11770,7 +11812,7 @@ struct Index {
                 .color(this.c().border)
                 .margin({ left: 16, right: 16 })
               this.AboutRow('隐私政策', '查看', () => {
-                this.requestPrivacyConsent();
+                this.openPrivacyPolicy();
               })
             }
             .width('100%')
@@ -11879,9 +11921,51 @@ struct Index {
     .height('100%')
   }
 
+  /** 隐私未放行时的阻断页：业务、数据库、AI 和权限申请都还没有启动。 */
+  @Builder
+  PrivacyGate() {
+    Column({ space: 14 }) {
+      Text('ComfyPilot')
+        .fontSize(26)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(this.c().text)
+      Text('需要先同意隐私政策')
+        .fontSize(16)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.c().text)
+      Text('请在系统隐私提示中阅读并同意隐私政策后再使用。')
+        .fontSize(12)
+        .lineHeight(18)
+        .fontColor(this.c().textMuted)
+        .textAlign(TextAlign.Center)
+      if (this.privacyBlocked) {
+        Text('重新查看并同意')
+          .fontSize(13)
+          .fontColor('#FFFFFF')
+          .padding({ left: 18, right: 18, top: 10, bottom: 10 })
+          .linearGradient({ angle: 135, colors: Spectrum.gradientColors(this.c()) })
+          .borderRadius(12)
+          .onClick(() => { this.startAfterPrivacy(); })
+      } else {
+        Text('正在等待隐私确认…')
+          .fontSize(11.5)
+          .fontColor(this.c().textDim)
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .padding(32)
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .backgroundColor(this.c().background)
+  }
+
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      this.AppGlow()
+      if (!this.privacyReady) {
+        this.PrivacyGate()
+      } else {
+        this.AppGlow()
       if (this.artifactOpen) {
         this.ArtifactPanel()
       } else {
@@ -12010,6 +12094,7 @@ struct Index {
           .zIndex(100)
       }
     }
+      }
     .width('100%')
     .height('100%')
     .backgroundColor(this.c().background)

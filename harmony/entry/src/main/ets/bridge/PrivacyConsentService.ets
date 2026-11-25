@@ -48,6 +48,23 @@ export class PrivacyConsentService {
     return allAgreed ? PrivacyConsentStatus.AGREED : PrivacyConsentStatus.DISAGREED;
   }
 
+  /** 从应用市场托管信息中取隐私政策正文 URL。 */
+  privacyPolicyUrl(): string {
+    try {
+      const info = privacyManager.getAppPrivacyMgmtInfo();
+      for (let i = 0; i < info.privacyInfo.length; i++) {
+        const link = info.privacyInfo[i];
+        if (link.type === privacyManager.AppPrivacyLinkType.PRIVACY_STATEMENT_LINK &&
+          link.url.length > 0) {
+          return link.url;
+        }
+      }
+    } catch (err) {
+      // 未接入或服务不可用时由调用方提示
+    }
+    return '';
+  }
+
   /** 查询当前签署状态；服务不可用或调用失败时按不支持处理，不阻塞使用。 */
   status(): PrivacyConsentStatus {
     if (!this.supported()) {

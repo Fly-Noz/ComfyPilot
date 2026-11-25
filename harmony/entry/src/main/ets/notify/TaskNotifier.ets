@@ -1,6 +1,5 @@
 import { notificationManager } from '@kit.NotificationKit';
 import { common, wantAgent } from '@kit.AbilityKit';
-import { backgroundTaskManager } from '@kit.BackgroundTasksKit';
 import Want from '@ohos.app.ability.Want';
 
 const PROGRESS_ID: number = 1001;
@@ -13,13 +12,12 @@ const DONE_ID: number = 1002;
  * - 进度通知：运行中更新，常驻、不可滑动删除（文案说明原因）；
  * - 完成通知：任务结束时的提醒。
  *
- * 后台保持用连续任务（DATA_TRANSFER）：系统会在通知栏放一条"正在运行"的提示，
- * 同时让进程在切后台后不被立刻回收——这是进度能持续更新的前提。
+ * 不使用连续任务：本应用是在等远端 ComfyUI 生成，不是上传/下载，
+ * 也不满足实况窗进度通知条件；切后台后允许系统挂起，回前台再同步。
  */
 export class TaskNotifier {
   private context: common.UIAbilityContext | null = null;
   private agent: object | null = null;
-  private keepAlive: boolean = false;
   private lastSignature: string = '';
   private lastAtMs: number = 0;
 
@@ -66,41 +64,6 @@ export class TaskNotifier {
     } catch (err) {
       return null;
     }
-  }
-
-  /** 进入后台且有任务在跑时开启连续任务，避免进程被回收。 */
-  async startKeepAlive(): Promise<void> {
-    const context = this.context;
-    if (context === null || this.keepAlive) {
-      return;
-    }
-    const agent: object | null = await this.agentOrNull();
-    if (agent === null) {
-      return;
-    }
-    try {
-      await backgroundTaskManager.startBackgroundRunning(
-        context,
-        backgroundTaskManager.BackgroundMode.DATA_TRANSFER,
-        agent,
-      );
-      this.keepAlive = true;
-    } catch (err) {
-      this.keepAlive = false;
-    }
-  }
-
-  async stopKeepAlive(): Promise<void> {
-    const context = this.context;
-    if (context === null || !this.keepAlive) {
-      return;
-    }
-    try {
-      await backgroundTaskManager.stopBackgroundRunning(context);
-    } catch (err) {
-      // 已经停了就算了
-    }
-    this.keepAlive = false;
   }
 
   /** 运行中通知：节流 900ms，内容不变就不重发。 */

@@ -54,9 +54,6 @@
       {
         "name": "ohos.permission.GET_NETWORK_INFO"
       },
-      {
-        "name": "ohos.permission.KEEP_BACKGROUND_RUNNING"
-      }
     ]
   }
 }
