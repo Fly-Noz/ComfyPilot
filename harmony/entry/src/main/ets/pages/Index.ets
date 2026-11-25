@@ -11833,7 +11833,7 @@ struct Index {
             .border({ width: 1, color: this.c().border })
             .clip(true)
 
-            Text('本项目的部分界面、文案与图标由 AI 辅助生成。')
+            Text('本项目的部分界面、文案与图标在开发过程中使用 AI 工具辅助制作。')
               .fontSize(10.5)
               .fontColor(this.c().textDim)
               .textAlign(TextAlign.Center)
