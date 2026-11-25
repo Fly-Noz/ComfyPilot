@@ -1077,6 +1077,17 @@ struct Index {
     return before === undefined ? '' : this.taskRailColor(before);
   }
 
+  /** 关于页手动入口：拉起应用市场托管的官方隐私协议弹窗。 */
+  private async requestPrivacyConsent(): Promise<void> {
+    const context = getContext(this) as common.UIAbilityContext;
+    const result = await this.privacyService.request(context);
+    if (result === PrivacyConsentStatus.UNSUPPORTED) {
+      promptAction.showToast({ message: '当前安装包未接入应用市场隐私服务', duration: 2000 });
+    } else {
+      this.log(`手动隐私协议结果：${result}`);
+    }
+  }
+
   /**
    * 应用市场托管隐私协议：只查询状态；版本升级需要重新签署时拉起官方弹窗。
    * 首次启动的标准化弹窗由应用市场负责，不在应用内自绘。
@@ -11971,6 +11982,13 @@ struct Index {
                 .margin({ left: 16, right: 16 })
               this.AboutRow('开源许可证', 'GPL-3.0', () => {
                 this.licenseOpen = true;
+              })
+              Divider()
+                .strokeWidth(1)
+                .color(this.c().border)
+                .margin({ left: 16, right: 16 })
+              this.AboutRow('隐私政策', '查看', () => {
+                this.requestPrivacyConsent();
               })
             }
             .width('100%')
