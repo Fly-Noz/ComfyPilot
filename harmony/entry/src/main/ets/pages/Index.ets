@@ -8612,7 +8612,14 @@ struct Index {
   @Builder
   AiQuestionCard() {
     Column({ space: 9 }) {
-        Row() {
+        Row({ space: 6 }) {
+          Text('AI 生成')
+            .fontSize(8.5)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.c().accent)
+            .padding({ left: 5, right: 5, top: 2, bottom: 2 })
+            .backgroundColor(this.c().accentSoft)
+            .borderRadius(5)
           Text('需要你确认')
             .fontSize(9.5)
             .fontFamily('monospace')
