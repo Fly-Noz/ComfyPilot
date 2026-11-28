@@ -42,6 +42,7 @@ struct ConnectTutorialView: View {
                             Text("连接 ComfyUI 教程")
                                 .font(.system(size: 18, weight: .bold))
                                 .foregroundStyle(palette.text)
+                                .accessibilityIdentifier("tutorial-title")
                             Text("主机端 4 步，约 2 分钟")
                                 .font(.system(size: 10.5, design: .monospaced))
                                 .foregroundStyle(palette.textDim)

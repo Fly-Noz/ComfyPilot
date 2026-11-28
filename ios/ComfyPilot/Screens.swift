@@ -184,7 +184,7 @@ struct ConnectScreen: View {
     let onCatalog: () -> Void
     @EnvironmentObject private var store: SessionStore
     @State private var diagnostics = LaunchOptions.showDiagnostics
-    @State private var tutorialOpen = false
+    @State private var tutorialOpen = LaunchOptions.showTutorial
 
     var body: some View {
         ScreenScaffold(palette: palette) {

@@ -188,6 +188,9 @@ jobs:
           # 关于页：独立页面（图标/简介/检查更新/项目地址/开源许可证），与安卓/鸿蒙对齐
           shoot about 8 -uiScreen about -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark
 
+          # 连接教程：浮层自动弹出，核对 5 步图文与 Tailscale 提示的排版。
+          shoot connect-tutorial 10 -uiScreen connect -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiTutorial
+
           # 打开真实工作流：要等目录、文档、节点定义依次就绪，给的时间长一点
           shoot workflow-detail 16 -uiScreen workflow -uiBaseUrl http://127.0.0.1:8188 -uiTheme dark -uiOpenWorkflow demo_ui.json
 

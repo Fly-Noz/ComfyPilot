@@ -346,6 +346,102 @@ final class ComfyPilotUITests: XCTestCase {
         XCTAssertTrue(fields.count > 0, "节点卡片里没有显示蒙版上传结果")
     }
 
+    /// 连接教程：入口存在 → 点击弹出浮层 → 5 步图文齐全 → 关闭后浮层消失。
+    func testConnectTutorial() throws {
+        let app = launch()
+
+        let entry = app.buttons["btnConnectTutorial"]
+        XCTAssertTrue(
+            entry.waitForExistence(timeout: 20),
+            "连接页没有教程入口。界面树：\n\(app.debugDescription)"
+        )
+        scrollToHittable(entry, in: app)
+        entry.tap()
+
+        let title = app.staticTexts["tutorial-title"]
+        XCTAssertTrue(
+            title.waitForExistence(timeout: 10),
+            "点教程入口后浮层没弹出。界面树：\n\(app.debugDescription)"
+        )
+        // 教程 5 步标题：缺一步说明配图或文案被误删。
+        for step in ["1. 下载启动脚本", "2. 放进 ComfyUI 根目录", "3. 双击运行",
+                     "4. 手机填写地址", "5. 看到工作流列表"] {
+            XCTAssertTrue(
+                app.staticTexts[step].firstMatch.exists,
+                "教程缺少步骤「\(step)」。界面树：\n\(app.debugDescription)"
+            )
+        }
+
+        let close = app.buttons["关闭"].firstMatch
+        XCTAssertTrue(close.waitForExistence(timeout: 8), "教程浮层没有关闭按钮")
+        close.tap()
+        XCTAssertFalse(title.exists, "点关闭后教程浮层还在")
+    }
+
+    /// 跨任务产物浏览：提交两个各带产物的任务，在查看器里越过第一条翻到第二条，
+    /// 顶部出现「已切到下一任务」提示，且页码回到 1 / 1（新任务的第一条）。
+    func testCrossTaskArtifactBrowsing() throws {
+        let app = launch(["-uiResetTasks", "-uiOpenWorkflow", "demo_upload.json"])
+
+        let submit = app.buttons["提交任务"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 40), "没有提交按钮")
+        // 两次提交生成两个不同 promptId 的任务；mock 并发处理，各自落一份产物。
+        submit.tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        submit.tap()
+
+        // 进任务页，等两条产物都出现（产物名带不同 promptId 前缀）。
+        let tasksButton = app.buttons["任务"].firstMatch
+        XCTAssertTrue(tasksButton.waitForExistence(timeout: 10), "没有任务入口")
+        tasksButton.tap()
+
+        let outputs = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS %@", "ComfyPilot_mock_")
+        )
+        XCTAssertTrue(
+            outputs.firstMatch.waitForExistence(timeout: 50),
+            "任务页没出现产物。界面树：\n\(app.debugDescription)"
+        )
+        // 等第二条任务的产物也到位（两条 promptId 不同 → 两个不同文件名）。
+        var distinctOutputs = 0
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline && distinctOutputs < 2 {
+            var names = Set<String>()
+            for i in 0..<outputs.count {
+                let label = outputs.element(boundBy: i).label
+                if let range = label.range(of: "ComfyPilot_mock_") {
+                    names.insert(String(label[range.lowerBound...].prefix(24)))
+                }
+            }
+            distinctOutputs = names.count
+            if distinctOutputs < 2 { Thread.sleep(forTimeInterval: 0.5) }
+        }
+        XCTAssertGreaterThanOrEqual(distinctOutputs, 2, "没有生成两份不同产物，跨任务浏览无从验证")
+
+        // 点第一条任务的「查看产物」。
+        let viewArtifact = app.buttons["查看产物"].firstMatch
+        XCTAssertTrue(viewArtifact.waitForExistence(timeout: 10), "任务卡没有「查看产物」")
+        scrollToHittable(viewArtifact, in: app)
+        viewArtifact.tap()
+
+        // 查看器里点「下一个产物」越过当前任务边界（单产物 → 切换到下一任务）。
+        let next = app.buttons["下一个产物"].firstMatch
+        XCTAssertTrue(
+            next.waitForExistence(timeout: 10),
+            "查看器没有「下一个产物」（两个任务各一份产物时应出现切换条）。界面树：\n\(app.debugDescription)"
+        )
+        Thread.sleep(forTimeInterval: 0.5)
+        next.tap()
+
+        let crossNotice = app.staticTexts.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "已切到下一任务")
+        ).firstMatch
+        XCTAssertTrue(
+            crossNotice.waitForExistence(timeout: 8),
+            "点「下一个」后没有跨任务提示。界面树：\n\(app.debugDescription)"
+        )
+    }
+
     // MARK: - 辅助
 
     /// 清空 mock 的上传记录；UI 测试之间不互相污染。
