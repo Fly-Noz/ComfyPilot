@@ -424,21 +424,29 @@ final class ComfyPilotUITests: XCTestCase {
         scrollToHittable(viewArtifact, in: app)
         viewArtifact.tap()
 
-        // 查看器里点「下一个产物」越过当前任务边界（单产物 → 切换到下一任务）。
+        // 任务列表按旧→新排列（tasks = tasks + new），firstMatch 点的是旧任务；
+        // 查看器的 groups 按 updatedAtMs 降序（新→旧），所以旧任务在末位——
+        // 此时「下一个」禁用、「上一个」可跨到新任务。两个方向都要有切换条。
+        let prev = app.buttons["上一个产物"].firstMatch
         let next = app.buttons["下一个产物"].firstMatch
         XCTAssertTrue(
-            next.waitForExistence(timeout: 10),
-            "查看器没有「下一个产物」（两个任务各一份产物时应出现切换条）。界面树：\n\(app.debugDescription)"
+            prev.waitForExistence(timeout: 10) && next.exists,
+            "查看器没有切换条（两个任务各一份产物时应出现）。界面树：\n\(app.debugDescription)"
         )
-        Thread.sleep(forTimeInterval: 0.5)
-        next.tap()
+        Thread.sleep(forTimeInterval: 0.5) // fullScreenCover 弹出动画期间坐标还在动
 
+        // 哪个方向可点就跨哪个：不写死顺序，避免任务排序调整后误报。
+        let forward = next.isEnabled
+        let crossButton = forward ? next : prev
+        crossButton.tap()
+
+        let noticePrefix = forward ? "已切到下一任务" : "已切到上一任务"
         let crossNotice = app.staticTexts.matching(
-            NSPredicate(format: "label BEGINSWITH %@", "已切到下一任务")
+            NSPredicate(format: "label BEGINSWITH %@", noticePrefix)
         ).firstMatch
         XCTAssertTrue(
             crossNotice.waitForExistence(timeout: 8),
-            "点「下一个」后没有跨任务提示。界面树：\n\(app.debugDescription)"
+            "点切换后没有跨任务提示（\(noticePrefix)）。界面树：\n\(app.debugDescription)"
         )
     }
 
